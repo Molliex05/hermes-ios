@@ -1,6 +1,6 @@
-name: Iris
+name: HermesIOS
 options:
-  bundleIdPrefix: org.irisapp
+  bundleIdPrefix: org.hermesios
   deploymentTarget:
     iOS: "17.0"
 settings:
@@ -14,42 +14,42 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: NO
 targets:
-  Iris:
+  HermesIOS:
     type: application
     platform: iOS
-    sources: [Iris]
+    sources: [HermesIOS]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: org.irisapp.Iris
-        INFOPLIST_FILE: Iris/Resources/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: org.hermesios.HermesIOS
+        INFOPLIST_FILE: HermesIOS/Resources/Info.plist
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1,2"
     scheme:
-      testTargets: [IrisUITests]
-  IrisUITests:
+      testTargets: [HermesIOSUITests]
+  HermesIOSUITests:
     type: bundle.ui-testing
     platform: iOS
-    sources: [IrisUITests]
+    sources: [HermesIOSUITests]
     dependencies:
-      - target: Iris
+      - target: HermesIOS
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        TEST_TARGET_NAME: Iris
+        TEST_TARGET_NAME: HermesIOS
 schemes:
-  IrisIntegration:
+  HermesIOSIntegration:
     build:
       targets:
-        Iris: all
-        IrisUITests: [test]
+        HermesIOS: all
+        HermesIOSUITests: [test]
     test:
-      targets: [IrisUITests]
+      targets: [HermesIOSUITests]
       environmentVariables:
-        IRIS_INTEGRATION: "1"
-  Iris:
+        HERMES_IOS_INTEGRATION: "1"
+  HermesIOS:
     build:
       targets:
-        Iris: all
-        IrisUITests: [test]
+        HermesIOS: all
+        HermesIOSUITests: [test]
     test:
-      targets: [IrisUITests]
+      targets: [HermesIOSUITests]

@@ -8,7 +8,7 @@ struct RoutinesView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("Les routines de \(model.agent?.title ?? "Hermes") continuent sur votre serveur, même quand Iris est fermé.").font(.subheadline).foregroundStyle(.secondary)
+                    Text("Les routines de \(model.agent?.title ?? "Hermes") continuent sur votre serveur, même quand Hermès iOS est fermé.").font(.subheadline).foregroundStyle(.secondary)
                 }
                 if model.routines.isEmpty {
                     ContentUnavailableView("Un rythme à inventer", systemImage: "sun.max", description: Text("Un briefing du matin, une veille, un bilan. Confiez une habitude à votre agent."))
@@ -26,7 +26,7 @@ struct RoutinesView: View {
                         Label(routine.paused ? "En pause" : routine.schedule, systemImage: "clock").font(.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 10)
                 }
-            }.scrollContentBackground(.hidden).background(IrisTheme.background)
+            }.scrollContentBackground(.hidden).background(AppTheme.background)
                 .navigationTitle("Les routines").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } }
@@ -60,8 +60,8 @@ struct RoutineEditor: View {
                         Text("Toutes les heures").tag("0 * * * *")
                     }
                 } footer: { Text("Heure du serveur Hermes. Le résultat arrive dans le Bot Chat de cet agent.") }
-                if let error { Text(error).foregroundStyle(IrisTheme.accent) }
-            }.scrollContentBackground(.hidden).background(IrisTheme.background)
+                if let error { Text(error).foregroundStyle(AppTheme.accent) }
+            }.scrollContentBackground(.hidden).background(AppTheme.background)
                 .navigationTitle("Nouvelle routine").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }

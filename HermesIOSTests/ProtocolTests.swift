@@ -1,5 +1,5 @@
 import XCTest
-@testable import IrisCore
+@testable import HermesIOSCore
 
 final class ProtocolTests: XCTestCase {
     func testCookiePersistenceKeepsPrivateHTTPUsableAfterRelaunch() throws {

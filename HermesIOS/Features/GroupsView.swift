@@ -106,7 +106,7 @@ struct GroupsView: View {
                     ForEach(model.data.rooms, id: \.["room_id"].string) { room in
                         NavigationLink { GroupChatView(model: model, room: room) } label: {
                             HStack(spacing: 14) {
-                                Image(systemName: "person.2.bubble").foregroundStyle(IrisTheme.accent)
+                                Image(systemName: "person.2.bubble").foregroundStyle(AppTheme.accent)
                                 VStack(alignment: .leading, spacing: 5) {
                                     Text(room["name"].string)
                                     Text("\(room["members"].array.count) agents").font(.caption).foregroundStyle(.secondary)
@@ -117,9 +117,9 @@ struct GroupsView: View {
                     if model.data.rooms.isEmpty {
                         ContentUnavailableView("Croiser les idées", systemImage: "person.2", description: Text("Invitez de deux à six agents de ce serveur dans un groupe."))
                     }
-                    if let error = model.error { Text(error).font(.caption).foregroundStyle(IrisTheme.accent) }
+                    if let error = model.error { Text(error).font(.caption).foregroundStyle(AppTheme.accent) }
                 }
-            }.scrollContentBackground(.hidden).background(IrisTheme.background).navigationTitle("Ensemble")
+            }.scrollContentBackground(.hidden).background(AppTheme.background).navigationTitle("Ensemble")
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } }
                     ToolbarItem(placement: .primaryAction) { Button { creating = true } label: { Image(systemName: "plus") }.disabled(model?.supported != true) }
@@ -149,7 +149,7 @@ private struct GroupEditor: View {
                         }))
                     }
                 }
-                if let error { Text(error).foregroundStyle(IrisTheme.accent) }
+                if let error { Text(error).foregroundStyle(AppTheme.accent) }
             }.navigationTitle("Nouveau groupe").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }
@@ -186,9 +186,9 @@ private struct GroupChatView: View {
                         Text(event["payload"]["status"].string).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                if let error = model.error { Text(error).font(.caption).foregroundStyle(IrisTheme.accent) }
+                if let error = model.error { Text(error).font(.caption).foregroundStyle(AppTheme.accent) }
             }.padding(24)
-        }.defaultScrollAnchor(.bottom).scrollDismissesKeyboard(.interactively).background(IrisTheme.background)
+        }.defaultScrollAnchor(.bottom).scrollDismissesKeyboard(.interactively).background(AppTheme.background)
             .navigationTitle(room["name"].string).navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .primaryAction) { Button { Task { await model.stop(id) } } label: { Image(systemName: "stop.circle") }.accessibilityLabel("Arrêter les agents") } }
             .safeAreaInset(edge: .bottom) {
@@ -197,7 +197,7 @@ private struct GroupChatView: View {
                     Button(model.data.pending[id] == nil ? "Envoyer" : "Réessayer") {
                         Task { await model.send(id, text: model.data.drafts[id] ?? "") }
                     }.disabled(model.busy || ((model.data.drafts[id] ?? "").isEmpty && model.data.pending[id] == nil))
-                }.padding(18).background(IrisTheme.surface)
+                }.padding(18).background(AppTheme.surface)
             }
             .task(id: phase) {
                 guard phase == .active else { await model.save(); return }

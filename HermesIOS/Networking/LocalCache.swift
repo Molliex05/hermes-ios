@@ -4,7 +4,7 @@ import Foundation
 actor LocalCache {
     private let folder: URL
     init() {
-        folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Iris", isDirectory: true)
+        folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("HermesIOS", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         var resource = folder
         var values = URLResourceValues(); values.isExcludedFromBackup = true

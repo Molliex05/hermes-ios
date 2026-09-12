@@ -11,9 +11,9 @@ struct SettingsView: View {
             List {
                 Section {
                     HStack(spacing: 17) {
-                        IrisMark(size: 48)
+                        AgentMark(size: 48)
                         VStack(alignment: .leading, spacing: 5) {
-                            Text("iris").font(.system(size: 28, weight: .semibold, design: .rounded))
+                            Text("Hermès iOS").font(.system(size: 28, weight: .semibold, design: .rounded))
                             Text("Moins de bruit. Plus de conversation.").font(.caption).foregroundStyle(.secondary)
                         }
                     }.padding(.vertical, 14)
@@ -23,7 +23,7 @@ struct SettingsView: View {
                         VStack(alignment: .leading, spacing: 9) {
                             Button { Task { await model.activate(connection) } } label: {
                                 HStack {
-                                    Image(systemName: "server.rack").foregroundStyle(IrisTheme.accent)
+                                    Image(systemName: "server.rack").foregroundStyle(AppTheme.accent)
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(connection.name).foregroundStyle(.primary)
                                         Text(connection.endpoint.baseURL.host ?? "").font(.caption).foregroundStyle(.secondary)
@@ -44,20 +44,20 @@ struct SettingsView: View {
                 Section("Simple, par nature") {
                     Label("Interface native SwiftUI", systemImage: "iphone")
                     Label("Connexion directe à votre serveur", systemImage: "point.3.connected.trianglepath.dotted")
-                    Label("Aucun compte Iris, aucune télémétrie", systemImage: "hand.raised")
+                    Label("Aucun compte Hermès iOS, aucune télémétrie", systemImage: "hand.raised")
                 }.font(.subheadline)
                 Section {
                     Button { guide = true } label: { Label("Guide Tailscale & Hermes", systemImage: "book") }
-                    Link(destination: URL(string: "https://github.com/Molliex05/iris")!) { Label("Code source", systemImage: "chevron.left.forwardslash.chevron.right") }
+                    Link(destination: URL(string: "https://github.com/Molliex05/hermes-ios")!) { Label("Code source", systemImage: "chevron.left.forwardslash.chevron.right") }
                     Link(destination: URL(string: "https://hermes-agent.nousresearch.com/docs/")!) { Label("Documentation Hermes", systemImage: "arrow.up.right.square") }
                     HStack { Text("Version"); Spacer(); Text("0.1.0").foregroundStyle(.secondary) }
                 } footer: {
-                    Text("Iris est un client communautaire indépendant pour Hermes Agent de Nous Research. Les conversations sont mises en cache sur cet appareil. Retirer une connexion efface son cache local, sans toucher au serveur.")
+                    Text("Hermès iOS est un client communautaire indépendant pour Hermes Agent de Nous Research. Les conversations sont mises en cache sur cet appareil. Retirer une connexion efface son cache local, sans toucher au serveur.")
                 }
                 if model.demo {
                     Section { Button("Quitter l’aperçu") { model.demo = false; model.selected = nil; model.profiles = []; model.transcript = Transcript() } }
                 }
-            }.scrollContentBackground(.hidden).background(IrisTheme.background).navigationTitle("À votre façon")
+            }.scrollContentBackground(.hidden).background(AppTheme.background).navigationTitle("À votre façon")
                 .sheet(isPresented: $adding) { OnboardingView(model: model, adding: true) }
                 .sheet(item: $reconnecting) { OnboardingView(model: model, adding: true, existing: $0) }
                 .sheet(isPresented: $guide) { ConnectionGuide() }

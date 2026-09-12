@@ -15,10 +15,10 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "DA6B0FE32874865F8A6DAF74"
-               BuildableName = "Iris.app"
-               BlueprintName = "Iris"
-               ReferencedContainer = "container:Iris.xcodeproj">
+               BlueprintIdentifier = "CDBCE2E3BABBD3FF1069603C"
+               BuildableName = "HermesIOS.app"
+               BlueprintName = "HermesIOS"
+               ReferencedContainer = "container:HermesIOS.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -32,10 +32,10 @@
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "DA6B0FE32874865F8A6DAF74"
-            BuildableName = "Iris.app"
-            BlueprintName = "Iris"
-            ReferencedContainer = "container:Iris.xcodeproj">
+            BlueprintIdentifier = "CDBCE2E3BABBD3FF1069603C"
+            BuildableName = "HermesIOS.app"
+            BlueprintName = "HermesIOS"
+            ReferencedContainer = "container:HermesIOS.xcodeproj">
          </BuildableReference>
       </MacroExpansion>
       <Testables>
@@ -44,10 +44,10 @@
             parallelizable = "NO">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "F63AF79DEC25987DAB61D34C"
-               BuildableName = "IrisUITests.xctest"
-               BlueprintName = "IrisUITests"
-               ReferencedContainer = "container:Iris.xcodeproj">
+               BlueprintIdentifier = "A408AB7B73A825E284FBCEBF"
+               BuildableName = "HermesIOSUITests.xctest"
+               BlueprintName = "HermesIOSUITests"
+               ReferencedContainer = "container:HermesIOS.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -68,10 +68,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "DA6B0FE32874865F8A6DAF74"
-            BuildableName = "Iris.app"
-            BlueprintName = "Iris"
-            ReferencedContainer = "container:Iris.xcodeproj">
+            BlueprintIdentifier = "CDBCE2E3BABBD3FF1069603C"
+            BuildableName = "HermesIOS.app"
+            BlueprintName = "HermesIOS"
+            ReferencedContainer = "container:HermesIOS.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
       <CommandLineArguments>
@@ -87,10 +87,10 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "DA6B0FE32874865F8A6DAF74"
-            BuildableName = "Iris.app"
-            BlueprintName = "Iris"
-            ReferencedContainer = "container:Iris.xcodeproj">
+            BlueprintIdentifier = "CDBCE2E3BABBD3FF1069603C"
+            BuildableName = "HermesIOS.app"
+            BlueprintName = "HermesIOS"
+            ReferencedContainer = "container:HermesIOS.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
       <CommandLineArguments>

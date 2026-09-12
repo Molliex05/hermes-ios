@@ -28,7 +28,7 @@ class Model(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(json.dumps({"object": "list", "data": [{"id": "iris-fixture", "object": "model"}]}).encode())
+        self.wfile.write(json.dumps({"object": "list", "data": [{"id": "hermes-ios-fixture", "object": "model"}]}).encode())
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
@@ -37,7 +37,7 @@ class Model(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
             for word in REPLY.split(" "):
-                chunk = {"id": "test", "object": "chat.completion.chunk", "created": int(time.time()), "model": "iris-fixture", "choices": [{"index": 0, "delta": {"content": word + " "}, "finish_reason": None}]}
+                chunk = {"id": "test", "object": "chat.completion.chunk", "created": int(time.time()), "model": "hermes-ios-fixture", "choices": [{"index": 0, "delta": {"content": word + " "}, "finish_reason": None}]}
                 self.wfile.write(("data: " + json.dumps(chunk) + "\n\n").encode())
                 self.wfile.flush()
                 time.sleep(0.16)
@@ -45,7 +45,7 @@ class Model(BaseHTTPRequestHandler):
         else:
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"id": "test", "object": "chat.completion", "created": int(time.time()), "model": "iris-fixture", "choices": [{"index": 0, "message": {"role": "assistant", "content": REPLY}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 35, "total_tokens": 45}}).encode())
+            self.wfile.write(json.dumps({"id": "test", "object": "chat.completion", "created": int(time.time()), "model": "hermes-ios-fixture", "choices": [{"index": 0, "message": {"role": "assistant", "content": REPLY}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 35, "total_tokens": 45}}).encode())
 
 
 def main():
@@ -59,14 +59,14 @@ def main():
         raise SystemExit("Use a new, empty --home directory; never point at your own Hermes home.")
     home.mkdir(parents=True, exist_ok=True)
     import yaml
-    config = {"model": {"provider": "custom", "default": "iris-fixture", "base_url": f"http://127.0.0.1:{args.model_port}/v1"}, "terminal": {"backend": "local", "cwd": str(home)}, "dashboard": {"public_url": "http://iris.test"}, "compression": {"enabled": False}}
+    config = {"model": {"provider": "custom", "default": "hermes-ios-fixture", "base_url": f"http://127.0.0.1:{args.model_port}/v1"}, "terminal": {"backend": "local", "cwd": str(home)}, "dashboard": {"public_url": "http://hermes-ios.test"}, "compression": {"enabled": False}}
     (home / "config.yaml").write_text(yaml.safe_dump(config))
     for name in ["research", "studio"]:
         profile = home / "profiles" / name
         profile.mkdir(parents=True)
         (profile / "config.yaml").write_text(yaml.safe_dump(config))
-        (profile / "profile.yaml").write_text(yaml.safe_dump({"name": name, "description": "Profil de test Iris"}))
-    env = {"PATH": str(Path(sys.executable).parent) + os.pathsep + os.defpath, "LANG": "en_US.UTF-8", "HERMES_HOME": str(home), "HERMES_DASHBOARD_BASIC_AUTH_USERNAME": "iris-test", "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD": "iris-local-fixture", "HERMES_DASHBOARD_BASIC_AUTH_SECRET": secrets.token_urlsafe(32), "OPENAI_API_KEY": "iris-local-fixture", "OPENAI_BASE_URL": f"http://127.0.0.1:{args.model_port}/v1"}
+        (profile / "profile.yaml").write_text(yaml.safe_dump({"name": name, "description": "Profil de test HermesIOS"}))
+    env = {"PATH": str(Path(sys.executable).parent) + os.pathsep + os.defpath, "LANG": "en_US.UTF-8", "HERMES_HOME": str(home), "HERMES_DASHBOARD_BASIC_AUTH_USERNAME": "hermes-ios-test", "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD": "hermes-ios-local-fixture", "HERMES_DASHBOARD_BASIC_AUTH_SECRET": secrets.token_urlsafe(32), "OPENAI_API_KEY": "hermes-ios-local-fixture", "OPENAI_BASE_URL": f"http://127.0.0.1:{args.model_port}/v1"}
     model = ThreadingHTTPServer(("127.0.0.1", args.model_port), Model)
     threading.Thread(target=model.serve_forever, daemon=True).start()
     process = subprocess.Popen([str(Path(sys.executable).with_name("hermes")), "serve", "--host", "127.0.0.1", "--port", str(args.port)], env=env, cwd=home)
@@ -74,7 +74,7 @@ def main():
         process.terminate()
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    print(f"Isolated Hermes: http://127.0.0.1:{args.port}; fixture login: iris-test / iris-local-fixture", flush=True)
+    print(f"Isolated Hermes: http://127.0.0.1:{args.port}; fixture login: hermes-ios-test / hermes-ios-local-fixture", flush=True)
     try:
         process.wait()
     finally:

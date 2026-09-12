@@ -22,7 +22,7 @@ struct OnboardingView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 28) {
                         HStack {
-                            HStack(spacing: 10) { IrisMark(size: 28); Text("iris").font(.system(size: 26, weight: .semibold, design: .rounded)) }
+                            HStack(spacing: 10) { AgentMark(size: 28); Text("Hermès iOS").font(.system(size: 26, weight: .semibold, design: .rounded)) }
                             Spacer()
                             Text(step == 0 ? "BONJOUR" : "CONNEXION").font(.caption2.weight(.semibold)).tracking(2).foregroundStyle(.secondary)
                         }.padding(.top, 14)
@@ -62,16 +62,16 @@ struct OnboardingView: View {
                                     VStack(alignment: .leading, spacing: 8) {
                                         Text("Mot de passe").font(.caption.weight(.medium)).foregroundStyle(.secondary)
                                         SecureField("Mot de passe Hermes", text: $password).textContentType(.password)
-                                            .padding(15).background(IrisTheme.background, in: RoundedRectangle(cornerRadius: 14))
+                                            .padding(15).background(AppTheme.background, in: RoundedRectangle(cornerRadius: 14))
                                     }
                                 } else {
                                     SecureField("Jeton de session du serveur", text: $token)
-                                        .padding(15).background(IrisTheme.background, in: RoundedRectangle(cornerRadius: 14))
+                                        .padding(15).background(AppTheme.background, in: RoundedRectangle(cornerRadius: 14))
                                     Text("Le jeton de session Hermes, pas une clé de fournisseur de modèle.").font(.caption).foregroundStyle(.secondary)
                                 }
-                            }.irisCard()
+                            }.hermesCard()
                             if let error {
-                                Label(error, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(IrisTheme.accent).fixedSize(horizontal: false, vertical: true)
+                                Label(error, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(AppTheme.accent).fixedSize(horizontal: false, vertical: true)
                             }
                             PrimaryButton(title: "Connecter mon agent", symbol: "link", busy: busy) { connect() }
                                 .disabled(address.isEmpty || (mode == "basic" ? password.isEmpty || username.isEmpty : token.isEmpty))
@@ -85,7 +85,7 @@ struct OnboardingView: View {
                             Spacer(minLength: 12)
                         }
                     }.padding(.horizontal, 28).frame(maxWidth: 540).frame(minHeight: geo.size.height).frame(maxWidth: .infinity)
-                }.scrollDismissesKeyboard(.interactively).background(IrisTheme.background)
+                }.scrollDismissesKeyboard(.interactively).background(AppTheme.background)
             }
             .toolbar {
                 if adding { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } }
@@ -101,14 +101,14 @@ struct OnboardingView: View {
 
     private var hero: some View {
         ZStack {
-            Circle().fill(IrisTheme.accent.opacity(0.045)).frame(width: 246, height: 246)
-            Circle().strokeBorder(IrisTheme.accent.opacity(0.13), lineWidth: 1).frame(width: 205, height: 205)
-            Circle().strokeBorder(IrisTheme.accent.opacity(0.07), lineWidth: 1).frame(width: 274, height: 274)
-            IrisMark(size: 116)
+            Circle().fill(AppTheme.accent.opacity(0.045)).frame(width: 246, height: 246)
+            Circle().strokeBorder(AppTheme.accent.opacity(0.13), lineWidth: 1).frame(width: 205, height: 205)
+            Circle().strokeBorder(AppTheme.accent.opacity(0.07), lineWidth: 1).frame(width: 274, height: 274)
+            AgentMark(size: 116)
             Text("vous").font(.caption.weight(.medium)).padding(.horizontal, 17).padding(.vertical, 9)
-                .background(IrisTheme.surface, in: Capsule()).rotationEffect(.degrees(-8)).offset(x: -95, y: 62)
+                .background(AppTheme.surface, in: Capsule()).rotationEffect(.degrees(-8)).offset(x: -95, y: 62)
             HStack(spacing: 5) { Circle().fill(.green).frame(width: 5, height: 5); Text("Hermes") }.font(.caption.weight(.medium))
-                .padding(.horizontal, 15).padding(.vertical, 10).background(IrisTheme.surface, in: Capsule())
+                .padding(.horizontal, 15).padding(.vertical, 10).background(AppTheme.surface, in: Capsule())
                 .rotationEffect(.degrees(7)).offset(x: 93, y: -61)
         }.frame(maxWidth: .infinity).frame(height: 260).accessibilityHidden(true)
     }
@@ -118,7 +118,7 @@ struct OnboardingView: View {
             Text(label).font(.caption.weight(.medium)).foregroundStyle(.secondary)
             TextField(placeholder, text: text).textInputAutocapitalization(.never).autocorrectionDisabled()
                 .keyboardType(url ? .URL : .default).accessibilityLabel(label)
-                .padding(15).background(IrisTheme.background, in: RoundedRectangle(cornerRadius: 14))
+                .padding(15).background(AppTheme.background, in: RoundedRectangle(cornerRadius: 14))
         }
     }
 
@@ -146,23 +146,23 @@ struct ConnectionGuide: View {
                     instruction("1", "Le même réseau privé", "Connectez votre serveur et votre iPhone au même compte Tailscale. Gardez Tailscale activé sur l’iPhone.")
                     instruction("2", "L’accès natif de Hermes", "Sur votre serveur, configurez les identifiants du tableau de bord Hermes dans son fichier .env, avec un secret de signature stable.")
                     Text("HERMES_DASHBOARD_BASIC_AUTH_USERNAME\nHERMES_DASHBOARD_BASIC_AUTH_PASSWORD\nHERMES_DASHBOARD_BASIC_AUTH_SECRET")
-                        .font(.system(.caption2, design: .monospaced)).textSelection(.enabled).irisCard()
-                    instruction("3", "Démarrer le serveur", "Lancez le serveur officiel avec son adresse privée Tailscale. Iris utilise son API directement.")
+                        .font(.system(.caption2, design: .monospaced)).textSelection(.enabled).hermesCard()
+                    instruction("3", "Démarrer le serveur", "Lancez le serveur officiel avec son adresse privée Tailscale. Hermès iOS utilise son API directement.")
                     Text("hermes serve --host <IP-Tailscale> --port 9119")
-                        .font(.system(.caption, design: .monospaced)).textSelection(.enabled).irisCard()
-                    Text("Dans Iris, entrez http://<IP-Tailscale>:9119. Si vous utilisez Tailscale Serve avec HTTPS, entrez plutôt son adresse https://…ts.net.")
+                        .font(.system(.caption, design: .monospaced)).textSelection(.enabled).hermesCard()
+                    Text("Dans Hermès iOS, entrez http://<IP-Tailscale>:9119. Si vous utilisez Tailscale Serve avec HTTPS, entrez plutôt son adresse https://…ts.net.")
                         .font(.subheadline).foregroundStyle(.secondary)
                     Link("Ouvrir la documentation officielle", destination: URL(string: "https://hermes-agent.nousresearch.com/docs/user-guide/desktop#connecting-to-a-remote-backend")!)
-                    Text("L’authentification par mot de passe est prévue pour votre réseau privé. Iris ne configure pas votre serveur à votre place.")
+                    Text("L’authentification par mot de passe est prévue pour votre réseau privé. Hermès iOS ne configure pas votre serveur à votre place.")
                         .font(.caption).foregroundStyle(.secondary)
                 }.padding(24)
-            }.background(IrisTheme.background).navigationTitle("Connexion").navigationBarTitleDisplayMode(.inline)
+            }.background(AppTheme.background).navigationTitle("Connexion").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Terminé") { dismiss() } } }
         }
     }
     private func instruction(_ n: String, _ title: String, _ detail: String) -> some View {
         HStack(alignment: .top, spacing: 14) {
-            Text(n).font(.subheadline.weight(.semibold)).frame(width: 30, height: 30).background(IrisTheme.accent.opacity(0.1), in: Circle()).foregroundStyle(IrisTheme.accent)
+            Text(n).font(.subheadline.weight(.semibold)).frame(width: 30, height: 30).background(AppTheme.accent.opacity(0.1), in: Circle()).foregroundStyle(AppTheme.accent)
             VStack(alignment: .leading, spacing: 6) { Text(title).font(.headline); Text(detail).font(.subheadline).foregroundStyle(.secondary).lineSpacing(3) }
         }
     }

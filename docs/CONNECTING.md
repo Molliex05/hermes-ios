@@ -1,6 +1,6 @@
-# Connect Iris to Hermes over Tailscale
+# Connect Hermès iOS to Hermes over Tailscale
 
-Iris needs the official **`hermes serve`** process. The messaging gateway used by Telegram, Discord and other channels is a separate process. Hermes should already be configured and able to answer a CLI chat.
+Hermès iOS needs the official **`hermes serve`** process. The messaging gateway used by Telegram, Discord and other channels is a separate process. Hermes should already be configured and able to answer a CLI chat.
 
 ## 1. Join the private network
 
@@ -29,9 +29,9 @@ tailscale ip -4
 hermes serve --host <the-Tailscale-IP-above> --port 9119
 ```
 
-Keep that process running using your normal service/process manager. Iris does not install another server, copy your Hermes data or start an SSH tunnel.
+Keep that process running using your normal service/process manager. Hermès iOS does not install another server, copy your Hermes data or start an SSH tunnel.
 
-In Iris, enter `http://<the-Tailscale-IP>:9119` and the native Hermes username/password. A short MagicDNS name also works if the iPhone resolves it. Iris tests both HTTP and the authenticated WebSocket before saving the connection.
+In Hermès iOS, enter `http://<the-Tailscale-IP>:9119` and the native Hermes username/password. A short MagicDNS name also works if the iPhone resolves it. Hermès iOS tests both HTTP and the authenticated WebSocket before saving the connection.
 
 ## Optional: HTTPS with Tailscale Serve
 
@@ -50,7 +50,7 @@ hermes serve --host 127.0.0.1 --port 9119
 tailscale serve --bg http://127.0.0.1:9119
 ```
 
-Enter the resulting HTTPS URL in Iris. Tailscale Serve remains private to your tailnet; Funnel is not needed. [Official Tailscale Serve reference](https://tailscale.com/docs/reference/tailscale-cli/serve).
+Enter the resulting HTTPS URL in Hermès iOS. Tailscale Serve remains private to your tailnet; Funnel is not needed. [Official Tailscale Serve reference](https://tailscale.com/docs/reference/tailscale-cli/serve).
 
 ## If it doesn't connect
 
@@ -58,10 +58,10 @@ Enter the resulting HTTPS URL in Iris. Tailscale Serve remains private to your t
 | --- | --- |
 | Timeout | Tailscale is connected on both devices, the backend process is running, the bind IP/port and tailnet grants are correct. |
 | HTTP works but chat fails | The proxy must forward WebSocket upgrades and the `/api/ws` path. A ticket is single-use and minted just before connecting. |
-| Sign-in fails | Check native dashboard credentials and that `/api/status` advertises `basic`. A model provider API key is not an Iris login. |
+| Sign-in fails | Check native dashboard credentials and that `/api/status` advertises `basic`. A model provider API key is not an Hermès iOS login. |
 | Login expires on every server restart | Set a stable `HERMES_DASHBOARD_BASIC_AUTH_SECRET`. |
 | Keychain error in Simulator | Leave code signing enabled for the simulator test/run. No paid team is needed for simulator signing. |
-| Profile or bot unavailable | Update Hermes and use its current `hermes serve` backend. Iris doesn't replace a missing canonical chat after a failed lookup. |
+| Profile or bot unavailable | Update Hermes and use its current `hermes serve` backend. Hermès iOS doesn't replace a missing canonical chat after a failed lookup. |
 | OAuth-only server | This initial release doesn't implement the browser-based Nous/OIDC sign-in. Use the native private-network password provider, or an existing supported legacy session token on a backend configured for that mode. |
 
-Removing a connection in Iris erases its cached chats and credentials on that iPhone. It does not delete any server-side conversation or profile.
+Removing a connection in Hermès iOS erases its cached chats and credentials on that iPhone. It does not delete any server-side conversation or profile.

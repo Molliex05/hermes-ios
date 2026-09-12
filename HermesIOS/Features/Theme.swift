@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum IrisTheme {
+enum AppTheme {
     static let accent = Color(red: 0.81, green: 0.29, blue: 0.19)
     static let background = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.075, green: 0.08, blue: 0.08, alpha: 1) : UIColor(red: 0.973, green: 0.965, blue: 0.947, alpha: 1) })
     static let surface = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.13, alpha: 1) : .white })
@@ -10,9 +10,9 @@ enum IrisTheme {
     static func color(_ name: String) -> Color { colors[name.utf8.reduce(0) { ($0 + Int($1)) % colors.count }] }
 }
 
-struct IrisMark: View {
+struct AgentMark: View {
     var size: CGFloat = 52
-    var color: Color = IrisTheme.accent
+    var color: Color = AppTheme.accent
     var body: some View {
         ZStack {
             ForEach(0..<6) { index in
@@ -21,7 +21,7 @@ struct IrisMark: View {
                     .offset(y: -size * 0.21)
                     .rotationEffect(.degrees(Double(index) * 60))
             }
-            Circle().fill(IrisTheme.background).frame(width: size * 0.14)
+            Circle().fill(AppTheme.background).frame(width: size * 0.14)
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
@@ -33,11 +33,11 @@ struct AgentAvatar: View {
     var size: CGFloat = 48
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.34).fill(IrisTheme.color(name).opacity(0.12))
-            if name == "default" { IrisMark(size: size * 0.54) }
+            RoundedRectangle(cornerRadius: size * 0.34).fill(AppTheme.color(name).opacity(0.12))
+            if name == "default" { AgentMark(size: size * 0.54) }
             else {
                 Image(systemName: name == "research" ? "sparkle.magnifyingglass" : name == "studio" ? "pencil.and.outline" : "sparkle")
-                    .font(.system(size: size * 0.42, weight: .medium)).foregroundStyle(IrisTheme.color(name))
+                    .font(.system(size: size * 0.42, weight: .medium)).foregroundStyle(AppTheme.color(name))
             }
         }.frame(width: size, height: size).accessibilityHidden(true)
     }
@@ -50,8 +50,8 @@ struct RoundButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 18, weight: .medium))
-                .frame(width: 44, height: 44).background(IrisTheme.surface, in: Circle())
-                .overlay(Circle().strokeBorder(IrisTheme.line))
+                .frame(width: 44, height: 44).background(AppTheme.surface, in: Circle())
+                .overlay(Circle().strokeBorder(AppTheme.line))
         }.foregroundStyle(.primary).accessibilityLabel(label)
     }
 }
@@ -69,7 +69,7 @@ struct PrimaryButton: View {
                 if busy { ProgressView().tint(.white) }
                 else { Image(systemName: symbol) }
                 Spacer()
-            }.padding(.vertical, 18).background(IrisTheme.accent, in: RoundedRectangle(cornerRadius: 22))
+            }.padding(.vertical, 18).background(AppTheme.accent, in: RoundedRectangle(cornerRadius: 22))
         }.foregroundStyle(.white).disabled(busy)
     }
 }
@@ -93,8 +93,8 @@ extension View {
             self.defaultScrollAnchor(.bottom)
         }
     }
-    func irisCard() -> some View {
-        padding(20).background(IrisTheme.surface, in: RoundedRectangle(cornerRadius: 24))
-            .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(IrisTheme.line))
+    func hermesCard() -> some View {
+        padding(20).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 24))
+            .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(AppTheme.line))
     }
 }

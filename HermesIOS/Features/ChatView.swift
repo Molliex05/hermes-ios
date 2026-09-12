@@ -16,7 +16,7 @@ struct ChatView: View {
                 if model.transcript.messages.isEmpty { emptyChat }
                 else { messages }
             }
-            .background(IrisTheme.background)
+            .background(AppTheme.background)
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showSessions) { SessionsView(model: model) }
@@ -45,14 +45,14 @@ struct ChatView: View {
             RoundButton(symbol: "clock.arrow.circlepath", label: "Historique") { showSessions = true }
             RoundButton(symbol: "square.and.pencil", label: "Nouvelle conversation") { model.newChat(); focused = true }
         }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 16)
-        .overlay(alignment: .bottom) { Rectangle().fill(IrisTheme.line).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(AppTheme.line).frame(height: 1) }
     }
 
     private var emptyChat: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 Spacer(minLength: 70)
-                IrisMark(size: 48)
+                AgentMark(size: 48)
                 Text("Un peu de place\npour vos idées.").font(.system(size: 37, weight: .regular, design: .serif)).tracking(-1.1)
                 Text("Une question, une envie, un projet.\nHermes reprend le fil avec vous.")
                     .foregroundStyle(.secondary).lineSpacing(4)
@@ -68,15 +68,15 @@ struct ChatView: View {
     private func suggestion(_ title: String, subtitle: String, symbol: String, prompt: String) -> some View {
         Button { model.draft = prompt; focused = true } label: {
             HStack(spacing: 14) {
-                Image(systemName: symbol).font(.system(size: 19)).foregroundStyle(IrisTheme.accent).frame(width: 26)
+                Image(systemName: symbol).font(.system(size: 19)).foregroundStyle(AppTheme.accent).frame(width: 26)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
                     Text(subtitle).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Image(systemName: "arrow.up.left").font(.caption).foregroundStyle(.tertiary)
-            }.padding(17).background(IrisTheme.surface, in: RoundedRectangle(cornerRadius: 19))
-                .overlay(RoundedRectangle(cornerRadius: 19).strokeBorder(IrisTheme.line))
+            }.padding(17).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 19))
+                .overlay(RoundedRectangle(cornerRadius: 19).strokeBorder(AppTheme.line))
         }.buttonStyle(.plain)
     }
 
@@ -94,12 +94,12 @@ struct ChatView: View {
                         }
                         if let activity = model.transcript.activity, model.transcript.running {
                             HStack(spacing: 9) {
-                                Image(systemName: "sparkle").foregroundStyle(IrisTheme.accent)
+                                Image(systemName: "sparkle").foregroundStyle(AppTheme.accent)
                                 Text(activity).lineLimit(2)
                             }.font(.caption).foregroundStyle(.secondary).padding(.leading, 2)
                         }
                         if let failure = model.transcript.failure, !failure.isEmpty {
-                            Label(failure, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(IrisTheme.accent)
+                            Label(failure, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(AppTheme.accent)
                         }
                         if let approval = model.transcript.approval { ApprovalCard(payload: approval, model: model) }
                         if let clarification = model.transcript.clarification { ClarificationCard(payload: clarification, model: model) }
@@ -139,7 +139,7 @@ struct ChatView: View {
                         ForEach(model.profiles) { agent in
                             Button { model.draft += agent.name + " " } label: {
                                 HStack(spacing: 7) { AgentAvatar(name: agent.name, size: 24); Text(agent.title).font(.caption) }
-                                    .padding(8).background(IrisTheme.surface, in: Capsule())
+                                    .padding(8).background(AppTheme.surface, in: Capsule())
                             }
                         }
                     }
@@ -165,12 +165,12 @@ struct ChatView: View {
                     Image(systemName: model.transcript.running ? "stop.fill" : "arrow.up")
                         .font(.system(size: model.transcript.running ? 13 : 19, weight: .semibold))
                         .foregroundStyle(.white).frame(width: 42, height: 42)
-                        .background(model.canSend || model.transcript.running ? IrisTheme.accent : Color.secondary.opacity(0.28), in: Circle())
+                        .background(model.canSend || model.transcript.running ? AppTheme.accent : Color.secondary.opacity(0.28), in: Circle())
                 }.disabled(!model.canSend && !model.transcript.running)
                     .accessibilityLabel(model.transcript.running ? "Arrêter la réponse" : "Envoyer")
                     .accessibilityIdentifier("send-message")
-            }.padding(9).background(IrisTheme.surface, in: RoundedRectangle(cornerRadius: 28))
-                .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(IrisTheme.line))
+            }.padding(9).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 28))
+                .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(AppTheme.line))
                 .shadow(color: .black.opacity(0.025), radius: 15, y: 4)
             HStack(spacing: 5) {
                 Image(systemName: "lock").font(.system(size: 9))
@@ -178,7 +178,7 @@ struct ChatView: View {
                     .font(.system(size: 10))
             }.foregroundStyle(.tertiary)
         }.padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 8).frame(maxWidth: 750).frame(maxWidth: .infinity)
-            .background(IrisTheme.background)
+            .background(AppTheme.background)
     }
 }
 
@@ -198,7 +198,7 @@ struct CredentialCard: View {
                 Button("Transmettre") { respond(value) }.buttonStyle(.borderedProminent).disabled(value.isEmpty)
             }.disabled(busy)
             Text("Cette valeur ne sera pas conservée dans l’historique local.").font(.caption2).foregroundStyle(.secondary)
-        }.irisCard()
+        }.hermesCard()
     }
     private func respond(_ text: String) {
         busy = true
@@ -220,16 +220,16 @@ struct MessageView: View {
             if user { Spacer(minLength: 42) }
             VStack(alignment: .leading, spacing: 10) {
                 if !user {
-                    HStack(spacing: 8) { IrisMark(size: 17); Text(agent).font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
+                    HStack(spacing: 8) { AgentMark(size: 17); Text(agent).font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
                 }
                 MarkdownText(text: message.text)
                     .textSelection(.enabled)
                     .padding(user ? 17 : 0)
-                    .background(user ? IrisTheme.surface : .clear, in: RoundedRectangle(cornerRadius: 21))
-                    .overlay(RoundedRectangle(cornerRadius: 21).strokeBorder(user ? IrisTheme.line : .clear))
+                    .background(user ? AppTheme.surface : .clear, in: RoundedRectangle(cornerRadius: 21))
+                    .overlay(RoundedRectangle(cornerRadius: 21).strokeBorder(user ? AppTheme.line : .clear))
                 if message.delivery != .confirmed {
                     Text(message.delivery == .sending ? "Envoi…" : message.delivery == .uncertain ? "Réception à vérifier dans l’historique" : "Non envoyé · copiez pour réessayer")
-                        .font(.caption2).foregroundStyle(message.delivery == .sending ? Color.secondary : IrisTheme.accent)
+                        .font(.caption2).foregroundStyle(message.delivery == .sending ? Color.secondary : AppTheme.accent)
                 }
             }
             if !user { Spacer(minLength: 5) }
@@ -260,7 +260,7 @@ struct MarkdownText: View {
                         ScrollView(.horizontal) { Text(lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .newlines)).font(.system(.caption, design: .monospaced)) }
                     }.padding(15).background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14))
                 } else if !section.isEmpty {
-                    Text(LocalizedStringKey(section)).font(.body).lineSpacing(6).tint(IrisTheme.accent)
+                    Text(LocalizedStringKey(section)).font(.body).lineSpacing(6).tint(AppTheme.accent)
                 }
             }
         }.fixedSize(horizontal: false, vertical: true)
@@ -283,7 +283,7 @@ struct ApprovalCard: View {
                     Button("Autoriser une fois") { answer("once") }.buttonStyle(.borderedProminent)
                 }
             }.font(.caption).disabled(busy)
-        }.irisCard()
+        }.hermesCard()
     }
     private func answer(_ choice: String) { busy = true; Task { await model.answerApproval(choice); busy = false } }
 }
@@ -304,7 +304,7 @@ struct ClarificationCard: View {
                     if !answered.contains(q["qid"].string) { question(q, qid: q["qid"].string) }
                 }
             }
-        }.irisCard()
+        }.hermesCard()
     }
     @ViewBuilder private func question(_ q: JSONValue, qid: String?) -> some View {
         Text(q["question"].string).font(.subheadline)

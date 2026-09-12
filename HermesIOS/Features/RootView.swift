@@ -15,8 +15,8 @@ struct RootView: View {
                 }
             }
         }
-        .background(IrisTheme.background)
-        .alert("Iris", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
+        .background(AppTheme.background)
+        .alert("Hermès iOS", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
             Button("Compris", role: .cancel) { model.notice = nil }
         } message: { Text(model.notice ?? "") }
     }

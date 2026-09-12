@@ -22,7 +22,7 @@ struct AgentsView: View {
                         Text("Vos profils Hermes. Une conversation\nqui continue avec chacun.").font(.subheadline).foregroundStyle(.secondary).lineSpacing(4)
                     }
                     HStack { Image(systemName: "magnifyingglass").foregroundStyle(.secondary); TextField("Retrouver un agent", text: $search) }
-                        .padding(14).background(IrisTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                        .padding(14).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
                     VStack(spacing: 12) {
                         ForEach(model.profiles.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || $0.detail.localizedCaseInsensitiveContains(search) }) { agent in
                             Button {
@@ -40,12 +40,12 @@ struct AgentsView: View {
                                         Image(systemName: "arrow.up.right").font(.subheadline).foregroundStyle(.tertiary)
                                     }
                                     HStack {
-                                        Text("@\(agent.name)").font(.caption).foregroundStyle(IrisTheme.color(agent.name))
-                                            .padding(.horizontal, 10).padding(.vertical, 5).background(IrisTheme.color(agent.name).opacity(0.08), in: Capsule())
+                                        Text("@\(agent.name)").font(.caption).foregroundStyle(AppTheme.color(agent.name))
+                                            .padding(.horizontal, 10).padding(.vertical, 5).background(AppTheme.color(agent.name).opacity(0.08), in: Capsule())
                                         Spacer()
                                         Text(agent.preview.isEmpty ? "\(agent.skillCount) compétences" : agent.preview).font(.caption).foregroundStyle(.tertiary).lineLimit(1)
                                     }
-                                }.irisCard()
+                                }.hermesCard()
                             }.buttonStyle(.plain).disabled(model.opening)
                                 .contextMenu {
                                     Button("Modifier le profil", systemImage: "slider.horizontal.3") { editing = agent }
@@ -54,22 +54,22 @@ struct AgentsView: View {
                     }
                     Button { routines = true } label: {
                         HStack(spacing: 14) {
-                            Image(systemName: "clock.arrow.2.circlepath").font(.title2).foregroundStyle(IrisTheme.accent)
+                            Image(systemName: "clock.arrow.2.circlepath").font(.title2).foregroundStyle(AppTheme.accent)
                             VStack(alignment: .leading, spacing: 5) {
                                 Text("Les petites habitudes").font(.subheadline.weight(.medium)).foregroundStyle(.primary)
                                 Text("Routines de \(model.agent?.title ?? "Hermes")").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer(); Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
-                        }.padding(20).background(IrisTheme.accent.opacity(0.05), in: RoundedRectangle(cornerRadius: 22))
+                        }.padding(20).background(AppTheme.accent.opacity(0.05), in: RoundedRectangle(cornerRadius: 22))
                     }.buttonStyle(.plain)
                     Button { groups = true } label: {
                         Label("Réfléchir à plusieurs", systemImage: "person.2.bubble").font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).padding(18)
-                            .background(IrisTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+                            .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
                     }.disabled(model.demo)
                     Label("Les mêmes agents que sur votre ordinateur.", systemImage: "arrow.triangle.branch")
                         .font(.caption).foregroundStyle(.tertiary).frame(maxWidth: .infinity).padding(.bottom, 16)
                 }.padding(24).frame(maxWidth: 680).frame(maxWidth: .infinity)
-            }.background(IrisTheme.background).toolbar(.hidden, for: .navigationBar)
+            }.background(AppTheme.background).toolbar(.hidden, for: .navigationBar)
                 .sheet(isPresented: $creating) { BotEditor(model: model) }
                 .sheet(item: $editing) { BotEditor(model: model, bot: $0) }
                 .sheet(isPresented: $routines) { RoutinesView(model: model) }
@@ -93,10 +93,10 @@ struct ProfilePicker: View {
                         AgentAvatar(name: agent.name)
                         VStack(alignment: .leading, spacing: 4) { Text(agent.title).foregroundStyle(.primary); Text(agent.model).font(.caption).foregroundStyle(.secondary) }
                         Spacer()
-                        if model.profile == agent.name { Image(systemName: "checkmark").foregroundStyle(IrisTheme.accent) }
+                        if model.profile == agent.name { Image(systemName: "checkmark").foregroundStyle(AppTheme.accent) }
                     }.padding(.vertical, 7)
                 }
-            }.scrollContentBackground(.hidden).background(IrisTheme.background)
+            }.scrollContentBackground(.hidden).background(AppTheme.background)
                 .navigationTitle("Vos profils").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Terminé") { dismiss() } } }
         }.presentationDetents([.medium, .large])
@@ -124,7 +124,7 @@ struct SessionsView: View {
                     }
                 }
             }.searchable(text: $search, prompt: "Rechercher une conversation")
-                .scrollContentBackground(.hidden).background(IrisTheme.background)
+                .scrollContentBackground(.hidden).background(AppTheme.background)
                 .navigationTitle("Le fil des idées").navigationBarTitleDisplayMode(.inline)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Terminé") { dismiss() } } }
                 .task { try? await model.refreshSessions() }
@@ -159,8 +159,8 @@ struct BotEditor: View {
                     }
                 }
                 Section { TextEditor(text: $soul).frame(minHeight: 150) } header: { Text("Personnalité · SOUL.md") } footer: { Text("Sa façon de penser, son ton et ses instructions permanentes.") }
-                if let error { Section { Text(error).foregroundStyle(IrisTheme.accent) } }
-            }.scrollContentBackground(.hidden).background(IrisTheme.background)
+                if let error { Section { Text(error).foregroundStyle(AppTheme.accent) } }
+            }.scrollContentBackground(.hidden).background(AppTheme.background)
                 .navigationTitle(bot == nil ? "Un nouvel agent" : "Modifier \(bot!.title)").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise Iris's wire contract against scripts/integration_server.py, without real model use."""
+"""Exercise HermesIOS's wire contract against scripts/integration_server.py, without real model use."""
 import asyncio
 import json
 import uuid
@@ -40,7 +40,7 @@ async def main():
         assert status["auth_required"] and "basic" in status["auth_providers"]
         denied = await http.post(BASE + "/api/auth/ws-ticket")
         assert denied.status_code == 401
-        login = await http.post(BASE + "/auth/password-login", json={"provider": "basic", "username": "iris-test", "password": "iris-local-fixture"})
+        login = await http.post(BASE + "/auth/password-login", json={"provider": "basic", "username": "hermes-ios-test", "password": "hermes-ios-local-fixture"})
         assert login.status_code == 200
         c = Client(http)
         await c.connect()

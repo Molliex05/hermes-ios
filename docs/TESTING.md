@@ -11,7 +11,7 @@ Behavioral tests cover newline-coalesced JSON-RPC frames, Unicode, reverse-proxy
 ## UI
 
 ```sh
-xcodebuild -scheme Iris \
+xcodebuild -scheme HermesIOS \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
@@ -40,12 +40,12 @@ In another terminal:
 ```sh
 outputs/integration/venv/bin/python scripts/check_hermes_contract.py
 
-xcodebuild -scheme IrisIntegration \
+xcodebuild -scheme HermesIOSIntegration \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
-  -only-testing:IrisUITests/IrisUITests/testNativeHermesConnectionAndResume test
+  -only-testing:HermesIOSUITests/HermesIOSUITests/testNativeHermesConnectionAndResume test
 ```
 
-The fixture binds only to loopback. Its intentionally public test credentials are `iris-test` / `iris-local-fixture`; they are for this disposable fixture only. No bridge script is required by Iris in normal use.
+The fixture binds only to loopback. Its intentionally public test credentials are `hermes-ios-test` / `hermes-ios-local-fixture`; they are for this disposable fixture only. No bridge script is required by Hermès iOS in normal use.
 
 The protocol probe verifies authentication gates, ticket minting, native RPC calls, streaming across a closed/reopened socket, replay sequences, exactly one persisted user message, canonical Bot Chat profile isolation, cron create/list/pause and hosted-group creation/logs. The opt-in UI test signs in from iOS, sends a message, backgrounds/reactivates the app during the turn, checks the final reply and relaunches to verify cached history plus saved authentication.
 

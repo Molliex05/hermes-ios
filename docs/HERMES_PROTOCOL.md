@@ -16,7 +16,7 @@ The official [full documentation corpus](https://hermes-agent.nousresearch.com/d
 
 ## Native API map
 
-| Purpose | Wire contract used by Iris | Official source |
+| Purpose | Wire contract used by Hermès iOS | Official source |
 | --- | --- | --- |
 | Discover login | `GET /api/status` | `hermes_cli/web_server.py`, status router |
 | Password login | `POST /auth/password-login {provider:"basic",username,password}` → native cookies | `hermes_cli/dashboard_auth/routes.py` |
@@ -37,12 +37,12 @@ All source paths above refer to the [pinned official repository](https://github.
 
 - `session.create` returns both `session_id` (runtime) and `stored_session_id` (persistent). Resume may return persistent identity as `session_key` and a different runtime ID. Treating these as one ID breaks reconnects.
 - A canonical Bot Chat is resolved through the exact native title **`Bot Chat`** in its owning profile, including hidden sessions and compression tips. New sessions are lazy; `session.title` materializes the canonical row before any first prompt. If another writer wins the title, re-read and adopt the native winner.
-- `profiles.list` exposes `canonical_session` and `bot_mode_protocol`. The backend supplies its Bot Mode protocol; Iris must not append its own standing instructions to SOUL.
+- `profiles.list` exposes `canonical_session` and `bot_mode_protocol`. The backend supplies its Bot Mode protocol; Hermès iOS must not append its own standing instructions to SOUL.
 - `seq` is scoped to a runtime session, and resets after a server restart. Epoch changes require resetting the watermark. Replay returns event objects, not full JSON-RPC envelopes.
-- Native auth middleware can rotate cookies during an authenticated request. Iris persists updated cookies without storing the password.
+- Native auth middleware can rotate cookies during an authenticated request. Hermès iOS persists updated cookies without storing the password.
 - Batch clarification answers use **`question_id`**, while the individual question is advertised with **`qid`**.
-- `cron.manage list` confirms its owner through `scoped`; Iris refuses profile management when an older backend does not prove that scope.
-- Group orchestration is hosted by Hermes. Older desktop-local group machinery is not recreated in Iris. The current mobile surface is limited to the native same-gateway hosted protocol.
+- `cron.manage list` confirms its owner through `scoped`; Hermès iOS refuses profile management when an older backend does not prove that scope.
+- Group orchestration is hosted by Hermes. Older desktop-local group machinery is not recreated in Hermès iOS. The current mobile surface is limited to the native same-gateway hosted protocol.
 
 ## Why not the OpenAI-compatible API?
 

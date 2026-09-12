@@ -1,7 +1,7 @@
 import XCTest
 
 @MainActor
-final class IrisUITests: XCTestCase {
+final class HermesIOSUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
     func testChatAndAgents() throws {
         let app = XCUIApplication()
@@ -43,7 +43,7 @@ final class IrisUITests: XCTestCase {
     }
 
     func testNativeHermesConnectionAndResume() throws {
-        guard ProcessInfo.processInfo.environment["IRIS_INTEGRATION"] == "1" else { throw XCTSkip("Start the isolated Hermes integration server and set IRIS_INTEGRATION=1.") }
+        guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Start the isolated Hermes integration server and set HERMES_IOS_INTEGRATION=1.") }
         let app = XCUIApplication()
         app.launchArguments = ["--integration-test"]
         app.launch()
@@ -54,10 +54,10 @@ final class IrisUITests: XCTestCase {
             address.tap(); address.typeText("http://127.0.0.1:19119")
             let user = app.textFields["Utilisateur"]
             user.tap()
-            user.typeText("iris-test")
-            XCTAssertEqual(user.value as? String, "iris-test")
+            user.typeText("hermes-ios-test")
+            XCTAssertEqual(user.value as? String, "hermes-ios-test")
             let password = app.secureTextFields["Mot de passe Hermes"]
-            password.tap(); password.typeText("iris-local-fixture")
+            password.tap(); password.typeText("hermes-ios-local-fixture")
             app.swipeUp()
             app.buttons["connect-agent"].tap()
             XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 40))
@@ -69,7 +69,7 @@ final class IrisUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
         app.buttons["Nouvelle conversation"].tap()
         let composer = app.textFields["chat-composer"]
-        composer.tap(); composer.typeText("Bonjour depuis Iris sur iPhone")
+        composer.tap(); composer.typeText("Bonjour depuis HermesIOS sur iPhone")
         app.buttons["send-message"].tap()
         let answer = app.descendants(matching: .any).matching(identifier: "assistant-message").matching(NSPredicate(format: "label CONTAINS %@", "Bonjour depuis Hermes"))
         XCTAssertTrue(answer.firstMatch.waitForExistence(timeout: 45))

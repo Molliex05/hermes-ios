@@ -12,4 +12,4 @@ jobs:
       - name: Core protocol tests
         run: swift test
       - name: Build native iOS app
-        run: xcodebuild -scheme Iris -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+        run: xcodebuild -scheme HermesIOS -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
