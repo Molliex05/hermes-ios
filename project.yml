@@ -1,0 +1,55 @@
+name: Iris
+options:
+  bundleIdPrefix: org.irisapp
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: 1
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_STRICT_CONCURRENCY: complete
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    GENERATE_INFOPLIST_FILE: NO
+targets:
+  Iris:
+    type: application
+    platform: iOS
+    sources: [Iris]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.irisapp.Iris
+        INFOPLIST_FILE: Iris/Resources/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+    scheme:
+      testTargets: [IrisUITests]
+  IrisUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [IrisUITests]
+    dependencies:
+      - target: Iris
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Iris
+schemes:
+  IrisIntegration:
+    build:
+      targets:
+        Iris: all
+        IrisUITests: [test]
+    test:
+      targets: [IrisUITests]
+      environmentVariables:
+        IRIS_INTEGRATION: "1"
+  Iris:
+    build:
+      targets:
+        Iris: all
+        IrisUITests: [test]
+    test:
+      targets: [IrisUITests]

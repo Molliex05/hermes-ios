@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""Real, unmodified Hermes serve + a deterministic local model for integration tests.
+
+Run with Python from a venv containing the pinned upstream Hermes checkout.
+Only the inference endpoint is a fixture. Auth, profiles, sessions, persistence,
+WebSocket framing, replay and Bot Mode execute upstream code.
+"""
+import argparse
+import json
+import os
+from pathlib import Path
+import secrets
+import signal
+import subprocess
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+REPLY = "Bonjour depuis Hermes. Votre conversation reste fluide, même après une interruption du réseau. Les profils, la mémoire et les outils restent entièrement gérés par votre agent. Voilà, le fil est retrouvé."
+
+
+class Model(BaseHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"object": "list", "data": [{"id": "iris-fixture", "object": "model"}]}).encode())
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+        self.send_response(200)
+        if body.get("stream"):
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            for word in REPLY.split(" "):
+                chunk = {"id": "test", "object": "chat.completion.chunk", "created": int(time.time()), "model": "iris-fixture", "choices": [{"index": 0, "delta": {"content": word + " "}, "finish_reason": None}]}
+                self.wfile.write(("data: " + json.dumps(chunk) + "\n\n").encode())
+                self.wfile.flush()
+                time.sleep(0.16)
+            self.wfile.write(b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
+        else:
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"id": "test", "object": "chat.completion", "created": int(time.time()), "model": "iris-fixture", "choices": [{"index": 0, "message": {"role": "assistant", "content": REPLY}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 35, "total_tokens": 45}}).encode())
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--home", required=True, type=Path)
+    parser.add_argument("--port", type=int, default=19119)
+    parser.add_argument("--model-port", type=int, default=19220)
+    args = parser.parse_args()
+    home = args.home.resolve()
+    if home.exists() and any(home.iterdir()):
+        raise SystemExit("Use a new, empty --home directory; never point at your own Hermes home.")
+    home.mkdir(parents=True, exist_ok=True)
+    import yaml
+    config = {"model": {"provider": "custom", "default": "iris-fixture", "base_url": f"http://127.0.0.1:{args.model_port}/v1"}, "terminal": {"backend": "local", "cwd": str(home)}, "dashboard": {"public_url": "http://iris.test"}, "compression": {"enabled": False}}
+    (home / "config.yaml").write_text(yaml.safe_dump(config))
+    for name in ["research", "studio"]:
+        profile = home / "profiles" / name
+        profile.mkdir(parents=True)
+        (profile / "config.yaml").write_text(yaml.safe_dump(config))
+        (profile / "profile.yaml").write_text(yaml.safe_dump({"name": name, "description": "Profil de test Iris"}))
+    env = {"PATH": str(Path(sys.executable).parent) + os.pathsep + os.defpath, "LANG": "en_US.UTF-8", "HERMES_HOME": str(home), "HERMES_DASHBOARD_BASIC_AUTH_USERNAME": "iris-test", "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD": "iris-local-fixture", "HERMES_DASHBOARD_BASIC_AUTH_SECRET": secrets.token_urlsafe(32), "OPENAI_API_KEY": "iris-local-fixture", "OPENAI_BASE_URL": f"http://127.0.0.1:{args.model_port}/v1"}
+    model = ThreadingHTTPServer(("127.0.0.1", args.model_port), Model)
+    threading.Thread(target=model.serve_forever, daemon=True).start()
+    process = subprocess.Popen([str(Path(sys.executable).with_name("hermes")), "serve", "--host", "127.0.0.1", "--port", str(args.port)], env=env, cwd=home)
+    def stop(*_):
+        process.terminate()
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    print(f"Isolated Hermes: http://127.0.0.1:{args.port}; fixture login: iris-test / iris-local-fixture", flush=True)
+    try:
+        process.wait()
+    finally:
+        model.shutdown()
+        if process.poll() is None:
+            process.terminate()
+        process.wait(timeout=10)
+
+
+if __name__ == "__main__":
+    main()
