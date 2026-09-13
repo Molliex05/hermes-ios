@@ -148,60 +148,85 @@ struct ChatView: View {
                     }
                 }
             }
-            HStack(alignment: .bottom, spacing: 10) {
-                Menu {
-                    Button("Dicter un message", systemImage: "waveform") { present(.voice) }
-                    Button("Mentionner un agent", systemImage: "at") { model.draft += "@"; focused = true }
-                    Button("Nouvelle conversation", systemImage: "square.and.pencil") { model.newChat(); focused = true }
-                } label: {
-                    Image(systemName: "plus").font(.system(size: 21, weight: .regular))
-                        .foregroundStyle(.secondary).frame(width: 42, height: 44)
-                }.accessibilityLabel("Actions du message")
+            VStack(alignment: .leading, spacing: 4) {
                 TextField("Message…", text: $model.draft, axis: .vertical)
-                    .lineLimit(1...7).font(.body).padding(.vertical, 12).focused($focused)
+                    .lineLimit(1...7).font(.body).focused($focused)
+                    .padding(.horizontal, 9).padding(.vertical, 8).frame(minHeight: 44)
                     .accessibilityIdentifier("chat-composer")
-                Button {
-                    Task {
-                        if model.transcript.running { await model.interrupt() }
-                        else { await model.send() }
+                HStack(spacing: 6) {
+                    ViewThatFits(in: .horizontal) {
+                        composerShortcuts(showToolTitle: true, compactProfile: false)
+                        composerShortcuts(showToolTitle: false, compactProfile: false)
+                        composerShortcuts(showToolTitle: false, compactProfile: true)
                     }
-                } label: {
-                    Image(systemName: model.transcript.running ? "stop.fill" : "arrow.up")
-                        .font(.system(size: model.transcript.running ? 13 : 19, weight: .semibold))
-                        .foregroundStyle(.white).frame(width: 42, height: 42)
-                        .background(model.canSend || model.transcript.running ? AppTheme.accent : Color.secondary.opacity(0.28), in: Circle())
-                }.disabled(!model.canSend && !model.transcript.running)
-                    .accessibilityLabel(model.transcript.running ? "Arrêter la réponse" : "Envoyer")
-                    .accessibilityIdentifier("send-message")
-            }.padding(9).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 28))
+                    Spacer(minLength: 0)
+                    sendButton
+                }
+            }.padding(10)
+                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 28))
                 .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(AppTheme.line))
                 .shadow(color: .black.opacity(0.045), radius: 22, y: 6)
-            navigationShortcuts.padding(.top, 4)
-        }.padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 2).frame(maxWidth: 750).frame(maxWidth: .infinity)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("composer-surface")
+        }.padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 8).frame(maxWidth: 750).frame(maxWidth: .infinity)
             .background(AppTheme.background)
     }
 
-    private var navigationShortcuts: some View {
-        HStack(spacing: 4) {
+    private var messageActions: some View {
+        Menu {
+            Button("Dicter un message", systemImage: "waveform") { present(.voice) }
+            Button("Mentionner un agent", systemImage: "at") { model.draft += "@"; focused = true }
+            Button("Nouvelle conversation", systemImage: "square.and.pencil") { model.newChat(); focused = true }
+        } label: {
+            Image(systemName: "plus").font(.system(size: 20, weight: .regular))
+                .foregroundStyle(.secondary).frame(width: 44, height: 44)
+        }.accessibilityLabel("Actions du message").accessibilityIdentifier("message-actions")
+    }
+
+    private func composerShortcuts(showToolTitle: Bool, compactProfile: Bool) -> some View {
+        HStack(spacing: 2) {
+            messageActions
             Button { present(.profiles) } label: {
-                HStack(spacing: 7) {
-                    AgentAvatar(name: model.agent?.name ?? "default", size: 22)
-                    Text(model.agent?.title ?? "Hermes").lineLimit(1)
-                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary)
-                }.padding(.horizontal, 9).frame(height: 44).contentShape(Capsule())
+                HStack(spacing: 6) {
+                    AgentAvatar(name: model.agent?.name ?? "default", size: 20)
+                    if !compactProfile {
+                        Text(model.agent?.title ?? "Hermes").lineLimit(1).frame(maxWidth: 85)
+                        Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary)
+                    }
+                }.padding(.horizontal, 8).frame(minWidth: 44, minHeight: 44)
+                    .background(AppTheme.background, in: Capsule())
             }.accessibilityLabel("Changer de profil : \(model.agent?.title ?? "Hermes")")
                 .accessibilityIdentifier("switch-profile")
-            Spacer(minLength: 0)
             Button { present(.history) } label: {
-                Label("Chats", systemImage: "bubble.left.and.bubble.right")
-                    .padding(.horizontal, 10).frame(height: 44).contentShape(Capsule())
+                Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 18))
+                    .frame(width: 44, height: 44)
             }.accessibilityLabel("Conversations du profil actif").accessibilityIdentifier("quick-history")
             Button { present(.spaces) } label: {
-                Label("Outils", systemImage: "slider.horizontal.3")
-                    .padding(.horizontal, 10).frame(height: 44).contentShape(Capsule())
+                HStack(spacing: 6) {
+                    Image(systemName: "slider.horizontal.3").font(.system(size: 17))
+                    if showToolTitle { Text("Outils") }
+                }.padding(.horizontal, showToolTitle ? 8 : 0).frame(minWidth: 44, minHeight: 44)
             }.accessibilityLabel("Outils").accessibilityIdentifier("app-navigation")
         }.font(.caption.weight(.medium)).foregroundStyle(.secondary).buttonStyle(.plain)
+            .fixedSize(horizontal: true, vertical: false)
     }
+
+    private var sendButton: some View {
+        Button {
+            Task {
+                if model.transcript.running { await model.interrupt() }
+                else { await model.send() }
+            }
+        } label: {
+            Image(systemName: model.transcript.running ? "stop.fill" : "arrow.up")
+                .font(.system(size: model.transcript.running ? 13 : 19, weight: .semibold))
+                .foregroundStyle(.white).frame(width: 44, height: 44)
+                .background(model.canSend || model.transcript.running ? AppTheme.accent : Color.secondary.opacity(0.28), in: Circle())
+        }.disabled(!model.canSend && !model.transcript.running)
+            .accessibilityLabel(model.transcript.running ? "Arrêter la réponse" : "Envoyer")
+            .accessibilityIdentifier("send-message")
+    }
+
 }
 
 struct CredentialCard: View {

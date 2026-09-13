@@ -12,6 +12,7 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertGreaterThan(app.buttons["app-navigation"].frame.minY, app.windows.firstMatch.frame.maxY - 130)
         XCTAssertLessThan(app.windows.firstMatch.frame.maxY - app.textFields["chat-composer"].frame.maxY, 130)
         XCTAssertGreaterThan(app.buttons["switch-profile"].frame.minY, app.textFields["chat-composer"].frame.maxY)
+        assertControlsInsideComposer(in: app)
         capture("01-chat")
         openNavigation("Agents", in: app)
         XCTAssertTrue(app.staticTexts["Vos agents."].waitForExistence(timeout: 3))
@@ -44,6 +45,8 @@ final class HermesIOSUITests: XCTestCase {
         let composer = app.textFields["chat-composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
         composer.tap(); composer.typeText("Mon brouillon reste ici")
+        assertControlsInsideComposer(in: app)
+        capture("13-composer-keyboard")
         openNavigation("Agents", in: app)
         XCTAssertTrue(app.buttons["return-to-chat"].waitForExistence(timeout: 3))
         app.buttons["return-to-chat"].tap()
@@ -238,5 +241,15 @@ final class HermesIOSUITests: XCTestCase {
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name; attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    private func assertControlsInsideComposer(in app: XCUIApplication) {
+        let surface = app.otherElements["composer-surface"]
+        XCTAssertTrue(surface.exists)
+        for identifier in ["message-actions", "switch-profile", "quick-history", "app-navigation", "send-message"] {
+            let control = app.buttons[identifier]
+            XCTAssertTrue(control.exists)
+            XCTAssertTrue(surface.frame.contains(control.frame), "\(identifier) belongs inside the composer bubble")
+        }
     }
 }
