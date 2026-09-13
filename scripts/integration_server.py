@@ -31,7 +31,22 @@ class Model(BaseHTTPRequestHandler):
         self.wfile.write(json.dumps({"object": "list", "data": [{"id": "hermes-ios-fixture", "object": "model"}]}).encode())
 
     def do_POST(self):
-        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+        raw = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        if self.path == "/v1/audio/transcriptions":
+            self.send_response(200); self.send_header("Content-Type", "text/plain; charset=utf-8"); self.end_headers()
+            self.wfile.write("Bonjour Hermes, résume mon projet.".encode())
+            return
+        body = json.loads(raw)
+        if self.path == "/v1/audio/speech":
+            import io, wave
+            output = io.BytesIO()
+            with wave.open(output, "wb") as wav:
+                wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(24000)
+                wav.writeframes(b"\x00\x00" * 72000)
+            self.send_response(200); self.send_header("Content-Type", "audio/wav"); self.end_headers()
+            self.wfile.write(output.getvalue())
+            print("Fixture TTS voice: " + str(body.get("voice")), flush=True)
+            return
         self.send_response(200)
         if body.get("stream"):
             self.send_header("Content-Type", "text/event-stream")
@@ -60,13 +75,16 @@ def main():
     home.mkdir(parents=True, exist_ok=True)
     import yaml
     config = {"model": {"provider": "custom", "default": "hermes-ios-fixture", "base_url": f"http://127.0.0.1:{args.model_port}/v1"}, "terminal": {"backend": "local", "cwd": str(home)}, "dashboard": {"public_url": "http://hermes-ios.test"}, "compression": {"enabled": False}}
+    config["stt"] = {"provider": "openai"}
+    config["tts"] = {"provider": "openai", "openai": {"base_url": f"http://127.0.0.1:{args.model_port}/v1", "voice": "alloy"}}
     (home / "config.yaml").write_text(yaml.safe_dump(config))
     for name in ["research", "studio"]:
         profile = home / "profiles" / name
         profile.mkdir(parents=True)
-        (profile / "config.yaml").write_text(yaml.safe_dump(config))
+        profile_config = {**config, "tts": {"provider": "openai", "openai": {"base_url": f"http://127.0.0.1:{args.model_port}/v1", "voice": "nova" if name == "research" else "echo"}}}
+        (profile / "config.yaml").write_text(yaml.safe_dump(profile_config))
         (profile / "profile.yaml").write_text(yaml.safe_dump({"name": name, "description": "Profil de test HermesIOS"}))
-    env = {"PATH": str(Path(sys.executable).parent) + os.pathsep + os.defpath, "LANG": "en_US.UTF-8", "HERMES_HOME": str(home), "HERMES_DASHBOARD_BASIC_AUTH_USERNAME": "hermes-ios-test", "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD": "hermes-ios-local-fixture", "HERMES_DASHBOARD_BASIC_AUTH_SECRET": secrets.token_urlsafe(32), "OPENAI_API_KEY": "hermes-ios-local-fixture", "OPENAI_BASE_URL": f"http://127.0.0.1:{args.model_port}/v1"}
+    env = {"PATH": str(Path(sys.executable).parent) + os.pathsep + os.defpath, "LANG": "en_US.UTF-8", "HERMES_HOME": str(home), "HERMES_DASHBOARD_BASIC_AUTH_USERNAME": "hermes-ios-test", "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD": "hermes-ios-local-fixture", "HERMES_DASHBOARD_BASIC_AUTH_SECRET": secrets.token_urlsafe(32), "STT_OPENAI_BASE_URL": f"http://127.0.0.1:{args.model_port}/v1", "OPENAI_API_KEY": "hermes-ios-local-fixture", "OPENAI_BASE_URL": f"http://127.0.0.1:{args.model_port}/v1"}
     model = ThreadingHTTPServer(("127.0.0.1", args.model_port), Model)
     threading.Thread(target=model.serve_forever, daemon=True).start()
     process = subprocess.Popen([str(Path(sys.executable).with_name("hermes")), "serve", "--host", "127.0.0.1", "--port", str(args.port)], env=env, cwd=home)

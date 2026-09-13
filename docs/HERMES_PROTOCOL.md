@@ -56,7 +56,15 @@ The `/v1/*` integration is useful for OpenAI-compatible clients but is not the d
 | Models | GET `/api/model/options`, POST `/api/model/set` | Profile scoped; `scope: main`; applies to new sessions; honor `confirm_required` before retrying with `confirm_expensive_model` |
 | Workspace | RPC `projects.list` | Profile scoped; projects include `folders`, `primary_path`, `board_slug` |
 | Kanban | GET `/api/plugins/kanban/boards`, `/board`, `/tasks/{id}`; POST `/tasks` | Explicit `board` query; shared board data; task creation uses `triage: true` and a retained `idempotency_key` |
-| Dictation | POST `/api/audio/transcribe` | Profile scoped JSON `data_url` + `mime_type: audio/mp4`; result `transcript` |
+| Voice transcription | POST `/api/audio/transcribe` | Profile scoped JSON `data_url` + `mime_type: audio/mp4`; result `transcript` |
 | Speech playback | POST `/api/audio/speak` | Profile scoped `{text}`; result base64 `data_url`; provider credentials remain on Hermes |
 
-These contracts come from `hermes_cli/web_routers/{skills,models,audio}.py`, `tui_gateway/methods_projects.py`, `plugins/kanban/dashboard/plugin_api.py` and the official desktop Kanban client. The server’s `voice.record` captures the **server** microphone, so it is deliberately not used for iPhone recording. The mobile voice screen currently implements explicit dictation and playback, not continuous voice or GPT-Live.
+These contracts come from `hermes_cli/web_routers/{skills,models,audio}.py`, `tui_gateway/methods_projects.py`, `plugins/kanban/dashboard/plugin_api.py` and the official desktop Kanban client. The server’s `voice.record` captures the **server** microphone, so it is deliberately not used for iPhone recording. The mobile voice screen chains transcription → `prompt.submit` → profile speech playback → listening. It uses `/api/config` for silence/stop-phrase settings and `/api/audio/voice-live/status` to detect GPT-Live. `/api/audio/tts-lease` is acquired per call and released on exit. It does not fetch `/api/audio/voice-config`, which exposes client-direct provider credentials. GPT-Live/WebRTC and automatic barge-in remain unsupported; a configured GPT-Live profile is offered an explicit temporary standard-voice call.
+
+## Media attachments
+
+`file.attach {session_id, name, data_url}` returns `{attached, path, ref_text}`. Files use the exact native `ref_text` in `prompt.submit`. Images are staged by the same native upload, then queued with `image.attach {session_id, path: fileURL}`. `image.detach {session_id, path}` clears only known app-owned queued paths before retrying an interrupted upload; no speculative prompt retry occurs. Photo/file draft data stays local until Send. Limits: four files, 10 MiB each; library photos become 3072px JPEGs.
+
+Sources: [native prompt and attachment methods](https://github.com/NousResearch/hermes-agent/blob/main/tui_gateway/methods_prompt.py), [audio routes](https://github.com/NousResearch/hermes-agent/blob/main/hermes_cli/web_routers/audio.py), [voice guide](https://hermes-agent.nousresearch.com/docs/guides/use-voice-mode-with-hermes).
+
+The isolated `scripts/check_media_contract.py` probe validates staging, path quoting, attach/detach retry, file references and STT → native agent → TTS for two profiles. The fixture redirects configured STT/TTS to a loopback provider and reports the selected voices; it does not exercise real microphone hardware or paid providers.

@@ -21,7 +21,7 @@ If your simulator runtime belongs to a second Xcode installation, select it for 
 
 ## Real Hermes integration
 
-These tests execute the **official, unmodified Hermes backend** with a new isolated Hermes home. Only the model endpoint is a deterministic local fixture. No real provider keys, personal profiles or production server are required.
+These tests execute the **official, unmodified Hermes backend** with a new isolated Hermes home. Model, STT and TTS provider endpoints are deterministic local fixtures; the Hermes backend itself is unmodified. No real provider keys, personal profiles or production server are required.
 
 ```sh
 mkdir -p outputs/integration
@@ -40,6 +40,7 @@ In another terminal:
 ```sh
 outputs/integration/venv/bin/python scripts/check_hermes_contract.py
 outputs/integration/venv/bin/python scripts/check_tools_contract.py
+outputs/integration/venv/bin/python scripts/check_media_contract.py
 
 xcodebuild -scheme HermesIOSIntegration \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
@@ -53,3 +54,5 @@ The protocol probe verifies authentication gates, ticket minting, native RPC cal
 Stop the fixture with Ctrl-C. The test home and dependencies remain in the ignored `outputs/` directory for inspection. Never run this harness with your real `HERMES_HOME`.
 
 The tools probe verifies native skills list/content/toggle and profile isolation, workspace list isolation, model assignment isolation, Kanban board/detail/triage creation and retry deduplication. Audio checks validate the native authenticated routes without calling an STT/TTS provider; physical microphone capture and real speech providers require a manual device check.
+
+The media probe verifies native image staging/attach/detach with encoded paths, native file references, and chained STT → agent → TTS for two profiles with distinct configured voices. The native UI test additionally starts voice, checks automatic submission and return to listening, and verifies the typed draft is preserved. It uses a DEBUG-only audio fixture, enabled only by `--voice-fixture` against a loopback connection; production microphone permission/capture and real provider quality still require a manual device check. No audio fixtures are enabled in Release builds.

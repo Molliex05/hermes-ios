@@ -1,7 +1,13 @@
 import SwiftUI
+import PhotosUI
+import UniformTypeIdentifiers
 
 struct ChatView: View {
     @Bindable var model: AppModel
+    @State private var showPhotos = false
+    @State private var showFiles = false
+    @State private var photos: [PhotosPickerItem] = []
+    @State private var attachmentContext = ""
     @State private var destination: AppDestination?
     @State private var pinnedToBottom = true
     @FocusState private var focused: Bool
@@ -21,6 +27,41 @@ struct ChatView: View {
                 SpacesView(model: model, initial: page == .spaces ? nil : page)
                     .presentationDragIndicator(.visible)
                     .presentationCornerRadius(30)
+            }
+            .photosPicker(isPresented: $showPhotos, selection: $photos, maxSelectionCount: max(1, 4 - model.attachments.count), matching: .images)
+            .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+                let context = attachmentContext
+                Task {
+                    model.importingAttachments = true
+                    defer { model.importingAttachments = false }
+                    do {
+                        for url in try result.get() {
+                            let access = url.startAccessingSecurityScopedResource()
+                            defer { if access { url.stopAccessingSecurityScopedResource() } }
+                            let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                            guard size <= DraftAttachment.maximumBytes else { throw RPCFailure("Choisissez un fichier de 10 Mo maximum.") }
+                            let data = try await Task.detached { try Data(contentsOf: url) }.value
+                            try await model.addAttachment(data: data, name: url.lastPathComponent, mimeType: UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream", context: context)
+                        }
+                    } catch is CancellationError { }
+                    catch { model.notice = error.localizedDescription }
+                }
+            }
+            .onChange(of: photos) { _, items in
+                guard !items.isEmpty else { return }
+                let context = attachmentContext
+                Task {
+                    model.importingAttachments = true
+                    defer { model.importingAttachments = false; photos = [] }
+                    do {
+                        for item in items {
+                            guard let data = try await item.loadTransferable(type: Data.self) else { throw RPCFailure("Cette photo n’est pas disponible.") }
+                            let jpeg = try await Task.detached { try PhotoAttachment.jpeg(data) }.value
+                            try await model.addAttachment(data: jpeg, name: "Photo-\(UUID().uuidString.prefix(8)).jpg", mimeType: "image/jpeg", context: context)
+                        }
+                    } catch is CancellationError { }
+                    catch { model.notice = error.localizedDescription }
+                }
             }
             .onChange(of: model.draft) { _, _ in model.draftChanged() }
             .onChange(of: model.selected?.storedID) { _, _ in pinnedToBottom = true }
@@ -149,6 +190,22 @@ struct ChatView: View {
                 }
             }
             VStack(alignment: .leading, spacing: 4) {
+                if !model.attachments.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(model.attachments) { item in
+                                HStack(spacing: 7) {
+                                    Image(systemName: item.isImage ? "photo" : "doc")
+                                    Text(item.name).lineLimit(1).frame(maxWidth: 140)
+                                    Button { model.removeAttachment(item) } label: {
+                                        Image(systemName: "xmark").frame(width: 32, height: 44)
+                                    }.disabled(model.sending).accessibilityLabel("Retirer \(item.name)")
+                                }.font(.caption).padding(.leading, 12).background(AppTheme.background, in: RoundedRectangle(cornerRadius: 14))
+                            }
+                        }
+                    }.padding(.horizontal, 4).accessibilityIdentifier("pending-attachments")
+                }
+                if model.importingAttachments { ProgressView("Ajout…").font(.caption).padding(8) }
                 TextField("Message…", text: $model.draft, axis: .vertical)
                     .lineLimit(1...7).font(.body).focused($focused)
                     .padding(.horizontal, 9).padding(.vertical, 8).frame(minHeight: 44)
@@ -160,6 +217,11 @@ struct ChatView: View {
                         composerShortcuts(showToolTitle: false, compactProfile: true)
                     }
                     Spacer(minLength: 0)
+                    Button { present(.voice) } label: {
+                        Image(systemName: "mic").font(.system(size: 20)).frame(width: 44, height: 44)
+                            .foregroundStyle(AppTheme.accent)
+                    }.buttonStyle(.plain).accessibilityLabel("Conversation vocale").accessibilityIdentifier("voice-mode")
+                        .disabled(model.sending || model.opening || model.transcript.running || (!model.demo && model.state != .connected))
                     sendButton
                 }
             }.padding(10)
@@ -174,13 +236,12 @@ struct ChatView: View {
 
     private var messageActions: some View {
         Menu {
-            Button("Dicter un message", systemImage: "waveform") { present(.voice) }
-            Button("Mentionner un agent", systemImage: "at") { model.draft += "@"; focused = true }
-            Button("Nouvelle conversation", systemImage: "square.and.pencil") { model.newChat(); focused = true }
+            Button("Ajouter une photo", systemImage: "photo") { focused = false; attachmentContext = model.attachmentContext; showPhotos = true }
+            Button("Ajouter un fichier", systemImage: "doc") { focused = false; attachmentContext = model.attachmentContext; showFiles = true }
         } label: {
             Image(systemName: "plus").font(.system(size: 20, weight: .regular))
                 .foregroundStyle(.secondary).frame(width: 44, height: 44)
-        }.accessibilityLabel("Actions du message").accessibilityIdentifier("message-actions")
+        }.disabled(model.sending || model.importingAttachments || model.attachments.count >= 4).accessibilityLabel("Ajouter une pièce jointe").accessibilityIdentifier("message-actions")
     }
 
     private func composerShortcuts(showToolTitle: Bool, compactProfile: Bool) -> some View {

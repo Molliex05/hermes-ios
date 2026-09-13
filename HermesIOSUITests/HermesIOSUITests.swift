@@ -26,6 +26,29 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 3))
     }
 
+    func testAttachmentsMenuAndVoicePreserveDraft() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo"]
+        app.launch()
+        let composer = app.textFields["chat-composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        composer.tap(); composer.typeText("Mon brouillon écrit")
+        app.buttons["message-actions"].tap()
+        XCTAssertTrue(app.buttons["Ajouter une photo"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["Ajouter un fichier"].exists)
+        XCTAssertFalse(app.buttons["Mentionner un agent"].exists)
+        XCTAssertFalse(app.buttons["Dicter un message"].exists)
+        capture("18-attachments-menu")
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 30, dy: 150)).tap()
+        app.buttons["voice-mode"].tap()
+        XCTAssertTrue(app.buttons["voice-listen"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["voice-listen"].isEnabled)
+        capture("19-voice")
+        app.buttons["return-to-chat"].tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 3))
+        XCTAssertEqual(composer.value as? String, "Mon brouillon écrit")
+    }
+
     func testOnboarding() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--demo", "--demo-onboarding"]
@@ -62,7 +85,7 @@ final class HermesIOSUITests: XCTestCase {
     func testNativeHermesConnectionAndResume() throws {
         guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Start the isolated Hermes integration server and set HERMES_IOS_INTEGRATION=1.") }
         let app = XCUIApplication()
-        app.launchArguments = ["--integration-test"]
+        app.launchArguments = ["--integration-test", "--voice-fixture"]
         app.launch()
         if app.buttons["Rencontrer mon Hermes"].waitForExistence(timeout: 5) {
             app.buttons["Rencontrer mon Hermes"].tap()
@@ -137,6 +160,15 @@ final class HermesIOSUITests: XCTestCase {
         capture("10-native-kanban")
         app.buttons["return-to-chat"].tap()
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        composer.tap(); composer.typeText("Brouillon préservé pendant la voix")
+        app.buttons["voice-mode"].tap()
+        XCTAssertTrue(app.staticTexts["Bonjour Hermes, résume mon projet."].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["Hermes vous répond."].waitForExistence(timeout: 45))
+        XCTAssertTrue(app.staticTexts["Je vous écoute."].waitForExistence(timeout: 15))
+        capture("20-native-voice-loop")
+        app.buttons["return-to-chat"].tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        XCTAssertEqual(composer.value as? String, "Brouillon préservé pendant la voix")
     }
 
     func testSpacesDiscoveryAndTools() throws {
@@ -161,8 +193,8 @@ final class HermesIOSUITests: XCTestCase {
             button.tap()
             XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 3))
             if identifier == "voice" {
-                XCTAssertTrue(app.buttons["Écouter la dernière réponse"].exists)
-                XCTAssertLessThanOrEqual(app.buttons["Écouter la dernière réponse"].frame.maxY, app.buttons["return-to-chat"].frame.maxY)
+                XCTAssertTrue(app.buttons["voice-listen"].exists)
+                XCTAssertEqual(app.buttons["voice-listen"].frame.midY, app.buttons["return-to-chat"].frame.midY, accuracy: 1)
             }
             if identifier == "kanban" {
                 XCTAssertTrue(app.buttons["Nouvelle tâche"].exists)
@@ -246,7 +278,7 @@ final class HermesIOSUITests: XCTestCase {
     private func assertControlsInsideComposer(in app: XCUIApplication) {
         let surface = app.otherElements["composer-surface"]
         XCTAssertTrue(surface.exists)
-        for identifier in ["message-actions", "switch-profile", "quick-history", "app-navigation", "send-message"] {
+        for identifier in ["message-actions", "switch-profile", "quick-history", "app-navigation", "voice-mode", "send-message"] {
             let control = app.buttons[identifier]
             XCTAssertTrue(control.exists)
             XCTAssertTrue(surface.frame.contains(control.frame), "\(identifier) belongs inside the composer bubble")

@@ -32,7 +32,7 @@ enum AppDestination: String, Identifiable, CaseIterable {
         case .workspace: "Projets et dossiers"
         case .skills: "Ses compétences"
         case .models: "Choisir son modèle"
-        case .voice: "Dicter et écouter"
+        case .voice: "Parler avec votre agent"
         case .settings: "Connexions et préférences"
         }
     }

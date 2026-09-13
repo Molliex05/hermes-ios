@@ -11,7 +11,7 @@
 <key>UILaunchScreen</key><dict/>
 <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
-<key>NSMicrophoneUsageDescription</key><string>Dictez vos messages avec le microphone de l’iPhone. L’audio est envoyé à votre serveur Hermes pour transcription.</string>
+<key>NSMicrophoneUsageDescription</key><string>Parlez avec votre agent depuis l’iPhone. Votre serveur Hermes transcrit votre parole et prépare ses réponses vocales.</string>
 <key>NSLocalNetworkUsageDescription</key><string>Hermès iOS se connecte à votre agent Hermes sur votre réseau privé ou Tailscale.</string>
 <!-- Do not add NSAllowsLocalNetworking here: on iOS 10+, its presence makes
      iOS ignore NSAllowsArbitraryLoads. Endpoint validates private HTTP hosts

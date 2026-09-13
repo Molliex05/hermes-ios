@@ -27,7 +27,7 @@ final class HermesHTTP {
         self.connection = connection
         let c = URLSessionConfiguration.ephemeral
         c.timeoutIntervalForRequest = 20
-        c.timeoutIntervalForResource = 60
+        c.timeoutIntervalForResource = 180
         c.urlCache = nil
         c.requestCachePolicy = .reloadIgnoringLocalCacheData
         session = URLSession(configuration: c, delegate: redirects, delegateQueue: nil)
@@ -45,6 +45,7 @@ final class HermesHTTP {
     func request(_ path: String, method: String = "GET", body: JSONValue? = nil, query: [URLQueryItem] = []) async throws -> JSONValue {
         var request = URLRequest(url: connection.endpoint.url(path, query: query))
         request.httpMethod = method
+        request.timeoutInterval = path.hasPrefix("/api/audio/") ? 180 : 20
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let token { request.setValue(token, forHTTPHeaderField: "X-Hermes-Session-Token") }
         if let body {

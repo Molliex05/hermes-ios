@@ -26,12 +26,13 @@ Hermès iOS connects directly to [Hermes Agent](https://github.com/NousResearch/
 - Models: browse configured providers and choose the default for new sessions, respecting Hermes’ native confirmation prompts.
 - Workspace: browse native projects and their folders.
 - Kanban: switch boards, filter by status, inspect tasks/results/comments, and add ideas to triage with native idempotency keys.
-- Voice: record on iPhone, transcribe through Hermes, review before adding to the chat, and play the last reply through Hermes’ configured speech provider.
+- Attach photos or files from the composer’s + menu. Up to four files, 10 MiB each; photo-library images are resized locally before upload through native Hermes RPCs.
+- Voice conversations: speak on iPhone, submit the transcription directly to the active agent, hear its reply with the profile’s configured TTS voice/provider, then automatically listen again. Written drafts and attachments remain separate.
 - Light/dark appearance, native controls, VoiceOver labels and an offline interactive preview.
 
 The first UI is in French. Contributions for localization are welcome.
 
-Current device build: approximately **6.1 MB**, unpacked and development-signed. [Validation results](docs/VALIDATION.md).
+Current device build: approximately **6.3 MB**, unpacked and development-signed. [Validation results](docs/VALIDATION.md).
 
 ## Run
 
@@ -64,7 +65,7 @@ Hermès iOS uses `/api/ws`, Hermes' JSON-RPC methods and its authenticated REST 
 
 ## Honest boundaries
 
-This is an early **0.1.0** client. OAuth/Nous Portal browser sign-in, continuous/live voice conversation, media attachments, rich tool-result panels, cross-gateway group routing and the desktop's full capabilities/settings surface are not implemented. Voice requires working STT/TTS providers on your Hermes server. Workspace is currently read-only; advanced Kanban orchestration and skills installation/editing remain in Hermes. The initial group UI supports text discussions; advanced group approval/administration remains in Hermes Desktop. Messages sent from outside Hermès iOS appear when the corresponding native session/history or group log is refreshed.
+This is an early **0.1.0** client. OAuth/Nous Portal browser sign-in, GPT-Live/WebRTC and automatic voice barge-in, rich tool-result panels, cross-gateway group routing and the desktop's full capabilities/settings surface are not implemented. Voice requires working STT/TTS providers on your Hermes server. Chained voice is supported; reply audio starts after the agent finishes its response. Tap the microphone during playback to interrupt and speak. GPT-Live profiles require an explicit per-call switch to standard voice; server settings are never changed. Workspace is currently read-only; advanced Kanban orchestration and skills installation/editing remain in Hermes. The initial group UI supports text discussions; advanced group approval/administration remains in Hermes Desktop. Messages sent from outside Hermès iOS appear when the corresponding native session/history or group log is refreshed.
 
 iOS suspends network work in the background. The agent keeps working on the server; Hermès iOS reconnects on return. Hermes' replay ring is finite and its transcript snapshots do not carry an atomic event cursor. Normal reconnects replay exactly; after a ring overflow, Hermès iOS rebases from history/in-flight text, retaining the known partial answer when overlap cannot be proven until the authoritative final answer arrives. “Invisible sync” is a UX objective, not a promise that an offline phone receives live tokens. See [architecture](docs/ARCHITECTURE.md).
 

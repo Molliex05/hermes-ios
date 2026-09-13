@@ -2,6 +2,28 @@ import XCTest
 @testable import HermesIOSCore
 
 final class ProtocolTests: XCTestCase {
+    func testVoiceEndpointWaitsForSpeechThenConfiguredSilence() {
+        var detector = VoiceActivity(threshold: 200, silenceDuration: 1)
+        for _ in 0..<40 { XCTAssertFalse(detector.sample(decibels: -90, interval: 0.05)) }
+        XCTAssertFalse(detector.hasSpeech)
+        for _ in 0..<8 { XCTAssertFalse(detector.sample(decibels: -20, interval: 0.05)) }
+        XCTAssertTrue(detector.hasSpeech)
+        for _ in 0..<19 { XCTAssertFalse(detector.sample(decibels: -90, interval: 0.05)) }
+        XCTAssertTrue(detector.sample(decibels: -90, interval: 0.05))
+    }
+    func testVoiceStopPhraseMustBeTheWholeUtterance() {
+        XCTAssertTrue(VoiceActivity.isStop("Stop !", phrases: ["stop"]))
+        XCTAssertTrue(VoiceActivity.isStop("Termine la conversation.", phrases: ["termine la conversation"]))
+        XCTAssertFalse(VoiceActivity.isStop("Stop le serveur Docker", phrases: ["stop"]))
+        XCTAssertFalse(VoiceActivity.isStop("stop", phrases: []))
+        XCTAssertFalse(VoiceActivity.isStop("...", phrases: [""]))
+    }
+    func testShortClickDoesNotCountAsVoice() {
+        var detector = VoiceActivity(threshold: 200, silenceDuration: 1)
+        XCTAssertFalse(detector.sample(decibels: -10, interval: 0.05))
+        for _ in 0..<40 { XCTAssertFalse(detector.sample(decibels: -90, interval: 0.05)) }
+    }
+
     func testCookiePersistenceKeepsPrivateHTTPUsableAfterRelaunch() throws {
         let source = HTTPCookie(properties: [.name: "hermes_session", .value: "fixture", .domain: "100.64.1.2", .path: "/hermes"])!
         let restored = try JSONDecoder().decode(StoredCookie.self, from: JSONEncoder().encode(StoredCookie(source))).cookie!

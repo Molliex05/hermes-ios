@@ -7,6 +7,8 @@ struct CachedWorkspace: Codable, Sendable {
     var chats: [String: ChatSnapshot] = [:]
     var drafts: [String: String] = [:]
     var selected: String?
+    var attachments: [String: [DraftAttachment]]?
+    var imageCleanup: [String: [String]]?
 }
 
 @MainActor @Observable
@@ -21,6 +23,11 @@ final class AppModel {
     var selected: ChatSnapshot?
     var transcript = Transcript()
     var draft = ""
+    var attachmentDrafts: [String: [DraftAttachment]] = [:]
+    var attachments: [DraftAttachment] { attachmentDrafts[draftKey] ?? [] }
+    var voiceActive = false
+    var importingAttachments = false
+    @ObservationIgnored private var imageCleanup: [String: [String]] = [:]
     var notice: String?
     var routines: [Routine] = []
     var botMode = true
@@ -31,7 +38,7 @@ final class AppModel {
     var hasBotProtocol = false
     var draftKey: String { selected.map { key($0.profile, $0.storedID) } ?? "draft-\(profile)" }
     var agent: AgentProfile? { profiles.first { $0.name == (selected?.profile ?? profile) } }
-    var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (state == .connected || demo) && !opening && !sending && !transcript.running && (selected == nil || !(selected?.runtimeID.isEmpty ?? true) || demo) }
+    var canSend: Bool { (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty) && !importingAttachments && !voiceActive && (state == .connected || demo) && !opening && !sending && !transcript.running && (selected == nil || !(selected?.runtimeID.isEmpty ?? true) || demo) }
 
     @ObservationIgnored var toolCache: [String: JSONValue] = [:]
     @ObservationIgnored private let cache = LocalCache()
@@ -102,6 +109,8 @@ final class AppModel {
         let restored = await cache.read(CachedWorkspace.self, key: connection.id.uuidString) ?? CachedWorkspace()
         guard generation == connectionGeneration else { return }
         workspace = restored
+        attachmentDrafts = restored.attachments ?? [:]
+        imageCleanup = restored.imageCleanup ?? [:]
         profiles = workspace.profiles; sessions = workspace.sessions
         selected = workspace.selected.flatMap { workspace.chats[$0] }
         profile = selected?.profile ?? profiles.first?.name ?? "default"
@@ -204,7 +213,7 @@ final class AppModel {
     }
 
     func changeProfile(_ name: String) async {
-        guard name != profile else { return }
+        guard !sending, !voiceActive, name != profile else { return }
         saveCurrent()
         selectionGeneration = UUID(); buffering = false; held = ReplayBuffer(); opening = false
         selected = nil; transcript = Transcript(); profile = name; sessions = []
@@ -213,6 +222,7 @@ final class AppModel {
     }
 
     func openBot(_ bot: AgentProfile) async {
+        guard !sending, !voiceActive else { return }
         if demo { openDemoBot(bot); return }
         guard !opening, let socket else { return }
         saveCurrent()
@@ -248,6 +258,7 @@ final class AppModel {
     }
 
     func openConversation(_ conversation: Conversation, title: String? = nil) async {
+        guard !sending, !voiceActive else { return }
         saveCurrent()
         let generation = UUID(); selectionGeneration = generation
         let cached = workspace.chats[key(conversation.profile, conversation.id)]
@@ -296,44 +307,137 @@ final class AppModel {
     }
 
     func newChat() {
+        guard !sending, !voiceActive else { return }
         saveCurrent(); selectionGeneration = UUID(); opening = false; buffering = false; held = ReplayBuffer()
         selected = nil; transcript = Transcript(); draft = workspace.drafts[draftKey] ?? ""
+    }
+
+    func addAttachment(data: Data, name: String, mimeType: String, context: String) async throws {
+        guard context == attachmentContext, !sending else { throw RPCFailure("Revenez à la conversation choisie avant d’ajouter ce fichier.") }
+        guard data.count <= DraftAttachment.maximumBytes, !data.isEmpty else { throw RPCFailure("Choisissez un fichier de 10 Mo maximum, non vide.") }
+        guard attachments.count < DraftAttachment.maximumCount else { throw RPCFailure("Ajoutez jusqu’à quatre pièces jointes par message.") }
+        let item = DraftAttachment(name: name, mimeType: mimeType, size: data.count)
+        try await cache.saveAttachment(data, id: item.id)
+        guard context == attachmentContext, !sending else { await cache.removeAttachment(item.id); throw CancellationError() }
+        attachmentDrafts[draftKey, default: []].append(item)
+        scheduleSave()
+    }
+
+    var attachmentContext: String { "\(activeConnection?.id.uuidString ?? "demo")|\(draftKey)" }
+
+    func removeAttachment(_ item: DraftAttachment) {
+        guard !sending else { return }
+        attachmentDrafts[draftKey]?.removeAll { $0.id == item.id }
+        Task { await cache.removeAttachment(item.id) }
+        scheduleSave()
     }
 
     func send() async {
         guard canSend else { return }
         if demo { await demoReply(); return }
-        guard let socket else { return }
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        do { _ = try await submit(draft.trimmingCharacters(in: .whitespacesAndNewlines), consumeDraft: true) }
+        catch is CancellationError { }
+        catch { notice = error.localizedDescription }
+    }
+
+    /// A spoken turn never consumes the user's typed draft or its attachments.
+    func sendVoice(_ text: String) async throws -> String {
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw RPCFailure("Aucune parole détectée.") }
+        return try await submit(text, consumeDraft: false)
+    }
+
+    private func submit(_ input: String, consumeDraft: Bool) async throws -> String {
+        guard !sending, !opening, !transcript.running, state == .connected, let socket else { throw RPCFailure("Attendez que Hermes soit prêt avant de parler ou d’envoyer un message.") }
         let originalDraftKey = draftKey
         let generation = selectionGeneration
+        let connection = connectionGeneration
+        let pending = consumeDraft ? attachments : []
+        var text = input
+        if text.isEmpty { text = pending.allSatisfy(\.isImage) ? "Que vois-tu dans ces images ?" : "Examine ces fichiers." }
         sending = true
-        defer { sending = false }
+        defer { if connection == connectionGeneration { sending = false } }
+        func validate() throws {
+            try Task.checkCancellation()
+            guard generation == selectionGeneration, connection == connectionGeneration else { throw CancellationError() }
+        }
+        if selected == nil {
+            let result = try await socket.call("session.create", ["profile": .string(profile)])
+            try validate()
+            selected = ChatSnapshot(storedID: result["stored_session_id"].string, runtimeID: result["session_id"].string, profile: profile, title: String(text.prefix(60)), epoch: socket.epoch)
+            attachmentDrafts[draftKey] = attachmentDrafts.removeValue(forKey: originalDraftKey)
+            workspace.drafts[draftKey] = draft
+            workspace.drafts[originalDraftKey] = nil
+        }
+        guard let chat = selected, !chat.runtimeID.isEmpty else { throw RPCFailure("Rouvrez cette conversation pour envoyer un message.") }
+        let runtime = chat.runtimeID
+        // A timed-out image attach has a known path: detach it before any new turn.
+        for path in imageCleanup[runtime] ?? [] {
+            _ = try await socket.call("image.detach", ["session_id": .string(runtime), "path": .string(path)])
+            try validate()
+        }
+        imageCleanup[runtime] = nil
+        var refs: [String] = []
+        var imagePaths: [String] = []
         do {
-            if selected == nil {
-                let result = try await socket.call("session.create", ["profile": .string(profile)])
-                guard generation == selectionGeneration else { return }
-                selected = ChatSnapshot(storedID: result["stored_session_id"].string, runtimeID: result["session_id"].string, profile: profile, title: String(text.prefix(60)), epoch: socket.epoch)
+            for var item in pending {
+                if item.runtimeID != runtime || item.remotePath == nil {
+                    let data = try await cache.attachment(item.id)
+                    try validate()
+                    let result = try await socket.call("file.attach", ["session_id": .string(runtime), "name": .string(item.name), "data_url": .string("data:\(item.mimeType);base64,\(data.base64EncodedString())")], timeout: 90)
+                    try validate()
+                    guard result["attached"].bool, !result["path"].string.isEmpty else { throw RPCFailure("Hermes n’a pas accepté le fichier.") }
+                    item.remotePath = result["path"].string; item.remoteReference = result["ref_text"].string; item.runtimeID = runtime
+                    if let index = attachmentDrafts[draftKey]?.firstIndex(where: { $0.id == item.id }) { attachmentDrafts[draftKey]?[index] = item }
+                    scheduleSave()
+                }
+                if item.isImage { imagePaths.append(item.remotePath!) }
+                else if let ref = item.remoteReference, !ref.isEmpty { refs.append(ref) }
+                else { throw RPCFailure("Hermes n’a pas renvoyé de référence pour ce fichier.") }
             }
-            guard let chat = selected else { return }
-            let optimistic = ChatMessage(role: "user", text: text, delivery: .sending)
-            transcript.messages.append(optimistic)
+            for path in imagePaths {
+                imageCleanup[runtime, default: []].append(path)
+                await persistNow()
+                try validate()
+                // Hermes accepts file URLs; percent encoding also preserves spaces and quotes.
+                let quoted = URL(fileURLWithPath: path).absoluteString
+                _ = try await socket.call("image.attach", ["session_id": .string(runtime), "path": .string(quoted)])
+                try validate()
+            }
+        } catch {
+            // Keep cleanup paths even on cancellation/disconnect; never silently attach them to a later voice turn.
+            throw error
+        }
+        let prompt = (refs + [text]).joined(separator: "\n\n")
+        let display = text + (pending.isEmpty ? "" : "\n\n" + pending.map { "📎 " + $0.name }.joined(separator: "\n"))
+        let optimistic = ChatMessage(role: "user", text: display, delivery: .sending)
+        transcript.messages.append(optimistic)
+        if consumeDraft {
             draft = ""; workspace.drafts[draftKey] = ""; workspace.drafts[originalDraftKey] = ""
-            transcript.running = true; transcript.activity = "Réfléchit…"
-            await persistNow()
-            do {
-                _ = try await socket.call("prompt.submit", ["session_id": .string(chat.runtimeID), "text": .string(text)])
-                guard generation == selectionGeneration else { return }
-                if let i = transcript.messages.firstIndex(where: { $0.id == optimistic.id }) { transcript.messages[i].delivery = .confirmed }
-            } catch {
-                guard generation == selectionGeneration else { return }
-                let rpc = error as? RPCFailure
-                if let i = transcript.messages.firstIndex(where: { $0.id == optimistic.id }) { transcript.messages[i].delivery = (rpc?.code ?? -1) > 0 ? .failed : .uncertain }
-                transcript.running = false; transcript.activity = nil
-                notice = "Envoi à vérifier : \(error.localizedDescription) Le message ne sera pas renvoyé automatiquement."
+            attachmentDrafts[draftKey] = nil
+        }
+        transcript.running = true; transcript.activity = "Réfléchit…"; transcript.failure = nil
+        await persistNow()
+        try validate()
+        do {
+            _ = try await socket.call("prompt.submit", ["session_id": .string(runtime), "text": .string(prompt)])
+            imageCleanup[runtime] = nil
+            try validate()
+            if let i = transcript.messages.firstIndex(where: { $0.id == optimistic.id }) { transcript.messages[i].delivery = .confirmed }
+        } catch {
+            guard generation == selectionGeneration, connection == connectionGeneration else { throw error }
+            let rejected = ((error as? RPCFailure)?.code ?? -1) > 0
+            if let i = transcript.messages.firstIndex(where: { $0.id == optimistic.id }) { transcript.messages[i].delivery = rejected ? .failed : .uncertain }
+            transcript.running = false; transcript.activity = nil
+            if rejected && consumeDraft {
+                attachmentDrafts[draftKey] = pending
+                draft = input
             }
             scheduleSave()
-        } catch { notice = error.localizedDescription }
+            throw RPCFailure("Envoi à vérifier : \(error.localizedDescription) Le message ne sera pas renvoyé automatiquement.")
+        }
+        for item in pending { await cache.removeAttachment(item.id) }
+        scheduleSave()
+        return optimistic.id
     }
 
     func interrupt() async {
@@ -507,6 +611,8 @@ final class AppModel {
 
     private func saveCurrent() {
         flushStream()
+        workspace.imageCleanup = imageCleanup
+        workspace.attachments = attachmentDrafts
         workspace.drafts[draftKey] = draft
         if var chat = selected, !chat.storedID.isEmpty {
             chat.messages = Array(transcript.messages.suffix(500))
@@ -540,7 +646,7 @@ final class AppModel {
             socket?.close(); http?.invalidate(); http = nil; socket = nil
             connectionGeneration = UUID(); selectionGeneration = UUID()
             activeConnection = nil; selected = nil; profiles = []; sessions = []; draft = ""
-            transcript = Transcript(); workspace = CachedWorkspace(); state = .offline
+            transcript = Transcript(); workspace = CachedWorkspace(); attachmentDrafts = [:]; state = .offline
         }
         Keychain.delete(connection.id.uuidString)
         connections.removeAll { $0.id == connection.id }

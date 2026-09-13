@@ -21,6 +21,12 @@ actor LocalCache {
     func save<T: Encodable & Sendable>(_ value: T, key: String) throws {
         try JSONEncoder().encode(value).write(to: url(key), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
+    private func attachmentURL(_ id: UUID) -> URL { folder.appendingPathComponent(id.uuidString + ".attachment") }
+    func saveAttachment(_ data: Data, id: UUID) throws {
+        try data.write(to: attachmentURL(id), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+    func attachment(_ id: UUID) throws -> Data { try Data(contentsOf: attachmentURL(id)) }
+    func removeAttachment(_ id: UUID) { try? FileManager.default.removeItem(at: attachmentURL(id)) }
     func remove(_ key: String) throws {
         let path = url(key)
         if FileManager.default.fileExists(atPath: path.path) { try FileManager.default.removeItem(at: path) }
