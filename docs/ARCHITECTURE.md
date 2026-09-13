@@ -21,7 +21,11 @@ Saved chats and drafts render before the network is contacted. The socket stays 
 
 The view keeps stable message identities during hydration and follows the last message only while the reader is near the bottom. A tiny connection indicator reports availability; there is no full-screen sync overlay or forced clearing of chat. The composer remains editable offline.
 
-Chat is the persistent root screen. A header menu presents history, agents, routines and settings in native sheets; the profile selector and new-conversation button remain directly accessible. Opening or dismissing these screens keeps the chat view and its draft alive. No bottom tab bar sits between the composer and the device's safe area or keyboard.
+Chat is the persistent root screen. The launcher button is integrated into the floating composer. Spaces starts as a compact 540-point native sheet with direct profile pills, grouped text shortcuts and a bottom search field. Tool pages expand it to full height; returning to Spaces restores the compact sheet. A shared ToolDock combines navigation and each tool’s primary action in one row. Opening tools never remounts the chat; no tab bar sits below its composer.
+
+Native tools capture connection ID and profile when opened. AppModel checks both before requests and checks the connection generation again after each response. Read results are cached in memory by connection/profile/resource/query and revalidated without clearing existing rows. A load generation prevents a superseded board request from replacing the selected board. Kanban passes an explicit board slug and never changes Hermes’ global current-board pointer; visible boards refresh every eight seconds and stop polling when inactive.
+
+Audio uses AVAudioRecorder and AVAudioPlayer on iPhone and the authenticated Hermes `/api/audio/transcribe` and `/api/audio/speak` routes. It does not call the server-microphone `voice.record` RPC or download provider credentials. Recordings are capped at two minutes and temporary files are deleted after capture, on dismissal, interruption and backgrounding. Dictation is reviewed before insertion into the existing draft; it never auto-sends.
 
 ## Reconnect
 

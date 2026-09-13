@@ -33,6 +33,7 @@ final class AppModel {
     var agent: AgentProfile? { profiles.first { $0.name == (selected?.profile ?? profile) } }
     var canSend: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (state == .connected || demo) && !opening && !sending && !transcript.running && (selected == nil || !(selected?.runtimeID.isEmpty ?? true) || demo) }
 
+    @ObservationIgnored var toolCache: [String: JSONValue] = [:]
     @ObservationIgnored private let cache = LocalCache()
     @ObservationIgnored private var http: HermesHTTP?
     @ObservationIgnored private var socket: HermesSocket?
@@ -423,6 +424,28 @@ final class AppModel {
         guard activeConnection?.id == connectionID, state == .connected, let socket else { throw RPCFailure("Reconnectez le serveur de ce groupe.") }
         let result = try await socket.call(method, params)
         guard activeConnection?.id == connectionID else { throw CancellationError() }
+        return result
+    }
+
+    /// Each tool stays pinned to the server and profile that opened it.
+    func toolRequest(_ path: String, method: String = "GET", body: JSONValue? = nil,
+                     query: [URLQueryItem] = [], connectionID: UUID?, profile expectedProfile: String,
+                     rpc: Bool = false) async throws -> JSONValue {
+        guard activeConnection?.id == connectionID, profile == expectedProfile,
+              let http, state == .connected else { throw RPCFailure("Reconnectez cet agent pour accéder à ses outils.") }
+        let generation = connectionGeneration
+        let result: JSONValue
+        if rpc {
+            guard let socket else { throw RPCFailure("Hermes est déconnecté.") }
+            var params = body?.object ?? [:]; params["profile"] = .string(expectedProfile)
+            result = try await socket.call(path, .object(params))
+        } else {
+            result = try await http.request(path, method: method, body: body,
+                query: query + [URLQueryItem(name: "profile", value: expectedProfile)])
+        }
+        try Task.checkCancellation()
+        guard generation == connectionGeneration, profile == expectedProfile else { throw CancellationError() }
+        try checkResult(result)
         return result
     }
 

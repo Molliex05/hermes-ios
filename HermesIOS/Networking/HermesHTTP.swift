@@ -42,8 +42,8 @@ final class HermesHTTP {
         }
     }
 
-    func request(_ path: String, method: String = "GET", body: JSONValue? = nil) async throws -> JSONValue {
-        var request = URLRequest(url: connection.endpoint.url(path))
+    func request(_ path: String, method: String = "GET", body: JSONValue? = nil, query: [URLQueryItem] = []) async throws -> JSONValue {
+        var request = URLRequest(url: connection.endpoint.url(path, query: query))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let token { request.setValue(token, forHTTPHeaderField: "X-Hermes-Session-Token") }
@@ -57,7 +57,10 @@ final class HermesHTTP {
             throw RPCFailure(path == "/auth/password-login" ? "Identifiants Hermes incorrects." : "Votre connexion Hermes a expiré. Reconnectez-vous dans les réglages.", code: 401)
         }
         guard (200...299).contains(response.statusCode) else {
-            throw RPCFailure(response.statusCode == 429 ? "Trop de tentatives. Réessayez dans un instant." : "Hermes a répondu HTTP \(response.statusCode). Vérifiez l’adresse du serveur et son état.", code: response.statusCode)
+            let failure = try? JSONValue.decode(data)
+            let detail = failure?["detail"].string ?? ""
+            let message = detail.isEmpty ? "Hermes a répondu HTTP \(response.statusCode)." : String(detail.prefix(600))
+            throw RPCFailure(response.statusCode == 429 ? "Trop de tentatives. Réessayez dans un instant." : message, code: response.statusCode)
         }
         try persistCookies()
         return data.isEmpty ? .object([:]) : try JSONValue.decode(data)

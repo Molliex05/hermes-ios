@@ -15,7 +15,7 @@ xcodebuild -scheme HermesIOS \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
-Choose an installed simulator. The regular suite runs offline previews, captures welcome/chat/agents/settings/connection screenshots, checks bottom composer placement with no tab bar, and verifies draft preservation through header navigation and sheet dismissal. Native integration is skipped in this scheme. Keep code signing enabled for Keychain tests. Do not run competing XCUITest processes on the same simulator.
+Choose an installed simulator. The regular suite runs offline previews, captures welcome/chat/agents/settings/connection screenshots, checks bottom composer placement with no tab bar, and verifies draft preservation through thumb navigation and sheet dismissal, plus Spaces search and every new tool destination. Native integration is skipped in this scheme. Keep code signing enabled for Keychain tests. Do not run competing XCUITest processes on the same simulator.
 
 If your simulator runtime belongs to a second Xcode installation, select it for the command with `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer` rather than changing the machine-wide selection.
 
@@ -39,6 +39,7 @@ In another terminal:
 
 ```sh
 outputs/integration/venv/bin/python scripts/check_hermes_contract.py
+outputs/integration/venv/bin/python scripts/check_tools_contract.py
 
 xcodebuild -scheme HermesIOSIntegration \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
@@ -50,3 +51,5 @@ The fixture binds only to loopback. Its intentionally public test credentials ar
 The protocol probe verifies authentication gates, ticket minting, native RPC calls, streaming across a closed/reopened socket, replay sequences, exactly one persisted user message, canonical Bot Chat profile isolation, cron create/list/pause and hosted-group creation/logs. The opt-in UI test signs in from iOS, sends a message, backgrounds/reactivates the app during the turn, checks the final reply and relaunches to verify cached history plus saved authentication.
 
 Stop the fixture with Ctrl-C. The test home and dependencies remain in the ignored `outputs/` directory for inspection. Never run this harness with your real `HERMES_HOME`.
+
+The tools probe verifies native skills list/content/toggle and profile isolation, workspace list isolation, model assignment isolation, Kanban board/detail/triage creation and retry deduplication. Audio checks validate the native authenticated routes without calling an STT/TTS provider; physical microphone capture and real speech providers require a manual device check.

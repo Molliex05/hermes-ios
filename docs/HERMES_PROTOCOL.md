@@ -47,3 +47,16 @@ All source paths above refer to the [pinned official repository](https://github.
 ## Why not the OpenAI-compatible API?
 
 The `/v1/*` integration is useful for OpenAI-compatible clients but is not the desktop session/profile protocol. The mobile app needs existing Hermes conversations, permissions, canonical Bot Chats and durable group semantics. Using the official desktop/TUI gateway preserves those primitives and avoids introducing a synchronization bridge.
+
+## Mobile tools (same upstream revision)
+
+| Surface | Native interface | Scope and behavior |
+| --- | --- | --- |
+| Skills | GET `/api/skills`, GET `/api/skills/content?name=…`, PUT `/api/skills/toggle` | Explicit `profile` query on every request; read instructions and enable/disable |
+| Models | GET `/api/model/options`, POST `/api/model/set` | Profile scoped; `scope: main`; applies to new sessions; honor `confirm_required` before retrying with `confirm_expensive_model` |
+| Workspace | RPC `projects.list` | Profile scoped; projects include `folders`, `primary_path`, `board_slug` |
+| Kanban | GET `/api/plugins/kanban/boards`, `/board`, `/tasks/{id}`; POST `/tasks` | Explicit `board` query; shared board data; task creation uses `triage: true` and a retained `idempotency_key` |
+| Dictation | POST `/api/audio/transcribe` | Profile scoped JSON `data_url` + `mime_type: audio/mp4`; result `transcript` |
+| Speech playback | POST `/api/audio/speak` | Profile scoped `{text}`; result base64 `data_url`; provider credentials remain on Hermes |
+
+These contracts come from `hermes_cli/web_routers/{skills,models,audio}.py`, `tui_gateway/methods_projects.py`, `plugins/kanban/dashboard/plugin_api.py` and the official desktop Kanban client. The server’s `voice.record` captures the **server** microphone, so it is deliberately not used for iPhone recording. The mobile voice screen currently implements explicit dictation and playback, not continuous voice or GPT-Live.

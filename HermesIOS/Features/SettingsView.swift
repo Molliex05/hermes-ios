@@ -9,7 +9,7 @@ struct SettingsView: View {
     @State private var guide = false
     var body: some View {
         NavigationStack {
-            List {
+            List { Group {
                 Section {
                     HStack(spacing: 17) {
                         AgentMark(size: 48)
@@ -58,7 +58,8 @@ struct SettingsView: View {
                 if model.demo {
                     Section { Button("Quitter l’aperçu") { model.demo = false; model.selected = nil; model.profiles = []; model.transcript = Transcript() } }
                 }
-            }.scrollContentBackground(.hidden).background(AppTheme.background)
+            }.listRowBackground(Color.clear)
+}.modernList()
                 .navigationTitle("Réglages").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {

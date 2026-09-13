@@ -32,6 +32,18 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(c.queryItems?.first?.value, "a+b/&=?")
     }
 
+    func testToolQueriesStayScopedBehindReverseProxy() throws {
+        let endpoint = try Endpoint("http://hermes.tailnet.ts.net/mobile")
+        let url = endpoint.url("/api/skills/content", query: [
+            URLQueryItem(name: "profile", value: "research"),
+            URLQueryItem(name: "name", value: "notes & plans?profile=studio")])
+        let parts = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        XCTAssertEqual(parts.path, "/mobile/api/skills/content")
+        XCTAssertEqual(parts.queryItems?.count, 2)
+        XCTAssertEqual(parts.queryItems?.first?.value, "research")
+        XCTAssertEqual(parts.queryItems?.last?.value, "notes & plans?profile=studio")
+    }
+
     func testPrivateHTTPAndTailscaleIPv6() throws {
         for host in ["100.64.0.1", "100.127.255.254", "192.168.1.8", "10.0.0.8", "172.16.0.3", "hermes", "mini.tailnet.ts.net", "[fd7a:115c:a1e0::1]"] {
             XCTAssertNoThrow(try Endpoint("http://\(host):9119"))

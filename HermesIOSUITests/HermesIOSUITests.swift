@@ -9,10 +9,11 @@ final class HermesIOSUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.tabBars.firstMatch.exists)
+        XCTAssertGreaterThan(app.buttons["app-navigation"].frame.minY, app.windows.firstMatch.frame.maxY - 130)
         XCTAssertLessThan(app.windows.firstMatch.frame.maxY - app.textFields["chat-composer"].frame.maxY, 100)
         capture("01-chat")
         openNavigation("Agents", in: app)
-        XCTAssertTrue(app.staticTexts["À chacun\nson talent."].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["Vos agents."].waitForExistence(timeout: 3))
         capture("02-agents")
         app.buttons.containing(.staticText, identifier: "Atlas").firstMatch.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Bonjour, je suis Atlas")).firstMatch.waitForExistence(timeout: 3))
@@ -35,7 +36,7 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertFalse(app.buttons["connect-agent"].isEnabled)
     }
 
-    func testDraftSurvivesHeaderNavigation() throws {
+    func testDraftSurvivesThumbNavigation() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--demo"]
         app.launch()
@@ -43,8 +44,8 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
         composer.tap(); composer.typeText("Mon brouillon reste ici")
         openNavigation("Agents", in: app)
-        XCTAssertTrue(app.buttons["Fermer les agents"].waitForExistence(timeout: 3))
-        app.buttons["Fermer les agents"].tap()
+        XCTAssertTrue(app.buttons["return-to-chat"].waitForExistence(timeout: 3))
+        app.buttons["return-to-chat"].tap()
         XCTAssertTrue(composer.waitForExistence(timeout: 3))
         XCTAssertEqual(composer.value as? String, "Mon brouillon reste ici")
         openNavigation("Réglages", in: app)
@@ -79,7 +80,9 @@ final class HermesIOSUITests: XCTestCase {
         }
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 40))
         XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
-        app.buttons["Nouvelle conversation"].tap()
+        openNavigation("Conversations", in: app)
+        let newChat = try XCTUnwrap(app.buttons.matching(identifier: "Nouvelle conversation").allElementsBoundByIndex.first(where: { $0.isHittable }))
+        newChat.tap()
         let composer = app.textFields["chat-composer"]
         composer.tap(); composer.typeText("Bonjour depuis HermesIOS sur iPhone")
         app.buttons["send-message"].tap()
@@ -96,16 +99,95 @@ final class HermesIOSUITests: XCTestCase {
         app.terminate(); app.launch()
         XCTAssertTrue(final.firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 30))
+
+        // check_tools_contract.py seeds only the disposable research profile.
+        app.buttons["quick-agents"].tap()
+        XCTAssertTrue(app.buttons["agent-research"].waitForExistence(timeout: 5))
+        app.buttons["agent-research"].tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        openNavigation("Skills", in: app)
+        let skill = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "mobile-fixture-")).firstMatch
+        XCTAssertTrue(skill.waitForExistence(timeout: 15))
+        skill.tap()
+        let toggle = app.switches["Disponible pour l’agent"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "enabled == true"), object: toggle)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed)
+        capture("09-skill-before")
+        let expected = (toggle.value as? String) == "1" ? "0" : "1"
+        // SwiftUI exposes the label and switch as one wide accessibility element.
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.93, dy: 0.5)).tap()
+        let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", expected), object: toggle)
+        let outcome = XCTWaiter.wait(for: [enabled], timeout: 10)
+        capture("09-native-skill")
+        XCTAssertEqual(outcome, .completed)
+        app.buttons["return-to-chat"].tap()
+        openNavigation("Modèles", in: app)
+        XCTAssertTrue(app.staticTexts["hermes-ios-fixture-mobile"].firstMatch.waitForExistence(timeout: 20))
+        app.buttons["return-to-chat"].tap()
+        openNavigation("Workspace", in: app)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Mobile ")).firstMatch.waitForExistence(timeout: 15))
+        app.buttons["return-to-chat"].tap()
+        openNavigation("Kanban", in: app)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Mobile fixture ")).firstMatch.waitForExistence(timeout: 15))
+        capture("10-native-kanban")
+        app.buttons["return-to-chat"].tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+    }
+
+    func testSpacesDiscoveryAndTools() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo"]
+        app.launch()
+        XCTAssertTrue(app.buttons["app-navigation"].waitForExistence(timeout: 10))
+        app.buttons["app-navigation"].tap()
+        XCTAssertTrue(app.textFields["spaces-search"].waitForExistence(timeout: 3))
+        capture("07-spaces")
+        for (query, identifier, title) in [("cron", "routines", "Les routines"), ("skills", "skills", "Skills"), ("kanban", "kanban", "Kanban"), ("workspace", "workspace", "Workspace"), ("modèle", "models", "Modèles"), ("voix", "voice", "Voix")] {
+            let search = app.textFields["spaces-search"]
+            search.tap(); search.typeText(query)
+            let button = app.buttons["space-" + identifier]
+            XCTAssertTrue(button.waitForExistence(timeout: 3))
+            button.tap()
+            XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 3))
+            if identifier == "voice" {
+                XCTAssertTrue(app.buttons["Écouter la dernière réponse"].exists)
+                XCTAssertLessThanOrEqual(app.buttons["Écouter la dernière réponse"].frame.maxY, app.buttons["return-to-chat"].frame.maxY)
+            }
+            if identifier == "kanban" {
+                XCTAssertTrue(app.buttons["Nouvelle tâche"].exists)
+                XCTAssertLessThanOrEqual(app.buttons["Nouvelle tâche"].frame.maxY, app.buttons["return-to-chat"].frame.maxY)
+            }
+            capture("08-" + identifier)
+            if identifier == "kanban" { XCTAssertTrue(app.staticTexts["Préparer la prochaine idée"].waitForExistence(timeout: 5)) }
+            app.buttons["back-to-spaces"].tap()
+            XCTAssertTrue(app.textFields["spaces-search"].waitForExistence(timeout: 3))
+            app.buttons["Effacer la recherche"].tap()
+        }
+        app.buttons["return-to-chat"].tap()
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 3))
     }
 
     private func openNavigation(_ destination: String, in app: XCUIApplication) {
+        if destination == "Agents" { app.buttons["quick-agents"].tap(); return }
         app.buttons["app-navigation"].tap()
-        XCTAssertTrue(app.buttons[destination].waitForExistence(timeout: 3))
-        app.buttons[destination].tap()
+        let search = app.textFields["spaces-search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 3))
+        search.tap(); search.typeText(destination)
+        let identifier = destination == "Réglages" ? "settings" : destination == "Modèles" ? "models" : destination == "Conversations" ? "history" : destination.lowercased()
+        let button = app.buttons["space-" + identifier]
+        XCTAssertTrue(button.waitForExistence(timeout: 3))
+        button.tap()
     }
 
     private func capture(_ name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let screenshot = XCUIScreen.main.screenshot()
+        // Also keep PNGs in the disposable runner container: beta Xcode can stall
+        // while finalizing xcresult after a fully completed suite.
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("hermes-ios-qa")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try? screenshot.pngRepresentation.write(to: directory.appendingPathComponent(name + ".png"))
+        let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name; attachment.lifetime = .keepAlways
         add(attachment)
     }

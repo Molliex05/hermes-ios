@@ -93,6 +93,10 @@ extension View {
             self.defaultScrollAnchor(.bottom)
         }
     }
+    func modernList() -> some View {
+        listStyle(.plain).scrollContentBackground(.hidden).background(AppTheme.background)
+            .environment(\.defaultMinListRowHeight, 54)
+    }
     func hermesCard() -> some View {
         padding(20).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 24))
             .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(AppTheme.line))

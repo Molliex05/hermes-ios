@@ -6,7 +6,7 @@ struct RoutinesView: View {
     @State private var creating = false
     var body: some View {
         NavigationStack {
-            List {
+            List { Group {
                 Section {
                     Text("Les routines de \(model.agent?.title ?? "Hermes") continuent sur votre serveur, même quand Hermès iOS est fermé.").font(.subheadline).foregroundStyle(.secondary)
                 }
@@ -26,11 +26,15 @@ struct RoutinesView: View {
                         Label(routine.paused ? "En pause" : routine.schedule, systemImage: "clock").font(.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 10)
                 }
-            }.scrollContentBackground(.hidden).background(AppTheme.background)
+            }.listRowBackground(Color.clear)
+}.modernList()
                 .navigationTitle("Les routines").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } }
-                    ToolbarItem(placement: .primaryAction) { Button { creating = true } label: { Image(systemName: "plus") }.disabled(model.demo) }
+
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    ToolDock { Button { creating = true } label: { Label("Ajouter", systemImage: "plus").frame(minHeight: 44) }.disabled(model.demo).accessibilityLabel("Nouvelle routine") }
                 }.task { await model.loadRoutines() }
                 .sheet(isPresented: $creating) { RoutineEditor(model: model) }
         }
@@ -61,7 +65,7 @@ struct RoutineEditor: View {
                     }
                 } footer: { Text("Heure du serveur Hermes. Le résultat arrive dans le Bot Chat de cet agent.") }
                 if let error { Text(error).foregroundStyle(AppTheme.accent) }
-            }.scrollContentBackground(.hidden).background(AppTheme.background)
+            }.modernList()
                 .navigationTitle("Nouvelle routine").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }

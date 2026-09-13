@@ -2,11 +2,7 @@ import SwiftUI
 
 struct ChatView: View {
     @Bindable var model: AppModel
-    private enum Destination: String, Identifiable {
-        case history, profiles, agents, routines, settings
-        var id: String { rawValue }
-    }
-    @State private var destination: Destination?
+    @State private var destination: AppDestination?
     @State private var pinnedToBottom = true
     @FocusState private var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -22,13 +18,9 @@ struct ChatView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
             .toolbar(.hidden, for: .navigationBar)
             .sheet(item: $destination) { page in
-                switch page {
-                case .history: SessionsView(model: model)
-                case .profiles: ProfilePicker(model: model)
-                case .agents: AgentsView(model: model, openChat: { destination = nil })
-                case .routines: RoutinesView(model: model)
-                case .settings: SettingsView(model: model)
-                }
+                SpacesView(model: model, initial: page == .spaces ? nil : page)
+                    .presentationDragIndicator(.visible)
+                    .presentationCornerRadius(30)
             }
             .onChange(of: model.draft) { _, _ in model.draftChanged() }
             .onChange(of: model.selected?.storedID) { _, _ in pinnedToBottom = true }
@@ -37,44 +29,24 @@ struct ChatView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Menu {
-                Section {
-                    Button("Historique", systemImage: "clock.arrow.circlepath") { present(.history) }
-                        .accessibilityIdentifier("nav-history")
-                    Button("Agents", systemImage: "square.grid.2x2") { present(.agents) }
-                        .accessibilityIdentifier("nav-agents")
-                    Button("Routines", systemImage: "clock.badge") { present(.routines) }
-                }
-                Section {
-                    Button("Réglages", systemImage: "slider.horizontal.3") { present(.settings) }
-                        .accessibilityIdentifier("nav-settings")
-                }
-            } label: {
-                Image(systemName: "line.3.horizontal").font(.system(size: 18, weight: .medium))
-                    .frame(width: 44, height: 44).background(AppTheme.surface, in: Circle())
-                    .overlay(Circle().strokeBorder(AppTheme.line))
-            }.foregroundStyle(.primary).accessibilityLabel("Navigation")
-                .accessibilityHint("Historique, agents, routines et réglages")
-                .accessibilityIdentifier("app-navigation")
-            Button { present(.profiles) } label: {
+            Button { present(.agents) } label: {
                 HStack(spacing: 11) {
                     AgentAvatar(name: model.agent?.name ?? "default", size: 34)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
-                            Text(model.agent?.title ?? "Hermes").font(.headline).lineLimit(1)
-                            Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                            Text(model.agent?.title ?? "Hermes").font(.headline)
+                            Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
                         }
                         ConnectionIndicator(model: model).lineLimit(1)
                     }
                 }
-            }.buttonStyle(.plain).accessibilityLabel("Choisir un profil")
-            Spacer(minLength: 4)
+            }.buttonStyle(.plain).accessibilityLabel("Choisir un agent").accessibilityIdentifier("quick-agents")
+            Spacer()
             RoundButton(symbol: "square.and.pencil", label: "Nouvelle conversation") { model.newChat(); focused = true }
-        }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 16)
-        .overlay(alignment: .bottom) { Rectangle().fill(AppTheme.line).frame(height: 1) }
+        }.padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 16)
     }
 
-    private func present(_ page: Destination) {
+    private func present(_ page: AppDestination) {
         focused = false
         destination = page
     }
@@ -163,7 +135,7 @@ struct ChatView: View {
     }
 
     private var composer: some View {
-        VStack(spacing: 9) {
+        VStack(spacing: 0) {
             if model.draft.hasSuffix("@") {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -177,14 +149,11 @@ struct ChatView: View {
                 }
             }
             HStack(alignment: .bottom, spacing: 10) {
-                Menu {
-                    Button("Routines", systemImage: "clock.badge") { present(.routines) }
-                    Button("Mentionner un agent", systemImage: "at") { model.draft += "@"; focused = true }
-                    Button("Nouvelle conversation", systemImage: "square.and.pencil") { model.newChat() }
-                } label: {
-                    Image(systemName: "plus").font(.system(size: 21, weight: .regular)).foregroundStyle(.secondary).frame(width: 34, height: 44)
-                }.accessibilityLabel("Actions de la conversation")
-                TextField("Écrivez à \(model.agent?.title ?? "Hermes")…", text: $model.draft, axis: .vertical)
+                Button { present(.spaces) } label: {
+                    Image(systemName: "circle.grid.2x2").font(.system(size: 21, weight: .regular))
+                        .foregroundStyle(.primary).frame(width: 42, height: 44)
+                }.accessibilityLabel("Ouvrir les espaces").accessibilityIdentifier("app-navigation")
+                TextField("Message…", text: $model.draft, axis: .vertical)
                     .lineLimit(1...7).font(.body).padding(.vertical, 12).focused($focused)
                     .accessibilityIdentifier("chat-composer")
                 Button {
@@ -202,7 +171,7 @@ struct ChatView: View {
                     .accessibilityIdentifier("send-message")
             }.padding(9).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 28))
                 .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(AppTheme.line))
-                .shadow(color: .black.opacity(0.025), radius: 15, y: 4)
+                .shadow(color: .black.opacity(0.045), radius: 22, y: 6)
         }.padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 8).frame(maxWidth: 750).frame(maxWidth: .infinity)
             .background(AppTheme.background)
     }
