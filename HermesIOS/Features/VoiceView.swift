@@ -122,17 +122,13 @@ private final class VoiceConversation {
                 if generation == attempt { audio.cleanup(); tools.app.voiceActive = false; operation = nil; phase = .paused; releaseLease() }
             }
             do {
-                let status = try await tools.request("/api/audio/voice-live/status")
-                if status["mode"].string == "gpt-live", !standardModeAccepted {
+                let preferences = try await voiceAPI.preferences()
+                try validate(attempt)
+                if preferences.isGPTLive, !standardModeAccepted {
                     requiresStandardMode = true
                     return
                 }
                 requiresStandardMode = false
-                // Extract voice settings only; never cache the profile's full config or provider credentials.
-                let voice = try await voiceSettings()
-                let threshold = voice["silence_threshold"].isNull ? 200 : max(1, voice["silence_threshold"].double)
-                let silence = voice["silence_duration"].isNull ? 3 : max(0.3, voice["silence_duration"].double)
-                let phrases = voice["stop_phrases"].isNull ? ["stop"] : voice["stop_phrases"].array.map(\.string)
                 let leaseID = "ios-" + UUID().uuidString
                 lease = leaseID
                 _ = try? await tools.request("/api/audio/tts-lease", method: "POST", body: ["lease": .string(leaseID), "active": true])
@@ -140,7 +136,7 @@ private final class VoiceConversation {
                     try validate(attempt)
                     guard !tools.app.transcript.running else { throw RPCFailure("Attendez la fin de la réponse dans le chat.") }
                     phase = .listening; finishUtterance = false
-                    var activity = VoiceActivity(threshold: threshold, silenceDuration: silence)
+                    var activity = VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.silenceDuration)
                     try await audio.start()
                     while true {
                         try await Task.sleep(for: .milliseconds(50)); try validate(attempt)
@@ -151,11 +147,11 @@ private final class VoiceConversation {
                     let recording = try audio.finish()
                     guard activity.hasSpeech else { throw RPCFailure("Aucune parole détectée. Touchez le micro pour réessayer.") }
                     phase = .transcribing
-                    let transcription = try await tools.request("/api/audio/transcribe", method: "POST", body: ["data_url": .string("data:\(audio.mimeType);base64,\(recording.base64EncodedString())"), "mime_type": .string(audio.mimeType)])
+                    let transcription = try await voiceAPI.transcribe(recording, mimeType: audio.mimeType)
                     try validate(attempt)
-                    heard = transcription["transcript"].string.trimmingCharacters(in: .whitespacesAndNewlines)
+                    heard = transcription
                     if heard.isEmpty { continue }
-                    if VoiceActivity.isStop(heard, phrases: phrases) { return }
+                    if VoiceActivity.isStop(heard, phrases: preferences.stopPhrases) { return }
                     phase = .thinking; answer = ""
                     let message = try await tools.app.sendVoice(heard)
                     sessionID = tools.app.selected?.storedID
@@ -175,18 +171,20 @@ private final class VoiceConversation {
                     guard let index = messages.firstIndex(where: { $0.id == message }) else { throw RPCFailure("La conversation a changé. Retrouvez la réponse dans le chat.") }
                     answer = messages.dropFirst(index + 1).filter { $0.role == "assistant" }.map(\.text).joined(separator: "\n\n")
                     guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw RPCFailure("Hermes n’a pas renvoyé de réponse à lire.") }
-                    let speech = try await tools.request("/api/audio/speak", method: "POST", body: ["text": .string(answer)])
+                    let speech = try await voiceAPI.speech(answer)
                     try validate(attempt)
                     phase = .speaking
-                    try audio.play(speech["data_url"].string)
+                    try audio.play(speech)
                     while audio.playing { try await Task.sleep(for: .milliseconds(100)); try validate(attempt) }
                 }
             } catch is CancellationError { }
             catch { if generation == attempt { self.error = error.localizedDescription } }
         }
     }
-    private func voiceSettings() async throws -> JSONValue {
-        try await tools.request("/api/config")["voice"]
+    private var voiceAPI: NativeVoiceAPI {
+        NativeVoiceAPI { [tools] path, body, rpc in
+            try await tools.request(path, method: "POST", body: body, rpc: rpc)
+        }
     }
     private func validate(_ attempt: UUID) throws {
         try Task.checkCancellation()

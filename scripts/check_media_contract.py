@@ -42,8 +42,8 @@ async def main():
         with wave.open(audio, 'wb') as wav:
             wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(24000); wav.writeframes(b'\x00\x00' * 2400)
         for profile in ['research', 'studio']:
-            status = (await http.get('/api/audio/voice-live/status', params={'profile': profile})).json()
-            assert status['mode'] == 'chained', status
+            config = await client.rpc('config.get', {'key': 'full', 'profile': profile})
+            assert config['config'].get('voice', {}).get('voice_chat_mode', 'chained') == 'chained'
             lease = 'ios-contract-' + uuid.uuid4().hex
             (await http.post('/api/audio/tts-lease', params={'profile': profile}, json={'lease': lease, 'active': True})).raise_for_status()
             transcription = await http.post('/api/audio/transcribe', params={'profile': profile}, json={'data_url': data_url('audio/wav', audio.getvalue()), 'mime_type': 'audio/wav'})

@@ -34,6 +34,7 @@
 		D681AB6A78A919CC947068D4 /* HermesIOSUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E603ABD353FD2203064ED4D6 /* HermesIOSUITests.swift */; };
 		E4687AFCE99263487AB19A15 /* AgentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB4E2583813D830A3E900B68 /* AgentsView.swift */; };
 		EB76A6E45F00A3052ABE4188 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E36DE38AF4ABDF2227F4C599 /* RootView.swift */; };
+		F6F4E6CC72851994C165964E /* NativeVoiceAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B104A4361ECD7B91A321759C /* NativeVoiceAPI.swift */; };
 		F78C38E621878F2516DBF4C8 /* StoredCookie.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13C6E169393755487F106D2 /* StoredCookie.swift */; };
 		F843B14A351EDA859765A6D3 /* KanbanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19B9D9CC524C6E12BC3360D4 /* KanbanView.swift */; };
 		FC50ED3C6CBD0ED6853464C3 /* VoiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B1B07CAFC53C700A7E55E59 /* VoiceView.swift */; };
@@ -74,6 +75,7 @@
 		851E43F4DDB4C85BF0F4C3EB /* NativeToolSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeToolSession.swift; sourceTree = "<group>"; };
 		B015E03D9D8F60B51C9F3C89 /* RoutinesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutinesView.swift; sourceTree = "<group>"; };
 		B083DF2BEBD828CF266749E2 /* DraftAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraftAttachment.swift; sourceTree = "<group>"; };
+		B104A4361ECD7B91A321759C /* NativeVoiceAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeVoiceAPI.swift; sourceTree = "<group>"; };
 		BB4E2583813D830A3E900B68 /* AgentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsView.swift; sourceTree = "<group>"; };
 		CEEDE2B035F0E274D1A677E0 /* PhotoAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoAttachment.swift; sourceTree = "<group>"; };
 		D13C6E169393755487F106D2 /* StoredCookie.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoredCookie.swift; sourceTree = "<group>"; };
@@ -162,6 +164,7 @@
 				EA403258EBDBCDA2BBA568D1 /* Endpoint.swift */,
 				03771C2DF46F958CA751A93C /* JSONValue.swift */,
 				02A462CE3A3E115F981A5C76 /* Models.swift */,
+				B104A4361ECD7B91A321759C /* NativeVoiceAPI.swift */,
 				D13C6E169393755487F106D2 /* StoredCookie.swift */,
 				0133611339BB4310770DF600 /* Transcript.swift */,
 				0B1ABEA9AE1C021FC85A2204 /* VoiceActivity.swift */,
@@ -293,6 +296,7 @@
 				B3E754254F266AC7A3A72788 /* LocalCache.swift in Sources */,
 				C64A73C0EABAD25C4AB4E961 /* Models.swift in Sources */,
 				1C0F76837800CB263FE2F9FA /* NativeToolSession.swift in Sources */,
+				F6F4E6CC72851994C165964E /* NativeVoiceAPI.swift in Sources */,
 				B4F7674BD7E40625FFA1833A /* OnboardingView.swift in Sources */,
 				0EAAC808AC8CD5F546371AFE /* PhotoAttachment.swift in Sources */,
 				EB76A6E45F00A3052ABE4188 /* RootView.swift in Sources */,

@@ -2,6 +2,58 @@ import XCTest
 @testable import HermesIOSCore
 
 final class ProtocolTests: XCTestCase {
+    @MainActor
+    func testStandardVoiceDoesNotRequireOptionalHTTPDiscoveryRoutes() async throws {
+        var calls: [String] = []
+        let api = NativeVoiceAPI { path, body, rpc in
+            calls.append(path)
+            if path == "config.get", rpc {
+                XCTAssertEqual(body["key"].string, "full")
+                return ["config": ["voice": ["silence_threshold": 350, "silence_duration": .number(1.5), "stop_phrases": ["terminer"]]]]
+            }
+            if path == "/api/audio/transcribe", !rpc { return ["transcript": " Bonjour "] }
+            if path == "/api/audio/speak", !rpc { return ["data_url": "data:audio/wav;base64,fixture"] }
+            throw RPCFailure("Not found", code: 404)
+        }
+        let preferences = try await api.preferences()
+        XCTAssertFalse(preferences.isGPTLive)
+        XCTAssertEqual(preferences.threshold, 350)
+        XCTAssertEqual(preferences.silenceDuration, 1.5)
+        XCTAssertEqual(preferences.stopPhrases, ["terminer"])
+        let text = try await api.transcribe(Data([1]), mimeType: "audio/mp4")
+        XCTAssertEqual(text, "Bonjour")
+        _ = try await api.speech("Réponse")
+        XCTAssertEqual(calls, ["config.get", "/api/audio/transcribe", "/api/audio/speak"])
+    }
+
+    func testNativeVoiceModeAliasesAndExplicitlyDisabledStopPhrases() {
+        for mode in ["gpt-live", "GPT_LIVE", "gptlive", "live"] {
+            XCTAssertTrue(VoicePreferences(["voice_chat_mode": .string(mode)]).isGPTLive)
+        }
+        XCTAssertFalse(VoicePreferences([:]).isGPTLive)
+        XCTAssertEqual(VoicePreferences(["stop_phrases": []]).stopPhrases, [])
+    }
+
+    @MainActor
+    func testMissingRequiredAudioAPIHasActionableErrorWithoutMaskingAuth() async throws {
+        let missing = NativeVoiceAPI { _, _, _ in throw RPCFailure("Not found", code: 404) }
+        do {
+            _ = try await missing.transcribe(Data([1]), mimeType: "audio/mp4")
+            XCTFail("Missing audio must fail explicitly")
+        } catch let error as RPCFailure {
+            XCTAssertEqual(error.code, 404)
+            XCTAssertTrue(error.localizedDescription.contains("transcription depuis l’iPhone"))
+        }
+        let unauthorized = NativeVoiceAPI { _, _, _ in throw RPCFailure("Reconnectez-vous", code: 401) }
+        do {
+            _ = try await unauthorized.speech("Hello")
+            XCTFail("Authentication errors must propagate")
+        } catch let error as RPCFailure {
+            XCTAssertEqual(error.code, 401)
+            XCTAssertEqual(error.localizedDescription, "Reconnectez-vous")
+        }
+    }
+
     func testVoiceEndpointWaitsForSpeechThenConfiguredSilence() {
         var detector = VoiceActivity(threshold: 200, silenceDuration: 1)
         for _ in 0..<40 { XCTAssertFalse(detector.sample(decibels: -90, interval: 0.05)) }

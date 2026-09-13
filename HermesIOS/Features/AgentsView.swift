@@ -176,10 +176,10 @@ struct SessionsView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 26) {
+                VStack(alignment: .leading, spacing: 18) {
                     HStack(alignment: .center, spacing: 14) {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Retrouver le fil.").font(.system(size: 32, design: .serif)).tracking(-0.6)
+                            Text("Retrouver le fil.").font(.system(size: 28, design: .serif)).tracking(-0.6).lineLimit(1).minimumScaleFactor(0.8)
                             Text("\(model.agent?.title ?? "Hermes") · \(conversations.count) conversation\(conversations.count == 1 ? "" : "s")")
                                 .font(.subheadline).foregroundStyle(.secondary)
                         }
@@ -239,29 +239,30 @@ struct SessionsView: View {
                 if model.selected?.storedID == session.id { dismiss() }
             }
         } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    Image(systemName: current ? "bubble.left.and.bubble.right.fill" : "bubble.left")
-                        .font(.system(size: 12)).foregroundStyle(current ? AppTheme.accent : .secondary)
-                    if current { Text("En cours").font(.caption2.weight(.semibold)).foregroundStyle(AppTheme.accent) }
-                    Spacer(minLength: 4)
-                    Text(session.updated, format: Calendar.current.isDateInToday(session.updated) ? .dateTime.hour().minute() : .dateTime.day().month(.abbreviated)).font(.caption2).foregroundStyle(.tertiary)
-                }
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(session.title).font(.system(.body, design: .default, weight: .medium)).foregroundStyle(.primary).lineLimit(2)
-                        if !session.preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text(session.preview.replacingOccurrences(of: "\n", with: " ")).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                        }
+            HStack(spacing: 12) {
+                Image(systemName: current ? "bubble.left.and.bubble.right.fill" : "bubble.left")
+                    .font(.system(size: 15)).foregroundStyle(current ? AppTheme.accent : .secondary)
+                    .frame(width: 32, height: 32)
+                    .background(current ? AppTheme.accent.opacity(0.08) : AppTheme.background, in: RoundedRectangle(cornerRadius: 11))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(session.title).font(.system(.subheadline, design: .default, weight: .medium))
+                        .foregroundStyle(.primary).lineLimit(1).truncationMode(.tail)
+                    if !session.preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(session.preview.replacingOccurrences(of: "\n", with: " "))
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
                     }
-                    Spacer(minLength: 0)
-                    if openingID == session.id { ProgressView().controlSize(.small) }
-                    else { Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .medium)).foregroundStyle(current ? AppTheme.accent : .secondary) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .trailing, spacing: 7) {
+                    Text(session.updated, format: Calendar.current.isDateInToday(session.updated) ? .dateTime.hour().minute() : .dateTime.day().month(.abbreviated))
+                        .font(.caption2).foregroundStyle(.tertiary).fixedSize()
+                    if openingID == session.id { ProgressView().controlSize(.mini) }
+                    else if current { Text("En cours").font(.system(size: 10, weight: .medium)).foregroundStyle(AppTheme.accent).fixedSize() }
+                    else { Image(systemName: "chevron.right").font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary) }
                 }
-            }.padding(17).frame(maxWidth: .infinity, alignment: .leading)
-                .background(current ? AppTheme.accent.opacity(0.055) : AppTheme.surface, in: RoundedRectangle(cornerRadius: 21))
-                .overlay(RoundedRectangle(cornerRadius: 21).strokeBorder(current ? AppTheme.accent.opacity(0.2) : AppTheme.line.opacity(0.6)))
-                .contentShape(RoundedRectangle(cornerRadius: 21))
+            }.padding(.horizontal, 14).padding(.vertical, 13).frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                .background(current ? AppTheme.accent.opacity(0.055) : AppTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(current ? AppTheme.accent.opacity(0.2) : AppTheme.line.opacity(0.6)))
+                .contentShape(RoundedRectangle(cornerRadius: 18))
         }.buttonStyle(.plain).disabled(openingID != nil || model.sending || model.voiceActive)
             .accessibilityIdentifier("conversation-" + session.id)
             .accessibilityAddTraits(current ? .isSelected : [])
