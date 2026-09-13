@@ -8,14 +8,19 @@ final class HermesIOSUITests: XCTestCase {
         app.launchArguments = ["--demo"]
         app.launch()
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
+        XCTAssertLessThan(app.windows.firstMatch.frame.maxY - app.textFields["chat-composer"].frame.maxY, 100)
         capture("01-chat")
-        app.tabBars.buttons["Agents"].tap()
+        openNavigation("Agents", in: app)
         XCTAssertTrue(app.staticTexts["À chacun\nson talent."].waitForExistence(timeout: 3))
         capture("02-agents")
         app.buttons.containing(.staticText, identifier: "Atlas").firstMatch.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Bonjour, je suis Atlas")).firstMatch.waitForExistence(timeout: 3))
-        app.tabBars.buttons["Réglages"].tap()
+        openNavigation("Réglages", in: app)
+        XCTAssertTrue(app.buttons["close-settings"].waitForExistence(timeout: 3))
         capture("03-settings")
+        app.buttons["close-settings"].tap()
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 3))
     }
 
     func testOnboarding() throws {
@@ -30,15 +35,22 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertFalse(app.buttons["connect-agent"].isEnabled)
     }
 
-    func testDraftSurvivesSwitchingTabs() throws {
+    func testDraftSurvivesHeaderNavigation() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--demo"]
         app.launch()
         let composer = app.textFields["chat-composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
         composer.tap(); composer.typeText("Mon brouillon reste ici")
-        app.tabBars.buttons["Agents"].tap()
-        app.tabBars.buttons["Conversation"].tap()
+        openNavigation("Agents", in: app)
+        XCTAssertTrue(app.buttons["Fermer les agents"].waitForExistence(timeout: 3))
+        app.buttons["Fermer les agents"].tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 3))
+        XCTAssertEqual(composer.value as? String, "Mon brouillon reste ici")
+        openNavigation("Réglages", in: app)
+        XCTAssertTrue(app.buttons["close-settings"].waitForExistence(timeout: 3))
+        app.buttons["close-settings"].tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 3))
         XCTAssertEqual(composer.value as? String, "Mon brouillon reste ici")
     }
 
@@ -84,6 +96,12 @@ final class HermesIOSUITests: XCTestCase {
         app.terminate(); app.launch()
         XCTAssertTrue(final.firstMatch.waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 30))
+    }
+
+    private func openNavigation(_ destination: String, in app: XCUIApplication) {
+        app.buttons["app-navigation"].tap()
+        XCTAssertTrue(app.buttons[destination].waitForExistence(timeout: 3))
+        app.buttons[destination].tap()
     }
 
     private func capture(_ name: String) {

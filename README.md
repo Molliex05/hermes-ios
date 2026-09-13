@@ -15,6 +15,7 @@ Hermès iOS connects directly to [Hermes Agent](https://github.com/NousResearch/
 - Direct connection to the official `hermes serve` backend, including Tailscale IPs, MagicDNS, HTTPS and reverse-proxy path prefixes.
 - Native password authentication, session credentials in the iOS Keychain, fresh single-use WebSocket tickets, and the existing legacy session-token path.
 - Streaming chat, Markdown and code blocks, copy/share, tool activity, cancellation, approvals, clarification and secret input.
+- Chat-first navigation: the composer sits at the bottom, with history, agents, routines and settings available from the header menu. Secondary screens open over the conversation and preserve its draft.
 - Cached conversations and per-chat drafts stay visible while reconnecting. Ordered replay deduplicates missing events. Uncertain sends are never automatically repeated.
 - Multiple saved gateways and isolated Hermes profiles.
 - Bot roster, existing canonical **Bot Chats**, profile creation/cloning, description and SOUL editing, and `@profile` suggestions.

@@ -21,6 +21,8 @@ Saved chats and drafts render before the network is contacted. The socket stays 
 
 The view keeps stable message identities during hydration and follows the last message only while the reader is near the bottom. A tiny connection indicator reports availability; there is no full-screen sync overlay or forced clearing of chat. The composer remains editable offline.
 
+Chat is the persistent root screen. A header menu presents history, agents, routines and settings in native sheets; the profile selector and new-conversation button remain directly accessible. Opening or dismissing these screens keeps the chat view and its draft alive. No bottom tab bar sits between the composer and the device's safe area or keyboard.
+
 ## Reconnect
 
 1. Mint a new single-use ticket with the existing native session cookie.

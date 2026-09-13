@@ -2,9 +2,11 @@ import SwiftUI
 
 struct ChatView: View {
     @Bindable var model: AppModel
-    @State private var showSessions = false
-    @State private var showProfiles = false
-    @State private var showRoutines = false
+    private enum Destination: String, Identifiable {
+        case history, profiles, agents, routines, settings
+        var id: String { rawValue }
+    }
+    @State private var destination: Destination?
     @State private var pinnedToBottom = true
     @FocusState private var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -19,9 +21,15 @@ struct ChatView: View {
             .background(AppTheme.background)
             .safeAreaInset(edge: .bottom, spacing: 0) { composer }
             .toolbar(.hidden, for: .navigationBar)
-            .sheet(isPresented: $showSessions) { SessionsView(model: model) }
-            .sheet(isPresented: $showProfiles) { ProfilePicker(model: model) }
-            .sheet(isPresented: $showRoutines) { RoutinesView(model: model) }
+            .sheet(item: $destination) { page in
+                switch page {
+                case .history: SessionsView(model: model)
+                case .profiles: ProfilePicker(model: model)
+                case .agents: AgentsView(model: model, openChat: { destination = nil })
+                case .routines: RoutinesView(model: model)
+                case .settings: SettingsView(model: model)
+                }
+            }
             .onChange(of: model.draft) { _, _ in model.draftChanged() }
             .onChange(of: model.selected?.storedID) { _, _ in pinnedToBottom = true }
         }
@@ -29,23 +37,46 @@ struct ChatView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Button { showProfiles = true } label: {
+            Menu {
+                Section {
+                    Button("Historique", systemImage: "clock.arrow.circlepath") { present(.history) }
+                        .accessibilityIdentifier("nav-history")
+                    Button("Agents", systemImage: "square.grid.2x2") { present(.agents) }
+                        .accessibilityIdentifier("nav-agents")
+                    Button("Routines", systemImage: "clock.badge") { present(.routines) }
+                }
+                Section {
+                    Button("Réglages", systemImage: "slider.horizontal.3") { present(.settings) }
+                        .accessibilityIdentifier("nav-settings")
+                }
+            } label: {
+                Image(systemName: "line.3.horizontal").font(.system(size: 18, weight: .medium))
+                    .frame(width: 44, height: 44).background(AppTheme.surface, in: Circle())
+                    .overlay(Circle().strokeBorder(AppTheme.line))
+            }.foregroundStyle(.primary).accessibilityLabel("Navigation")
+                .accessibilityHint("Historique, agents, routines et réglages")
+                .accessibilityIdentifier("app-navigation")
+            Button { present(.profiles) } label: {
                 HStack(spacing: 11) {
-                    AgentAvatar(name: model.agent?.name ?? "default", size: 42)
+                    AgentAvatar(name: model.agent?.name ?? "default", size: 34)
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
-                            Text(model.agent?.title ?? "Hermes").font(.headline)
+                            Text(model.agent?.title ?? "Hermes").font(.headline).lineLimit(1)
                             Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
                         }
-                        ConnectionIndicator(model: model)
+                        ConnectionIndicator(model: model).lineLimit(1)
                     }
                 }
             }.buttonStyle(.plain).accessibilityLabel("Choisir un profil")
             Spacer(minLength: 4)
-            RoundButton(symbol: "clock.arrow.circlepath", label: "Historique") { showSessions = true }
             RoundButton(symbol: "square.and.pencil", label: "Nouvelle conversation") { model.newChat(); focused = true }
         }.padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 16)
         .overlay(alignment: .bottom) { Rectangle().fill(AppTheme.line).frame(height: 1) }
+    }
+
+    private func present(_ page: Destination) {
+        focused = false
+        destination = page
     }
 
     private var emptyChat: some View {
@@ -147,7 +178,7 @@ struct ChatView: View {
             }
             HStack(alignment: .bottom, spacing: 10) {
                 Menu {
-                    Button("Routines", systemImage: "clock.badge") { showRoutines = true }
+                    Button("Routines", systemImage: "clock.badge") { present(.routines) }
                     Button("Mentionner un agent", systemImage: "at") { model.draft += "@"; focused = true }
                     Button("Nouvelle conversation", systemImage: "square.and.pencil") { model.newChat() }
                 } label: {
@@ -172,11 +203,6 @@ struct ChatView: View {
             }.padding(9).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 28))
                 .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(AppTheme.line))
                 .shadow(color: .black.opacity(0.025), radius: 15, y: 4)
-            HStack(spacing: 5) {
-                Image(systemName: "lock").font(.system(size: 9))
-                Text(model.demo ? "Mode aperçu · aucune donnée envoyée" : "Directement avec votre Hermes")
-                    .font(.system(size: 10))
-            }.foregroundStyle(.tertiary)
         }.padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 8).frame(maxWidth: 750).frame(maxWidth: .infinity)
             .background(AppTheme.background)
     }

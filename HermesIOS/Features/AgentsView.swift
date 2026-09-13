@@ -3,6 +3,7 @@ import SwiftUI
 struct AgentsView: View {
     @Bindable var model: AppModel
     var openChat: () -> Void
+    @Environment(\.dismiss) private var dismiss
     @State private var search = ""
     @State private var creating = false
     @State private var editing: AgentProfile?
@@ -13,6 +14,7 @@ struct AgentsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 25) {
                     HStack {
+                        RoundButton(symbol: "xmark", label: "Fermer les agents") { dismiss() }
                         Text("VOTRE PETIT MONDE").font(.system(size: 10, weight: .semibold)).tracking(2).foregroundStyle(.secondary)
                         Spacer()
                         RoundButton(symbol: "plus", label: "Créer un agent") { creating = true }

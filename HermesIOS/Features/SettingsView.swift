@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Bindable var model: AppModel
+    @Environment(\.dismiss) private var dismiss
     @State private var adding = false
     @State private var reconnecting: SavedConnection?
     @State private var removing: SavedConnection?
@@ -57,7 +58,13 @@ struct SettingsView: View {
                 if model.demo {
                     Section { Button("Quitter l’aperçu") { model.demo = false; model.selected = nil; model.profiles = []; model.transcript = Transcript() } }
                 }
-            }.scrollContentBackground(.hidden).background(AppTheme.background).navigationTitle("À votre façon")
+            }.scrollContentBackground(.hidden).background(AppTheme.background)
+                .navigationTitle("Réglages").navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Terminé") { dismiss() }.accessibilityIdentifier("close-settings")
+                    }
+                }
                 .sheet(isPresented: $adding) { OnboardingView(model: model, adding: true) }
                 .sheet(item: $reconnecting) { OnboardingView(model: model, adding: true, existing: $0) }
                 .sheet(isPresented: $guide) { ConnectionGuide() }
