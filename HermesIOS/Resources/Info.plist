@@ -12,5 +12,8 @@
 <key>UIApplicationSceneManifest</key><dict><key>UIApplicationSupportsMultipleScenes</key><false/></dict>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>NSLocalNetworkUsageDescription</key><string>Hermès iOS se connecte à votre agent Hermes sur votre réseau privé ou Tailscale.</string>
-<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/><key>NSAllowsArbitraryLoads</key><true/></dict>
+<!-- Do not add NSAllowsLocalNetworking here: on iOS 10+, its presence makes
+     iOS ignore NSAllowsArbitraryLoads. Endpoint validates private HTTP hosts
+     (including Tailscale addresses); public hosts must use HTTPS. -->
+<key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>
 </dict></plist>
