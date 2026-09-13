@@ -38,13 +38,15 @@ final class HermesSocket {
             }
         }
         // Resolving an actual RPC verifies both WebSocket legs, not just HTTP health.
-        _ = try await call("ping", timeout: 15)
+        _ = try await call("ping", timeout: 30)
         heartbeat = Task { [weak self] in
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .seconds(15))
                     guard let self else { return }
-                    _ = try await self.call("ping", timeout: 15)
+                    // Real gateways can stall for 20–25 seconds under load; a short
+                    // heartbeat deadline must not abort healthy in-flight history requests.
+                    _ = try await self.call("ping", timeout: 45)
                 } catch {
                     guard !Task.isCancelled, let self else { return }
                     self.close(); self.onDisconnect?(error); return

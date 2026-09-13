@@ -3,6 +3,40 @@ import XCTest
 
 final class ProtocolTests: XCTestCase {
     @MainActor
+    func testHistorySharesConcurrentReadsAndSurvivesDismissal() async throws {
+        let requests = HistoryRequests()
+        var fetches = 0
+        var entered = 0
+        var gate: CheckedContinuation<JSONValue, Error>?
+        let fetch: @MainActor () async throws -> JSONValue = {
+            fetches += 1
+            return try await withCheckedThrowingContinuation { gate = $0 }
+        }
+        let first = Task { entered += 1; return try await requests.load(scope: "connection-a/default", fetch: fetch) }
+        let second = Task { entered += 1; return try await requests.load(scope: "connection-a/default", fetch: fetch) }
+        while entered < 2 || gate == nil { await Task.yield() }
+        first.cancel()
+        gate?.resume(returning: ["sessions": []])
+        let result = try await second.value
+        _ = try await first.value
+        XCTAssertEqual(fetches, 1)
+        XCTAssertEqual(result, ["sessions": []])
+    }
+
+    @MainActor
+    func testFailedHistoryReadCanRetryAndOtherProfilesStayIndependent() async throws {
+        let requests = HistoryRequests()
+        do {
+            _ = try await requests.load(scope: "connection-a/default") { throw RPCFailure("Server busy", code: 5006) }
+            XCTFail("Failure should propagate")
+        } catch let failure as RPCFailure { XCTAssertEqual(failure.code, 5006) }
+        let retry = try await requests.load(scope: "connection-a/default") { ["sessions": [["id": "default-session"]]] }
+        let other = try await requests.load(scope: "connection-a/research") { ["sessions": [["id": "research-session"]]] }
+        XCTAssertEqual(retry["sessions"].array.first?["id"].string, "default-session")
+        XCTAssertEqual(other["sessions"].array.first?["id"].string, "research-session")
+    }
+
+    @MainActor
     func testStandardVoiceDoesNotRequireOptionalHTTPDiscoveryRoutes() async throws {
         var calls: [String] = []
         let api = NativeVoiceAPI { path, body, rpc in

@@ -148,6 +148,7 @@ struct SessionsView: View {
     @State private var loading = false
     @State private var loadError: String?
     @State private var openingID: String?
+    @State private var refreshID = UUID()
     @FocusState private var searching: Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.toolNavigation) private var navigation
@@ -186,14 +187,17 @@ struct SessionsView: View {
                         Spacer(minLength: 0)
                         AgentAvatar(name: model.profile, size: 42)
                     }.padding(.top, 12).padding(.bottom, 2)
-                    if let loadError {
+                    if !model.demo && model.state != .connected {
+                        ConnectionIndicator(model: model)
+                    }
+                    if let loadError, model.state == .connected {
                         HStack(spacing: 12) {
                             Text(loadError).font(.caption).foregroundStyle(.secondary)
                             Spacer(minLength: 0)
                             Button("Réessayer") { Task { await refresh() } }.font(.caption.weight(.medium)).disabled(loading)
                         }.padding(14).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
                     }
-                    if loading && conversations.isEmpty {
+                    if (loading || (!model.demo && model.state == .connecting)) && conversations.isEmpty {
                         ProgressView("Chargement des conversations…").frame(maxWidth: .infinity).padding(.vertical, 45)
                     } else if conversations.isEmpty {
                         ContentUnavailableView("Tout commence ici", systemImage: "bubble.left.and.bubble.right",
@@ -222,7 +226,11 @@ struct SessionsView: View {
                         }.foregroundStyle(.primary).accessibilityLabel("Fermer les conversations").accessibilityIdentifier("return-to-chat")
                     }
                 }
-                .task { await refresh() }
+                .task(id: "\(model.activeConnection?.id.uuidString ?? "demo")|\(model.profile)|\(model.state == .connected)") {
+                    refreshID = UUID(); loading = false; loadError = nil
+                    if model.demo || model.state == .connected { await refresh() }
+                }
+                .onChange(of: model.historyRevision) { _, _ in loadError = nil }
         }
     }
 
@@ -294,12 +302,20 @@ struct SessionsView: View {
     }
 
     private func refresh() async {
-        guard !loading else { return }
+        guard !loading, model.demo || model.state == .connected else { return }
+        let attempt = UUID(); refreshID = attempt
+        let revision = model.historyRevision
         loading = true; loadError = nil
-        defer { loading = false }
+        defer { if refreshID == attempt { loading = false } }
         do { try await model.refreshSessions() }
         catch is CancellationError { }
-        catch { loadError = "L’historique n’a pas pu être actualisé. Vos conversations enregistrées restent disponibles." }
+        catch {
+            guard refreshID == attempt, model.state == .connected, revision == model.historyRevision else { return }
+            let reason = String(error.localizedDescription.prefix(240))
+            if let rpc = error as? RPCFailure, rpc.code > 0 || rpc.code == -32601 {
+                loadError = "\(reason) (Hermes \(rpc.code))"
+            } else { loadError = reason }
+        }
     }
 }
 

@@ -2,13 +2,13 @@
 
 | Check | Result |
 | --- | --- |
-| Foundation core suite | 28 tests passed, including replay/scoping, silence detection, voice API compatibility and preserved authentication errors |
+| Foundation core suite | 30 tests passed, including replay/scoping, voice API compatibility, shared history requests, cancellation and retry |
 | Offline iOS UI suite | 6 tests passed: chat/agents/settings, onboarding, draft preservation, filtered tool discovery, quick profile switching and attachment/voice controls |
 | Integrated composer | Passed: controls inside the bubble, keyboard layout, photo/file menu and voice sheet preserve the written draft |
 | Official Hermes protocol probe | 13 checks passed, including auth, live replay, canonical Bot Chat, profile isolation, routines and hosted groups |
 | Native tools probe | Passed: skills list/content/toggle isolation, workspace isolation, model assignment isolation, Kanban triage creation and idempotency |
 | Native iOS integration | Passed: sign-in, persisted auth, streaming and resume; skill toggling, profile model/workspace/board reads; automatic voice send, playback, resumed listening and draft preservation |
-| Release device build | Development-signed ARM64 build 10 succeeded; installed on iPhone 16 Plus |
+| Release device build | Development-signed ARM64 build 11 succeeded; installed and launched on iPhone 16 Plus |
 
 The integration backend is the official, unmodified Hermes Agent **0.21.2**, commit `b7b35a84b7fbe1aa2e223a6ce726a2471300d0a4`, in an isolated home. Model, STT and TTS provider endpoints use deterministic local fixtures; native Hermes remains unmodified. Production agent data and credentials are excluded from automated tests and screenshots.
 
@@ -24,6 +24,10 @@ See [TESTING.md](TESTING.md) for reproduction and [README boundaries](../README.
 
 Build 9 modernizes conversation history. The existing profile-switch/draft-preservation UI test passes with the new history sheet and X, and its screenshot was inspected on iPhone 17 Pro Simulator. The Release device build is verified separately.
 
-Build 10 removes GPT-Live HTTP discovery from standard voice startup. The native config RPC supplies mode and silence settings. A regression transport returns 404 for every unsupported HTTP route while the standard voice sequence still succeeds; missing required audio routes are reported explicitly. The production Tailscale endpoint could not be reached from the development Mac, so this does not certify that server’s audio endpoints.
+Build 10 removes GPT-Live HTTP discovery from standard voice startup. The native config RPC supplies mode and silence settings. A regression transport returns 404 for every unsupported HTTP route while the standard voice sequence still succeeds; missing required audio routes are reported explicitly. The initial production Tailscale probe was blocked by the development shell’s proxy configuration. A later direct probe reached the installed Hermes 0.21.0 server. Its source has the required audio routes and lacks the optional GPT-Live status route; production audio operation has not been tested with authenticated requests.
 
 For build 10, 28 core tests, native config/STT/agent/TTS integration probes and the signed device build passed. The fresh simulator UI run could not start; the dedicated iOS 27 simulator stalled during boot even after a restart. The prior UI results above are from builds 8–9, not a completed build 10 UI run. Build 10 was installed successfully; automatic launch was blocked by the phone’s lock screen.
+
+Build 11 addresses history refresh recovery. Read-only production diagnostics found native gateway event-loop stalls of 21.7–24.9 seconds, exceeding the previous 15-second heartbeat deadline. Native read-only database listing succeeded in 12 ms or less for the two inspected profiles. The original app error discarded its cause, so these findings identify a plausible interruption mechanism, not a recovered exception. The app also retained stale errors after successful background refreshes and could request history before the socket was ready. These cases are corrected, concurrent reads are shared, and the next failure preserves its actual reason. No production server settings or data were changed.
+
+Build 11 validation: all 30 core tests passed, including concurrent history reads, cancellation without aborting another reader, failure retry and profile scoping. The targeted iOS UI test passed for profile switching, separate drafts, conversation history and X dismissal. The signed Release build was installed and launched on iPhone 16 Plus. Automated recovery tests use the request coordinator; the observed production server stalls have not been deliberately reproduced on device.

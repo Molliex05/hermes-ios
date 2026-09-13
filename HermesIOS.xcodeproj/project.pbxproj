@@ -13,6 +13,7 @@
 		1C0F76837800CB263FE2F9FA /* NativeToolSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 851E43F4DDB4C85BF0F4C3EB /* NativeToolSession.swift */; };
 		2995C37CAC738935C3CB0A6C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 476734DA2FC09D7F7E0875DC /* SettingsView.swift */; };
 		38DD9166CFB8C130D4EE0ECB /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23406111A6D8CD5FE59A411C /* Theme.swift */; };
+		4F12D4CF4D888EA890A98BF3 /* HistoryRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C910078020A4AF8014712019 /* HistoryRequests.swift */; };
 		5361803BAD431458B37A663B /* HermesHTTP.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F6FE9D7F1FBAB1A65EDA562 /* HermesHTTP.swift */; };
 		59454233EF00BAB95B5995BC /* Endpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA403258EBDBCDA2BBA568D1 /* Endpoint.swift */; };
 		5BBB627A0B67FE2F04FBD140 /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03771C2DF46F958CA751A93C /* JSONValue.swift */; };
@@ -77,6 +78,7 @@
 		B083DF2BEBD828CF266749E2 /* DraftAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraftAttachment.swift; sourceTree = "<group>"; };
 		B104A4361ECD7B91A321759C /* NativeVoiceAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeVoiceAPI.swift; sourceTree = "<group>"; };
 		BB4E2583813D830A3E900B68 /* AgentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsView.swift; sourceTree = "<group>"; };
+		C910078020A4AF8014712019 /* HistoryRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryRequests.swift; sourceTree = "<group>"; };
 		CEEDE2B035F0E274D1A677E0 /* PhotoAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoAttachment.swift; sourceTree = "<group>"; };
 		D13C6E169393755487F106D2 /* StoredCookie.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoredCookie.swift; sourceTree = "<group>"; };
 		D69DD335D5BB61C6A77C2EC6 /* LocalCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalCache.swift; sourceTree = "<group>"; };
@@ -162,6 +164,7 @@
 			children = (
 				B083DF2BEBD828CF266749E2 /* DraftAttachment.swift */,
 				EA403258EBDBCDA2BBA568D1 /* Endpoint.swift */,
+				C910078020A4AF8014712019 /* HistoryRequests.swift */,
 				03771C2DF46F958CA751A93C /* JSONValue.swift */,
 				02A462CE3A3E115F981A5C76 /* Models.swift */,
 				B104A4361ECD7B91A321759C /* NativeVoiceAPI.swift */,
@@ -290,6 +293,7 @@
 				5361803BAD431458B37A663B /* HermesHTTP.swift in Sources */,
 				8C9C5143998CC7920E16F040 /* HermesIOSApp.swift in Sources */,
 				D673AF44E66D90BFC2648926 /* HermesSocket.swift in Sources */,
+				4F12D4CF4D888EA890A98BF3 /* HistoryRequests.swift in Sources */,
 				5BBB627A0B67FE2F04FBD140 /* JSONValue.swift in Sources */,
 				F843B14A351EDA859765A6D3 /* KanbanView.swift in Sources */,
 				C4E5F98CEC41BFB069485A78 /* Keychain.swift in Sources */,

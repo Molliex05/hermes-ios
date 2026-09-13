@@ -19,6 +19,8 @@ final class AppModel {
     var state: ConnectionState = .offline
     var profiles: [AgentProfile] = []
     var sessions: [Conversation] = []
+    var historyRevision = 0
+    @ObservationIgnored private let historyRequests = HistoryRequests()
     var profile = "default"
     var selected: ChatSnapshot?
     var transcript = Transcript()
@@ -150,7 +152,11 @@ final class AppModel {
                     }
                     guard generation == self.connectionGeneration, !Task.isCancelled else { return }
                     self.state = .connected
-                    try await self.refreshSessions()
+                    do { try await self.refreshSessions() }
+                    catch {
+                        // Listing failure must not tear down an otherwise healthy chat connection.
+                        if self.state != .connected { throw error }
+                    }
                     guard generation == self.connectionGeneration, !Task.isCancelled else { return }
                     self.reconnectTask = nil
                     return
@@ -203,12 +209,19 @@ final class AppModel {
     }
 
     func refreshSessions() async throws {
-        guard let socket else { return }
+        guard !demo else { return }
+        guard state == .connected, let socket else { throw RPCFailure("Connexion à Hermes en cours…", code: -1) }
         let generation = connectionGeneration
         let owner = profile
-        let result = try await socket.call("session.list", ["profile": .string(owner), "limit": 100])
-        guard profile == owner, generation == connectionGeneration else { return }
+        let scope = "\(ObjectIdentifier(socket))|\(owner)"
+        let result = try await historyRequests.load(scope: scope) {
+            try await socket.call("session.list", ["profile": .string(owner), "limit": 100])
+        }
+        try Task.checkCancellation()
+        guard profile == owner, generation == connectionGeneration, self.socket === socket, state == .connected else { throw CancellationError() }
+        guard case .array = result["sessions"] else { throw RPCFailure("Hermes a renvoyé une liste de conversations invalide.") }
         sessions = result["sessions"].array.map { Conversation($0, profile: owner) }
+        historyRevision += 1
         scheduleSave()
     }
 
