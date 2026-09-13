@@ -8,7 +8,7 @@
 | Official Hermes protocol probe | 13 checks passed, including auth, live replay, canonical Bot Chat, profile isolation, routines and hosted groups |
 | Native tools probe | Passed: skills list/content/toggle isolation, workspace isolation, model assignment isolation, Kanban triage creation and idempotency |
 | Native iOS integration | Passed: sign-in, persisted auth, streaming and resume; skill toggling, profile model/workspace/board reads; automatic voice send, playback, resumed listening and draft preservation |
-| Release device build | Development-signed ARM64 build 8 succeeded; installed on iPhone 16 Plus |
+| Release device build | Development-signed ARM64 build 9 succeeded; installed on iPhone 16 Plus |
 
 The integration backend is the official, unmodified Hermes Agent **0.21.2**, commit `b7b35a84b7fbe1aa2e223a6ce726a2471300d0a4`, in an isolated home. Model, STT and TTS provider endpoints use deterministic local fixtures; native Hermes remains unmodified. Production agent data and credentials are excluded from automated tests and screenshots.
 
@@ -21,3 +21,5 @@ The media contract probe passes image staging/attach/detach retry, encoded paths
 Xcode 27 beta sometimes stalls while finalizing an xcresult after all test cases finish. The test runner also saves screenshots to its disposable temporary directory so visual inspection does not depend on that finalization. Native voice assertions passed in the iOS runner. The audio fixture is DEBUG-only and restricted to loopback; Release uses the physical microphone.
 
 See [TESTING.md](TESTING.md) for reproduction and [README boundaries](../README.md#honest-boundaries) for exact feature scope.
+
+Build 9 modernizes conversation history. The existing profile-switch/draft-preservation UI test passes with the new history sheet and X, and its screenshot was inspected on iPhone 17 Pro Simulator. The Release device build is verified separately.

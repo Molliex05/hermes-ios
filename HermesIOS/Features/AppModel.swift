@@ -666,6 +666,21 @@ final class AppModel {
             .init(role: "user", text: "J’aimerais une journée un peu plus légère."),
             .init(role: "assistant", text: "On fait de la place.\n\nChoisis **une seule chose** qui rendrait ta journée satisfaisante. Le reste peut attendre.\n\nQu’est-ce qui compte le plus pour toi aujourd’hui ?")
         ]
+        sessions = []
+        // Preview history uses the same rows and navigation as a connected profile.
+        for agent in profiles {
+            let examples = [
+                ("demo-\(agent.name)", "Une journée plus légère", "Choisir l’essentiel et laisser un peu de place au reste.", 0),
+                ("demo-\(agent.name)-idea", "Et si on lançait cette idée ?", "Les premières pistes pour transformer une intuition en projet.", 0),
+                ("demo-\(agent.name)-week", "Préparer la semaine", "Trois priorités, quelques rendez-vous et du temps pour soi.", 1),
+                ("demo-\(agent.name)-read", "Un peu de curiosité", "Lectures, inspirations et choses à explorer.", 4)
+            ]
+            for (index, item) in examples.enumerated() {
+                let date = Calendar.current.date(byAdding: .day, value: -item.3, to: Date())!.addingTimeInterval(Double(-index * 1200))
+                sessions.append(Conversation(["id": .string(item.0), "title": .string(item.1), "preview": .string(item.2), "last_active": .number(date.timeIntervalSince1970)], profile: agent.name))
+                if index > 0 { workspace.chats[key(agent.name, item.0)] = ChatSnapshot(storedID: item.0, profile: agent.name, title: item.1, messages: [.init(role: "assistant", text: item.2)]) }
+            }
+        }
         if ProcessInfo.processInfo.arguments.contains("--demo-onboarding") { demo = false; connections = []; activeConnection = nil; selected = nil; profiles = []; state = .offline }
     }
 

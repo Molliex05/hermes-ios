@@ -145,37 +145,160 @@ struct ProfilePicker: View {
 struct SessionsView: View {
     let model: AppModel
     @State private var search = ""
+    @State private var loading = false
+    @State private var loadError: String?
+    @State private var openingID: String?
+    @FocusState private var searching: Bool
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.toolNavigation) private var navigation
+
+    private var conversations: [Conversation] {
+        model.sessions.filter { $0.profile == model.profile }.sorted { $0.updated > $1.updated }
+    }
+    private var filtered: [Conversation] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        return conversations.filter { query.isEmpty || "\($0.title) \($0.preview)".localizedStandardContains(query) }
+    }
+    private var sections: [(title: String, rows: [Conversation])] {
+        let calendar = Calendar.current
+        let week = calendar.date(byAdding: .day, value: -7, to: calendar.startOfDay(for: Date())) ?? Date()
+        let grouped = Dictionary(grouping: filtered) { item -> Int in
+            if calendar.isDateInToday(item.updated) { return 0 }
+            if calendar.isDateInYesterday(item.updated) { return 1 }
+            return item.updated >= week ? 2 : 3
+        }
+        return ["Aujourd’hui", "Hier", "Les 7 derniers jours", "Plus tôt"].enumerated().compactMap { index, title in
+            guard let rows = grouped[index], !rows.isEmpty else { return nil }
+            return (title, rows)
+        }
+    }
+
     var body: some View {
         NavigationStack {
-            List { Group {
-                if model.sessions.isEmpty {
-                    ContentUnavailableView("Le début de quelque chose", systemImage: "bubble.left.and.bubble.right", description: Text("Vos conversations avec ce profil apparaîtront ici."))
-                }
-                ForEach(model.sessions.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) }) { session in
-                    Button {
-                        Task { await model.openConversation(session); dismiss() }
-                    } label: {
-                        VStack(alignment: .leading, spacing: 7) {
-                            Text(session.title).font(.body.weight(.medium)).foregroundStyle(.primary).lineLimit(2)
-                            HStack { Text(session.profile); Spacer(); Text(session.updated, style: .relative) }.font(.caption).foregroundStyle(.secondary)
-                        }.padding(.vertical, 9)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 26) {
+                    HStack(alignment: .center, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Retrouver le fil.").font(.system(size: 32, design: .serif)).tracking(-0.6)
+                            Text("\(model.agent?.title ?? "Hermes") · \(conversations.count) conversation\(conversations.count == 1 ? "" : "s")")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 0)
+                        AgentAvatar(name: model.profile, size: 42)
+                    }.padding(.top, 12).padding(.bottom, 2)
+                    if let loadError {
+                        HStack(spacing: 12) {
+                            Text(loadError).font(.caption).foregroundStyle(.secondary)
+                            Spacer(minLength: 0)
+                            Button("Réessayer") { Task { await refresh() } }.font(.caption.weight(.medium)).disabled(loading)
+                        }.padding(14).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
                     }
-                }
-            }.listRowBackground(Color.clear)
-}.searchable(text: $search, prompt: "Rechercher une conversation")
-                .modernList()
+                    if loading && conversations.isEmpty {
+                        ProgressView("Chargement des conversations…").frame(maxWidth: .infinity).padding(.vertical, 45)
+                    } else if conversations.isEmpty {
+                        ContentUnavailableView("Tout commence ici", systemImage: "bubble.left.and.bubble.right",
+                            description: Text("Vos échanges avec cet agent apparaîtront ici. Une idée suffit pour commencer."))
+                    } else if filtered.isEmpty {
+                        ContentUnavailableView.search(text: search)
+                    } else {
+                        ForEach(sections, id: \.title) { section in
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(section.title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 4)
+                                LazyVStack(spacing: 10) {
+                                    ForEach(section.rows) { session in conversationRow(session) }
+                                }
+                            }
+                        }
+                    }
+                }.padding(.horizontal, 22).padding(.bottom, 24).frame(maxWidth: 680).frame(maxWidth: .infinity)
+            }.scrollDismissesKeyboard(.interactively)
+                .background(AppTheme.background)
                 .navigationTitle("Conversations").navigationBarTitleDisplayMode(.inline)
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    ToolDock {
-                        Button { model.newChat(); dismiss() } label: {
-                            Label("Nouveau", systemImage: "square.and.pencil").frame(minHeight: 44)
-                        }.accessibilityLabel("Nouvelle conversation")
+                .safeAreaInset(edge: .bottom, spacing: 0) { controls }
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button { dismiss() } label: {
+                            Image(systemName: "xmark").font(.system(size: 16, weight: .medium)).frame(width: 44, height: 44)
+                        }.foregroundStyle(.primary).accessibilityLabel("Fermer les conversations").accessibilityIdentifier("return-to-chat")
                     }
                 }
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Terminé") { dismiss() } } }
-                .task { try? await model.refreshSessions() }
+                .task { await refresh() }
         }
+    }
+
+    private func conversationRow(_ session: Conversation) -> some View {
+        let current = model.selected?.storedID == session.id && model.selected?.profile == session.profile
+        return Button {
+            guard openingID == nil else { return }
+            searching = false
+            if current { dismiss(); return }
+            openingID = session.id
+            Task {
+                await model.openConversation(session)
+                openingID = nil
+                if model.selected?.storedID == session.id { dismiss() }
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: current ? "bubble.left.and.bubble.right.fill" : "bubble.left")
+                        .font(.system(size: 12)).foregroundStyle(current ? AppTheme.accent : .secondary)
+                    if current { Text("En cours").font(.caption2.weight(.semibold)).foregroundStyle(AppTheme.accent) }
+                    Spacer(minLength: 4)
+                    Text(session.updated, format: Calendar.current.isDateInToday(session.updated) ? .dateTime.hour().minute() : .dateTime.day().month(.abbreviated)).font(.caption2).foregroundStyle(.tertiary)
+                }
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(session.title).font(.system(.body, design: .default, weight: .medium)).foregroundStyle(.primary).lineLimit(2)
+                        if !session.preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            Text(session.preview.replacingOccurrences(of: "\n", with: " ")).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    if openingID == session.id { ProgressView().controlSize(.small) }
+                    else { Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .medium)).foregroundStyle(current ? AppTheme.accent : .secondary) }
+                }
+            }.padding(17).frame(maxWidth: .infinity, alignment: .leading)
+                .background(current ? AppTheme.accent.opacity(0.055) : AppTheme.surface, in: RoundedRectangle(cornerRadius: 21))
+                .overlay(RoundedRectangle(cornerRadius: 21).strokeBorder(current ? AppTheme.accent.opacity(0.2) : AppTheme.line.opacity(0.6)))
+                .contentShape(RoundedRectangle(cornerRadius: 21))
+        }.buttonStyle(.plain).disabled(openingID != nil || model.sending || model.voiceActive)
+            .accessibilityIdentifier("conversation-" + session.id)
+            .accessibilityAddTraits(current ? .isSelected : [])
+    }
+
+    private var controls: some View {
+        HStack(spacing: 10) {
+            if let navigation {
+                Button { searching = false; navigation.showSpaces() } label: {
+                    Image(systemName: "circle.grid.2x2").font(.system(size: 18)).frame(width: 44, height: 48)
+                }.foregroundStyle(.secondary).accessibilityLabel("Outils").accessibilityIdentifier("back-to-spaces")
+            }
+            HStack(spacing: 9) {
+                Image(systemName: "magnifyingglass").font(.system(size: 15)).foregroundStyle(.secondary)
+                TextField("Rechercher", text: $search).font(.subheadline).focused($searching).submitLabel(.search)
+                    .onSubmit { searching = false }.accessibilityLabel("Rechercher une conversation").accessibilityIdentifier("history-search")
+                if !search.isEmpty {
+                    Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary).frame(width: 28, height: 44) }
+                        .accessibilityLabel("Effacer la recherche")
+                }
+            }.padding(.horizontal, 14).frame(minHeight: 50).background(AppTheme.surface, in: Capsule())
+                .overlay(Capsule().strokeBorder(AppTheme.line))
+            Button { model.newChat(); dismiss() } label: {
+                Image(systemName: "square.and.pencil").font(.system(size: 20, weight: .medium))
+                    .frame(width: 50, height: 50).foregroundStyle(.white).background(AppTheme.accent, in: Circle())
+            }.disabled(model.sending || model.voiceActive).accessibilityLabel("Nouvelle conversation")
+        }.buttonStyle(.plain).padding(.horizontal, 18).padding(.vertical, 12).frame(maxWidth: 720).frame(maxWidth: .infinity)
+            .background(AppTheme.background)
+    }
+
+    private func refresh() async {
+        guard !loading else { return }
+        loading = true; loadError = nil
+        defer { loading = false }
+        do { try await model.refreshSessions() }
+        catch is CancellationError { }
+        catch { loadError = "L’historique n’a pas pu être actualisé. Vos conversations enregistrées restent disponibles." }
     }
 }
 

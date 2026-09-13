@@ -259,6 +259,7 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertEqual(composer.value as? String, "Une recherche pour Atlas")
         app.buttons["quick-history"].tap()
         XCTAssertTrue(app.navigationBars["Conversations"].waitForExistence(timeout: 3))
+        capture("21-conversation-list")
         app.buttons["return-to-chat"].tap()
         XCTAssertEqual(composer.value as? String, "Une recherche pour Atlas")
     }
