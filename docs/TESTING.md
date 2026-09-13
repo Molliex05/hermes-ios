@@ -15,7 +15,7 @@ xcodebuild -scheme HermesIOS \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test
 ```
 
-Choose an installed simulator. The regular suite runs offline previews, captures welcome/chat/agents/settings/connection screenshots, checks bottom composer placement with no tab bar, and verifies draft preservation through thumb navigation and sheet dismissal, plus Spaces search and every new tool destination. Native integration is skipped in this scheme. Keep code signing enabled for Keychain tests. Do not run competing XCUITest processes on the same simulator.
+Choose an installed simulator. The regular suite runs offline previews, captures welcome/chat/agents/settings/connection screenshots, checks shortcuts below the composer with no tab bar, verifies draft preservation through navigation and sheet dismissal, and exercises Work/Agent tool filters plus global tool search. A dedicated test switches profiles from the bottom picker, checks that selecting the active agent preserves the chat, and verifies separate drafts when returning to each demo Bot Chat. Native integration is skipped in this scheme. Keep code signing enabled for Keychain tests. Do not run competing XCUITest processes on the same simulator.
 
 If your simulator runtime belongs to a second Xcode installation, select it for the command with `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer` rather than changing the machine-wide selection.
 

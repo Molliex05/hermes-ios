@@ -10,7 +10,8 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.tabBars.firstMatch.exists)
         XCTAssertGreaterThan(app.buttons["app-navigation"].frame.minY, app.windows.firstMatch.frame.maxY - 130)
-        XCTAssertLessThan(app.windows.firstMatch.frame.maxY - app.textFields["chat-composer"].frame.maxY, 100)
+        XCTAssertLessThan(app.windows.firstMatch.frame.maxY - app.textFields["chat-composer"].frame.maxY, 130)
+        XCTAssertGreaterThan(app.buttons["switch-profile"].frame.minY, app.textFields["chat-composer"].frame.maxY)
         capture("01-chat")
         openNavigation("Agents", in: app)
         XCTAssertTrue(app.staticTexts["Vos agents."].waitForExistence(timeout: 3))
@@ -101,9 +102,9 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 30))
 
         // check_tools_contract.py seeds only the disposable research profile.
-        app.buttons["quick-agents"].tap()
-        XCTAssertTrue(app.buttons["agent-research"].waitForExistence(timeout: 5))
-        app.buttons["agent-research"].tap()
+        app.buttons["switch-profile"].tap()
+        XCTAssertTrue(app.buttons["quick-profile-research"].waitForExistence(timeout: 5))
+        app.buttons["quick-profile-research"].tap()
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
         openNavigation("Skills", in: app)
         let skill = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "mobile-fixture-")).firstMatch
@@ -143,6 +144,12 @@ final class HermesIOSUITests: XCTestCase {
         app.buttons["app-navigation"].tap()
         XCTAssertTrue(app.textFields["spaces-search"].waitForExistence(timeout: 3))
         capture("07-spaces")
+        XCTAssertTrue(app.buttons["space-kanban"].exists)
+        XCTAssertFalse(app.buttons["space-skills"].exists)
+        app.buttons["tools-filter-agent"].tap()
+        XCTAssertTrue(app.buttons["space-skills"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["space-kanban"].exists)
+        capture("11-agent-tools")
         for (query, identifier, title) in [("cron", "routines", "Les routines"), ("skills", "skills", "Skills"), ("kanban", "kanban", "Kanban"), ("workspace", "workspace", "Workspace"), ("modèle", "models", "Modèles"), ("voix", "voice", "Voix")] {
             let search = app.textFields["spaces-search"]
             search.tap(); search.typeText(query)
@@ -169,8 +176,17 @@ final class HermesIOSUITests: XCTestCase {
     }
 
     private func openNavigation(_ destination: String, in app: XCUIApplication) {
-        if destination == "Agents" { app.buttons["quick-agents"].tap(); return }
+        if destination == "Agents" {
+            app.buttons["switch-profile"].tap()
+            XCTAssertTrue(app.buttons["manage-agents"].waitForExistence(timeout: 3))
+            app.buttons["manage-agents"].tap(); return
+        }
+        if destination == "Conversations" { app.buttons["quick-history"].tap(); return }
         app.buttons["app-navigation"].tap()
+        if destination == "Réglages" {
+            XCTAssertTrue(app.buttons["quick-settings"].waitForExistence(timeout: 3))
+            app.buttons["quick-settings"].tap(); return
+        }
         let search = app.textFields["spaces-search"]
         XCTAssertTrue(search.waitForExistence(timeout: 3))
         search.tap(); search.typeText(destination)
@@ -178,6 +194,38 @@ final class HermesIOSUITests: XCTestCase {
         let button = app.buttons["space-" + identifier]
         XCTAssertTrue(button.waitForExistence(timeout: 3))
         button.tap()
+    }
+
+    func testQuickProfileSwitchKeepsSeparateDrafts() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo"]
+        app.launch()
+        let composer = app.textFields["chat-composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        composer.tap(); composer.typeText("Une idee pour Hermes")
+        app.buttons["switch-profile"].tap()
+        XCTAssertTrue(app.buttons["quick-profile-default"].waitForExistence(timeout: 3))
+        capture("12-profiles")
+        // Selecting the active profile must leave the current chat untouched.
+        app.buttons["quick-profile-default"].tap()
+        XCTAssertEqual(composer.value as? String, "Une idee pour Hermes")
+        app.buttons["switch-profile"].tap()
+        app.buttons["quick-profile-research"].tap()
+        XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Bonjour, je suis Atlas")).firstMatch.waitForExistence(timeout: 3))
+        XCTAssertEqual(composer.value as? String, "Message…")
+        composer.tap(); composer.typeText("Une recherche pour Atlas")
+        app.buttons["switch-profile"].tap()
+        app.buttons["quick-profile-default"].tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 3))
+        XCTAssertEqual(composer.value as? String, "Une idee pour Hermes")
+        app.buttons["switch-profile"].tap()
+        app.buttons["quick-profile-research"].tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 3))
+        XCTAssertEqual(composer.value as? String, "Une recherche pour Atlas")
+        app.buttons["quick-history"].tap()
+        XCTAssertTrue(app.navigationBars["Conversations"].waitForExistence(timeout: 3))
+        app.buttons["return-to-chat"].tap()
+        XCTAssertEqual(composer.value as? String, "Une recherche pour Atlas")
     }
 
     private func capture(_ name: String) {

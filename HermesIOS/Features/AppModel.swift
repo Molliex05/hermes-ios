@@ -555,7 +555,7 @@ final class AppModel {
             ["name": "research", "display_name": "Atlas", "description": "Curieux de tout. Précis sur l’essentiel.", "model": "Hermes 4", "skill_count": 8],
             ["name": "studio", "display_name": "Studio", "description": "Des idées aux choses qui existent.", "model": "Hermes 4", "skill_count": 6]
         ].map { AgentProfile(.object($0)) }
-        selected = ChatSnapshot(storedID: "demo", profile: "default", title: "Hermes")
+        selected = ChatSnapshot(storedID: "demo-default", profile: "default", title: "Hermes")
         transcript.messages = [
             .init(role: "user", text: "J’aimerais une journée un peu plus légère."),
             .init(role: "assistant", text: "On fait de la place.\n\nChoisis **une seule chose** qui rendrait ta journée satisfaisante. Le reste peut attendre.\n\nQu’est-ce qui compte le plus pour toi aujourd’hui ?")
@@ -564,9 +564,15 @@ final class AppModel {
     }
 
     private func openDemoBot(_ bot: AgentProfile) {
-        selected = ChatSnapshot(storedID: "demo-\(bot.name)", profile: bot.name, title: bot.title)
-        profile = bot.name; transcript = Transcript()
-        transcript.messages = [.init(role: "assistant", text: "Bonjour, je suis \(bot.title). \(bot.detail)\n\nQu’est-ce qu’on explore ensemble ?")]
+        saveCurrent()
+        let storedID = "demo-\(bot.name)"
+        selected = workspace.chats[key(bot.name, storedID)] ?? ChatSnapshot(storedID: storedID, profile: bot.name, title: bot.title)
+        profile = bot.name
+        transcript = Transcript(messages: selected?.messages ?? [])
+        draft = workspace.drafts[draftKey] ?? ""
+        if transcript.messages.isEmpty {
+            transcript.messages = [.init(role: "assistant", text: "Bonjour, je suis \(bot.title). \(bot.detail)\n\nQu’est-ce qu’on explore ensemble ?")]
+        }
     }
 
     private func demoReply() async {

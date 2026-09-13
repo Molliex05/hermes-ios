@@ -29,7 +29,7 @@ struct ChatView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Button { present(.agents) } label: {
+            Button { present(.profiles) } label: {
                 HStack(spacing: 11) {
                     AgentAvatar(name: model.agent?.name ?? "default", size: 34)
                     VStack(alignment: .leading, spacing: 4) {
@@ -149,10 +149,14 @@ struct ChatView: View {
                 }
             }
             HStack(alignment: .bottom, spacing: 10) {
-                Button { present(.spaces) } label: {
-                    Image(systemName: "circle.grid.2x2").font(.system(size: 21, weight: .regular))
-                        .foregroundStyle(.primary).frame(width: 42, height: 44)
-                }.accessibilityLabel("Ouvrir les espaces").accessibilityIdentifier("app-navigation")
+                Menu {
+                    Button("Dicter un message", systemImage: "waveform") { present(.voice) }
+                    Button("Mentionner un agent", systemImage: "at") { model.draft += "@"; focused = true }
+                    Button("Nouvelle conversation", systemImage: "square.and.pencil") { model.newChat(); focused = true }
+                } label: {
+                    Image(systemName: "plus").font(.system(size: 21, weight: .regular))
+                        .foregroundStyle(.secondary).frame(width: 42, height: 44)
+                }.accessibilityLabel("Actions du message")
                 TextField("Message…", text: $model.draft, axis: .vertical)
                     .lineLimit(1...7).font(.body).padding(.vertical, 12).focused($focused)
                     .accessibilityIdentifier("chat-composer")
@@ -172,8 +176,31 @@ struct ChatView: View {
             }.padding(9).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 28))
                 .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(AppTheme.line))
                 .shadow(color: .black.opacity(0.045), radius: 22, y: 6)
-        }.padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 8).frame(maxWidth: 750).frame(maxWidth: .infinity)
+            navigationShortcuts.padding(.top, 4)
+        }.padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 2).frame(maxWidth: 750).frame(maxWidth: .infinity)
             .background(AppTheme.background)
+    }
+
+    private var navigationShortcuts: some View {
+        HStack(spacing: 4) {
+            Button { present(.profiles) } label: {
+                HStack(spacing: 7) {
+                    AgentAvatar(name: model.agent?.name ?? "default", size: 22)
+                    Text(model.agent?.title ?? "Hermes").lineLimit(1)
+                    Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary)
+                }.padding(.horizontal, 9).frame(height: 44).contentShape(Capsule())
+            }.accessibilityLabel("Changer de profil : \(model.agent?.title ?? "Hermes")")
+                .accessibilityIdentifier("switch-profile")
+            Spacer(minLength: 0)
+            Button { present(.history) } label: {
+                Label("Chats", systemImage: "bubble.left.and.bubble.right")
+                    .padding(.horizontal, 10).frame(height: 44).contentShape(Capsule())
+            }.accessibilityLabel("Conversations du profil actif").accessibilityIdentifier("quick-history")
+            Button { present(.spaces) } label: {
+                Label("Outils", systemImage: "slider.horizontal.3")
+                    .padding(.horizontal, 10).frame(height: 44).contentShape(Capsule())
+            }.accessibilityLabel("Outils").accessibilityIdentifier("app-navigation")
+        }.font(.caption.weight(.medium)).foregroundStyle(.secondary).buttonStyle(.plain)
     }
 }
 

@@ -1,5 +1,64 @@
 import SwiftUI
 
+struct QuickProfilePicker: View {
+    let model: AppModel
+    var manage: () -> Void
+    var close: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("À qui on parle ?").font(.system(size: 27, design: .serif)).tracking(-0.5)
+                Text("Retrouvez le fil de chaque agent.").font(.subheadline).foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 26).padding(.top, 28).padding(.bottom, 18)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 5) {
+                        ForEach(model.profiles) { agent in
+                            Button {
+                                close()
+                                if agent.name != model.profile { Task { await model.openBot(agent) } }
+                            } label: {
+                                HStack(spacing: 13) {
+                                    AgentAvatar(name: agent.name, size: 38)
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(agent.title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+                                        Text(agent.detail.isEmpty ? "@\(agent.name)" : agent.detail)
+                                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                    Spacer(minLength: 0)
+                                    if agent.name == model.profile {
+                                        Image(systemName: "checkmark.circle.fill").foregroundStyle(AppTheme.accent)
+                                    }
+                                }.padding(.horizontal, 14).padding(.vertical, 13)
+                                    .background(agent.name == model.profile ? AppTheme.surface : .clear, in: RoundedRectangle(cornerRadius: 19))
+                                    .contentShape(Rectangle())
+                            }.buttonStyle(.plain).disabled(model.opening || (!model.demo && model.state != .connected))
+                                .accessibilityIdentifier("quick-profile-\(agent.name)")
+                                .accessibilityAddTraits(agent.name == model.profile ? .isSelected : [])
+                                .id(agent.name)
+                        }
+                    }.padding(.horizontal, 18)
+                }.onAppear { proxy.scrollTo(model.profile, anchor: .center) }
+            }
+            if !model.demo && model.state != .connected {
+                Text("Reconnectez Hermes pour changer d’agent.").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 24)
+            }
+            HStack {
+                Button(action: manage) {
+                    Label("Gérer les agents", systemImage: "person.crop.circle.badge.gearshape")
+                        .font(.subheadline.weight(.medium)).frame(minHeight: 46)
+                }.accessibilityIdentifier("manage-agents")
+                Spacer()
+                Button(action: close) {
+                    Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold))
+                        .frame(width: 46, height: 46).background(AppTheme.surface, in: Circle())
+                }.accessibilityLabel("Revenir au chat").accessibilityIdentifier("return-to-chat")
+            }.buttonStyle(.plain).padding(.horizontal, 26).padding(.top, 10).padding(.bottom, 12)
+        }.background(AppTheme.background)
+    }
+}
+
 struct AgentsView: View {
     @Bindable var model: AppModel
     var openChat: () -> Void

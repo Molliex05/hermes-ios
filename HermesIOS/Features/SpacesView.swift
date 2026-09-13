@@ -2,11 +2,12 @@ import SwiftUI
 
 /// One catalogue drives discovery and routing; adding a tool never adds another tab.
 enum AppDestination: String, Identifiable, CaseIterable {
-    case spaces, history, agents, groups, routines, kanban, workspace, skills, models, voice, settings
+    case spaces, profiles, history, agents, groups, routines, kanban, workspace, skills, models, voice, settings
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .spaces: "Espaces"
+        case .spaces: "Outils"
+        case .profiles: "Profils"
         case .history: "Conversations"
         case .agents: "Agents"
         case .groups: "Groupes"
@@ -22,6 +23,7 @@ enum AppDestination: String, Identifiable, CaseIterable {
     var detail: String {
         switch self {
         case .spaces: "Tout votre Hermes"
+        case .profiles: "Changer d’agent"
         case .history: "Retrouver le fil"
         case .agents: "Profils et Bot Mode"
         case .groups: "Faire équipe"
@@ -36,7 +38,8 @@ enum AppDestination: String, Identifiable, CaseIterable {
     }
     var symbol: String {
         switch self {
-        case .spaces: "square.grid.2x2"
+        case .spaces: "slider.horizontal.3"
+        case .profiles: "person.crop.circle"
         case .history: "bubble.left.and.bubble.right"
         case .agents: "person.crop.circle"
         case .groups: "person.2"
@@ -49,11 +52,22 @@ enum AppDestination: String, Identifiable, CaseIterable {
         case .settings: "slider.horizontal.3"
         }
     }
-    var group: String {
+}
+
+private enum ToolCategory: String, CaseIterable {
+    case work, agent, all
+    var title: String {
         switch self {
-        case .history, .agents, .groups, .voice: "Échanger"
-        case .routines, .kanban, .workspace: "Organiser"
-        default: "Personnaliser"
+        case .work: "Travail"
+        case .agent: "Agent"
+        case .all: "Tout"
+        }
+    }
+    var destinations: [AppDestination] {
+        switch self {
+        case .work: [.kanban, .routines, .workspace]
+        case .agent: [.skills, .models, .voice, .groups]
+        case .all: [.kanban, .routines, .workspace, .skills, .models, .voice, .groups, .agents, .history, .settings]
         }
     }
 }
@@ -62,6 +76,7 @@ struct SpacesView: View {
     let model: AppModel
     @State private var page: AppDestination?
     @State private var search = ""
+    @State private var category: ToolCategory = .work
     @State private var detent: PresentationDetent
     @FocusState private var searching: Bool
     @Environment(\.dismiss) private var dismiss
@@ -70,7 +85,7 @@ struct SpacesView: View {
     init(model: AppModel, initial: AppDestination? = nil) {
         self.model = model
         _page = State(initialValue: initial)
-        _detent = State(initialValue: initial == nil ? .height(540) : .large)
+        _detent = State(initialValue: initial == .profiles ? .height(380) : initial == nil ? .height(460) : .large)
     }
 
     var body: some View {
@@ -80,82 +95,73 @@ struct SpacesView: View {
         }
         .background(AppTheme.background)
         .environment(\.toolNavigation, ToolNavigation(showSpaces: { page = nil }, showChat: { dismiss() }))
-        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.height(540), .large], selection: $detent)
-        .onChange(of: page) { _, value in searching = false; detent = value == nil ? .height(540) : .large }
+        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [compactDetent, .large], selection: $detent)
+        .onChange(of: page) { _, value in searching = false; detent = value == nil || value == .profiles ? compactDetent : .large }
         .onChange(of: searching) { _, value in if value { detent = .large } }
+        .onChange(of: search) { _, value in if !value.isEmpty { category = .all } }
+        .onChange(of: typeSize) { _, _ in detent = page == nil || page == .profiles ? compactDetent : .large }
+        .onAppear { if typeSize.isAccessibilitySize { detent = .large } }
     }
 
+    private var compactDetent: PresentationDetent { typeSize.isAccessibilitySize ? .large : .height(page == .profiles ? 380 : 460) }
+
     private var entries: [AppDestination] {
-        AppDestination.allCases.filter { $0 != .spaces && (search.isEmpty || "\($0.title) \($0.detail)".localizedCaseInsensitiveContains(search)) }
+        category.destinations.filter { search.isEmpty || "\($0.title) \($0.detail)".localizedCaseInsensitiveContains(search) }
     }
 
     private var launcher: some View {
         VStack(spacing: 0) {
-            HStack(alignment: .center) {
-                Text("Espaces").font(.system(size: 25, weight: .regular, design: .serif)).tracking(-0.4)
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Outils").font(.system(size: 25, design: .serif)).tracking(-0.4)
+                    Text("Pour \(model.agent?.title ?? "Hermes")").font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
-                Button { model.newChat(); dismiss() } label: {
-                    Label("Nouveau chat", systemImage: "square.and.pencil").font(.caption.weight(.medium))
-                        .padding(.horizontal, 12).frame(height: 38).background(AppTheme.surface, in: Capsule())
-                }.buttonStyle(.plain).accessibilityIdentifier("launcher-new-chat")
-            }.padding(.horizontal, 24).padding(.top, 24).padding(.bottom, 18)
+                Button { page = .settings } label: {
+                    Image(systemName: "gearshape").font(.system(size: 18))
+                        .frame(width: 44, height: 44).background(AppTheme.surface, in: Circle())
+                }.buttonStyle(.plain).accessibilityLabel("Réglages").accessibilityIdentifier("quick-settings")
+            }.padding(.horizontal, 24).padding(.top, 25).padding(.bottom, 16)
+            HStack(spacing: 4) {
+                ForEach(ToolCategory.allCases, id: \.self) { item in
+                    Button { search = ""; searching = false; category = item } label: {
+                        Text(item.title).font(.subheadline.weight(.medium)).frame(maxWidth: .infinity).frame(minHeight: 44)
+                            .foregroundStyle(category == item ? Color.primary : .secondary)
+                            .background(category == item ? AppTheme.surface : Color.clear, in: Capsule())
+                    }.buttonStyle(.plain).accessibilityIdentifier("tools-filter-" + item.rawValue)
+                        .accessibilityAddTraits(category == item ? .isSelected : [])
+                }
+            }.padding(3).background(AppTheme.line.opacity(0.5), in: Capsule()).padding(.horizontal, 22).padding(.bottom, 10)
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    if search.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 8) {
-                                ForEach(model.profiles) { agent in
-                                    Button {
-                                        dismiss(); Task { await model.openBot(agent) }
-                                    } label: {
-                                        HStack(spacing: 8) {
-                                            AgentAvatar(name: agent.name, size: 26)
-                                            Text(agent.title).font(.caption.weight(.medium))
-                                            if agent.name == model.profile { Circle().fill(AppTheme.accent).frame(width: 4, height: 4) }
-                                        }.padding(.leading, 6).padding(.trailing, 12).frame(height: 40)
-                                            .background(agent.name == model.profile ? AppTheme.surface : Color.clear, in: Capsule())
-                                            .overlay(Capsule().strokeBorder(AppTheme.line))
-                                    }.buttonStyle(.plain).disabled(model.opening)
-                                        .accessibilityIdentifier("launcher-agent-\(agent.name)")
+                VStack(spacing: 0) {
+                    ForEach(entries) { entry in
+                        Button { page = entry } label: {
+                            HStack(spacing: 14) {
+                                Image(systemName: entry.symbol).font(.system(size: 19, weight: .regular))
+                                    .foregroundStyle(AppTheme.accent).frame(width: 40, height: 40)
+                                    .background(AppTheme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 13))
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(entry.title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+                                    Text(entry.detail).font(.caption).foregroundStyle(.secondary)
                                 }
-                            }.padding(.horizontal, 24)
-                        }
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right").font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary)
+                            }.padding(.vertical, 12).contentShape(Rectangle())
+                        }.buttonStyle(.plain).accessibilityIdentifier("space-\(entry.rawValue)")
                     }
-                    VStack(spacing: 0) {
-                        ForEach(["Échanger", "Organiser", "Personnaliser"], id: \.self) { group in
-                            let rows = entries.filter { $0.group == group }
-                            if !rows.isEmpty {
-                                if group != "Échanger" { Rectangle().fill(AppTheme.line).frame(height: 1).padding(.vertical, 8) }
-                                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .leading), count: typeSize.isAccessibilitySize ? 1 : 2), spacing: 2) {
-                                    ForEach(rows) { entry in
-                                        Button { page = entry } label: {
-                                            HStack(spacing: 12) {
-                                                Image(systemName: entry.symbol).font(.system(size: 18, weight: .regular))
-                                                    .foregroundStyle(.secondary).frame(width: 24)
-                                                Text(entry.title).font(.system(.subheadline, design: .rounded).weight(.medium))
-                                                    .lineLimit(1).minimumScaleFactor(0.85)
-                                                Spacer(minLength: 0)
-                                            }.frame(minHeight: 48).contentShape(Rectangle())
-                                        }.buttonStyle(.plain).accessibilityIdentifier("space-\(entry.rawValue)")
-                                    }
-                                }
-                            }
-                        }
-                        if entries.isEmpty { ContentUnavailableView.search(text: search) }
-                    }.padding(.horizontal, 26)
-                }.padding(.bottom, 12)
+                    if entries.isEmpty { ContentUnavailableView.search(text: search) }
+                }.padding(.horizontal, 26).padding(.bottom, 8)
             }.scrollDismissesKeyboard(.interactively)
             HStack(spacing: 12) {
                 HStack(spacing: 10) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
-                    TextField("Rechercher", text: $search).font(.subheadline).focused($searching)
+                    TextField("Chercher un outil", text: $search).font(.subheadline).focused($searching)
                         .accessibilityIdentifier("spaces-search")
                     if !search.isEmpty {
                         Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
                             .accessibilityLabel("Effacer la recherche")
                     }
-                }.padding(.horizontal, 15).frame(height: 46)
-                    .background(AppTheme.surface, in: Capsule())
+                }.padding(.horizontal, 15).frame(height: 46).background(AppTheme.surface, in: Capsule())
                 Button { dismiss() } label: {
                     Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold))
                         .frame(width: 46, height: 46).background(AppTheme.surface, in: Circle())
@@ -167,6 +173,7 @@ struct SpacesView: View {
     @ViewBuilder private func destination(_ page: AppDestination) -> some View {
         switch page {
         case .spaces: launcher
+        case .profiles: QuickProfilePicker(model: model, manage: { self.page = .agents }, close: { dismiss() })
         case .history: SessionsView(model: model)
         case .agents: AgentsView(model: model, openChat: { dismiss() })
         case .routines: RoutinesView(model: model)
@@ -214,7 +221,7 @@ struct ToolDock<Actions: View>: View {
                 Button(action: navigation.showSpaces) {
                     Image(systemName: "circle.grid.2x2").font(.system(size: 19))
                         .frame(width: 44, height: 44).background(AppTheme.surface, in: Circle())
-                }.accessibilityLabel("Espaces").accessibilityIdentifier("back-to-spaces")
+                }.accessibilityLabel("Outils").accessibilityIdentifier("back-to-spaces")
             }
             HStack { Spacer(minLength: 0); actions; Spacer(minLength: 0) }
                 .font(.subheadline.weight(.medium))
