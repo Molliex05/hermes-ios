@@ -17,7 +17,7 @@ A saved gateway has a UUID and an endpoint including any proxy prefix. Every cac
 
 ## Fast path
 
-Saved chats and drafts render before the network is contacted. The socket stays open while the app is in the foreground. Native `ping` heartbeats detect a half-open connection. Token events are applied in batches at approximately 30 updates per second; control and completion events flush immediately. Cache writes are debounced and happen on a separate actor.
+Saved chats and drafts render before the network is contacted. The socket stays open while the app is in the foreground. Native `ping` heartbeats detect a half-open connection. Token events are applied in batches at approximately 30 updates per second; control and completion events flush immediately. Cache writes are throttled to checkpoint ongoing streams every approximately 500 ms and happen on a separate actor; continuous token output cannot postpone the checkpoint indefinitely.
 
 The view keeps stable message identities during hydration and follows the last message only while the reader is near the bottom. A tiny connection indicator reports availability; there is no full-screen sync overlay or forced clearing of chat. The composer remains editable offline.
 
@@ -31,6 +31,8 @@ Audio uses AVAudioRecorder and AVAudioPlayer on iPhone and the authenticated Her
 
 ## Reconnect
 
+The active chat resumes before roster/history refreshes, which run independently afterward. Callback ownership is scoped to the current socket and connection. Replay reads allow 40 seconds; an already obtained replay is reused when no second snapshot is needed.
+
 1. Mint a new single-use ticket with the existing native session cookie.
 2. Read `gateway.ready.payload.replay_epoch`.
 3. Reattach the stored conversation and receive its current runtime ID.
@@ -40,7 +42,7 @@ Audio uses AVAudioRecorder and AVAudioPlayer on iPhone and the authenticated Her
 
 Hermes' replay buffer is bounded. There is no atomic snapshot+cursor field in the inspected backend. The fallback can reconstruct a retained turn from `message.start`; otherwise it uses a linear-time overlap of the cumulative partial response and retained stream suffix. When the overlap cannot be proven, the existing partial response remains until `message.complete` provides the authoritative answer. The final native history is then reconciled without changing model context.
 
-iOS suspends background execution. Hermès iOS saves local state and detaches when backgrounded, then resumes when active. It does not use a fake background-audio mode to keep a socket alive. The server may continue work according to Hermes' own orphan/reaper and task policies. No push notifications are implemented in 0.1.0.
+iOS suspends background execution. Temporary inactivity preserves the socket. When backgrounded, a finite UIKit background task lets an in-flight transmission finish and checkpoint its acknowledgement before disconnecting. This allowance can expire: an unconfirmed send is recovered from native history and is never automatically resent. Once accepted, the turn runs on the Hermes server; the app does not send an interrupt or session-close command when the phone locks. The inspected native orphan reaper preserves detached turns while their activity is fresh, then applies its own stale-work/cleanup policy. Returning to the app resumes the stored session and catches up via replay or native history. No background-audio mode, hosted relay or push notifications are implemented. The Mac and its agent must remain available; provider outages or a request for user approval can still delay completion.
 
 ## Sending and ambiguity
 
@@ -63,3 +65,5 @@ Attachments are stored as separate device-protected files, with per-connection/c
 Conversation history uses date-grouped cards, a visible active-session state, and previews. Search matches titles and previews within the active profile. Search and new-chat controls stay in the bottom row; a native X closes the sheet. Selecting the already active conversation only dismisses the sheet, preserving its draft and live turn. History loads from the current cache before refreshing; errors leave cached rows visible. Concurrent native `session.list` reads share one request per socket/profile. The sheet waits for a connected socket and refreshes automatically after reconnection. Any successful refresh clears an earlier error, while failures expose the underlying RPC reason. A listing failure does not close an otherwise healthy chat connection. Heartbeat replies allow 45 seconds to tolerate observed server event-loop stalls; actual transport failures still trigger immediate recovery.
 
 History cards keep both title and preview on one line, with trailing truncation and a compact 72-point minimum height. Full conversation titles remain available to accessibility.
+
+Conversation lists are persisted per profile with backward-compatible migration from the former single list. Profile switching renders that profile’s cached list immediately and revalidates separately. A slow background response can update its own cached profile without replacing the currently displayed list. The connection indicator remains distinct from the activity label; after 15 seconds without progress during thinking, the label reports that the model response is pending, without claiming a provider outage.

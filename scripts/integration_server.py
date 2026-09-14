@@ -48,6 +48,7 @@ class Model(BaseHTTPRequestHandler):
             print("Fixture TTS voice: " + str(body.get("voice")), flush=True)
             return
         self.send_response(200)
+        slow = any("HERMES_IOS_BACKGROUND_TEST" in str(m.get("content", "")) for m in body.get("messages", []) if m.get("role") == "user")
         if body.get("stream"):
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
@@ -55,7 +56,7 @@ class Model(BaseHTTPRequestHandler):
                 chunk = {"id": "test", "object": "chat.completion.chunk", "created": int(time.time()), "model": "hermes-ios-fixture", "choices": [{"index": 0, "delta": {"content": word + " "}, "finish_reason": None}]}
                 self.wfile.write(("data: " + json.dumps(chunk) + "\n\n").encode())
                 self.wfile.flush()
-                time.sleep(0.16)
+                time.sleep(1.0 if slow else 0.16)
             self.wfile.write(b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
         else:
             self.send_header("Content-Type", "application/json")

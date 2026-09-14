@@ -10,6 +10,13 @@ public struct Transcript: Sendable {
     public var clarification: JSONValue?
     public var credential: JSONValue?
     public var failure: String?
+    public var lastActivityAt = Date()
+
+    public func isWaitingForResponse(at date: Date) -> Bool {
+        running && approval == nil && clarification == nil && credential == nil
+            && ["Réfléchit…", "En cours…"].contains(activity ?? "")
+            && date.timeIntervalSince(lastActivityAt) >= 15
+    }
 
     public init(messages: [ChatMessage] = [], lastSequence: Int = 0) {
         self.messages = messages; self.lastSequence = lastSequence
@@ -21,6 +28,7 @@ public struct Transcript: Sendable {
             guard seq > lastSequence else { return }
             lastSequence = seq
         }
+        lastActivityAt = Date()
         let p = event["payload"]
         switch event["type"].string {
         case "message.start":
@@ -74,6 +82,7 @@ public struct Transcript: Sendable {
 
     /// Preserve view identities through hydration so a refresh doesn't recreate every bubble.
     public mutating func hydrate(_ payload: JSONValue) {
+        lastActivityAt = Date()
         let old = messages
         var used = Set<String>()
         var projected: [ChatMessage] = []

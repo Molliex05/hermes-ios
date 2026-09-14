@@ -2,13 +2,13 @@
 
 | Check | Result |
 | --- | --- |
-| Foundation core suite | 30 tests passed, including replay/scoping, voice API compatibility, shared history requests, cancellation and retry |
+| Foundation core suite | 33 tests passed, including replay/scoping, shared history requests, profile cache migration/isolation and waiting-state behavior |
 | Offline iOS UI suite | 6 tests passed: chat/agents/settings, onboarding, draft preservation, filtered tool discovery, quick profile switching and attachment/voice controls |
 | Integrated composer | Passed: controls inside the bubble, keyboard layout, photo/file menu and voice sheet preserve the written draft |
 | Official Hermes protocol probe | 13 checks passed, including auth, live replay, canonical Bot Chat, profile isolation, routines and hosted groups |
 | Native tools probe | Passed: skills list/content/toggle isolation, workspace isolation, model assignment isolation, Kanban triage creation and idempotency |
 | Native iOS integration | Passed: sign-in, persisted auth, streaming and resume; skill toggling, profile model/workspace/board reads; automatic voice send, playback, resumed listening and draft preservation |
-| Release device build | Development-signed ARM64 build 12 succeeded; installed and launched on iPhone 16 Plus |
+| Release device build | Development-signed ARM64 build 13 succeeded; installed and launched on iPhone 16 Plus |
 
 The integration backend is the official, unmodified Hermes Agent **0.21.2**, commit `b7b35a84b7fbe1aa2e223a6ce726a2471300d0a4`, in an isolated home. Model, STT and TTS provider endpoints use deterministic local fixtures; native Hermes remains unmodified. Production agent data and credentials are excluded from automated tests and screenshots.
 
@@ -33,3 +33,9 @@ Build 11 addresses history refresh recovery. Read-only production diagnostics fo
 Build 11 validation: all 30 core tests passed, including concurrent history reads, cancellation without aborting another reader, failure retry and profile scoping. The targeted iOS UI test passed for profile switching, separate drafts, conversation history and X dismissal. The signed Release build was installed and launched on iPhone 16 Plus. Automated recovery tests use the request coordinator; the observed production server stalls have not been deliberately reproduced on device.
 
 Build 12 (September 14) adds a native SF Symbol pulse to the active thinking/tool indicator. It respects Reduce Motion and keeps the text and layout stable. The signed Release build passed and was installed and launched on iPhone 16 Plus; no core logic changed and the earlier core/UI results were not rerun for this visual-only change.
+
+Build 13 improves synchronization and background submission. Core: 33 tests passed. The new native iOS background test passed: immediate backgrounding after Send, 40 seconds away while the official Hermes fixture continues a slow turn, one complete answer after return, and successful cache/reconnect after process relaunch. The isolated database confirms exactly one user message and one assistant response for that test. The native tools probe also passed. Simulator backgrounding exercises the app lifecycle; a physical lock-screen/OS-expiration test has not been automated. No production server configuration was changed.
+
+Build 13 Release was installed and launched on the physical iPhone. An additional broad native UI run verified sign-in/resume, profile opening, skills and model display, then repeatedly waited 60 seconds for missing iOS 27 animation-completion notifications. That run was interrupted and is not counted as a passing full native suite. The focused background/relaunch test above completed successfully.
+
+The separate focused UI test also passed for profile switching, isolated drafts, conversation history and X dismissal. Both focused UI runs completed; the broad animation-stalled run remains excluded.

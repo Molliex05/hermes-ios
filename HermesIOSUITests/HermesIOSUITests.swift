@@ -82,11 +82,7 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertEqual(composer.value as? String, "Mon brouillon reste ici")
     }
 
-    func testNativeHermesConnectionAndResume() throws {
-        guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Start the isolated Hermes integration server and set HERMES_IOS_INTEGRATION=1.") }
-        let app = XCUIApplication()
-        app.launchArguments = ["--integration-test", "--voice-fixture"]
-        app.launch()
+    private func connectFixtureIfNeeded(_ app: XCUIApplication) {
         if app.buttons["Rencontrer mon Hermes"].waitForExistence(timeout: 5) {
             app.buttons["Rencontrer mon Hermes"].tap()
             let address = app.textFields["Adresse Hermes"]
@@ -105,6 +101,41 @@ final class HermesIOSUITests: XCTestCase {
             // optional password-manager sheet without saving disposable fixture credentials.
             app.terminate(); app.launch()
         }
+    }
+
+    func testNativeSendThenImmediatelyBackground() throws {
+        guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Requires isolated Hermes fixture") }
+        let app = XCUIApplication()
+        app.launchArguments = ["--integration-test"]
+        app.launch()
+        connectFixtureIfNeeded(app)
+        XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
+        app.buttons["Nouvelle conversation"].tap()
+        let composer = app.textFields["chat-composer"]
+        composer.tap(); composer.typeText("HERMES_IOS_BACKGROUND_TEST")
+        app.buttons["send-message"].tap()
+        // Leave before waiting for either the submission acknowledgement or a first token.
+        XCUIDevice.shared.press(.home)
+        // Longer than the native 20-second orphan grace. The fixture streams for ~30 seconds.
+        sleep(40)
+        app.activate()
+        let final = app.descendants(matching: .any).matching(identifier: "assistant-message").matching(NSPredicate(format: "label CONTAINS %@", "le fil est retrouvé."))
+        XCTAssertTrue(final.firstMatch.waitForExistence(timeout: 45))
+        XCTAssertEqual(final.count, 1)
+        let sent = app.descendants(matching: .any).matching(identifier: "user-message").matching(NSPredicate(format: "label CONTAINS %@", "HERMES_IOS_BACKGROUND_TEST"))
+        XCTAssertEqual(sent.count, 1)
+        capture("22-background-completed")
+        app.terminate(); app.launch()
+        XCTAssertTrue(final.firstMatch.waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
+    }
+
+    func testNativeHermesConnectionAndResume() throws {
+        guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Start the isolated Hermes integration server and set HERMES_IOS_INTEGRATION=1.") }
+        let app = XCUIApplication()
+        app.launchArguments = ["--integration-test", "--voice-fixture"]
+        app.launch()
+        connectFixtureIfNeeded(app)
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 40))
         XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
         openNavigation("Conversations", in: app)

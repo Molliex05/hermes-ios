@@ -2,6 +2,39 @@ import XCTest
 @testable import HermesIOSCore
 
 final class ProtocolTests: XCTestCase {
+    func testProfileHistoryMigratesAndKeepsSeparateLists() throws {
+        let local = Conversation(["id": "local"], profile: "default")
+        let bot = Conversation(["id": "bot"], profile: "noriven")
+        var index = ConversationIndex(legacy: [local, bot])
+        index.update([], profile: "default")
+        XCTAssertTrue(index["default"].isEmpty)
+        XCTAssertEqual(index["noriven"].map(\.id), ["bot"])
+        let restored = try JSONDecoder().decode(ConversationIndex.self, from: JSONEncoder().encode(index))
+        XCTAssertEqual(restored["noriven"].map(\.id), ["bot"])
+        XCTAssertTrue(restored["unknown"].isEmpty)
+    }
+
+    func testProfileHistoryRejectsRowsFromAnotherProfile() {
+        var index = ConversationIndex()
+        index.update([Conversation(["id": "private"], profile: "noriven")], profile: "default")
+        XCTAssertTrue(index["default"].isEmpty)
+    }
+
+    func testWaitingIndicatorRespectsActivityAndUserRequests() {
+        var transcript = Transcript()
+        transcript.apply(event(1, "message.start"))
+        let later = transcript.lastActivityAt.addingTimeInterval(16)
+        XCTAssertFalse(transcript.isWaitingForResponse(at: transcript.lastActivityAt))
+        XCTAssertTrue(transcript.isWaitingForResponse(at: later))
+        transcript.approval = ["request_id": "approve"]
+        XCTAssertFalse(transcript.isWaitingForResponse(at: later))
+        transcript.approval = nil
+        transcript.apply(event(2, "tool.start"))
+        XCTAssertFalse(transcript.isWaitingForResponse(at: later))
+        transcript.apply(event(3, "message.complete", text: "Done"))
+        XCTAssertFalse(transcript.isWaitingForResponse(at: later))
+    }
+
     @MainActor
     func testHistorySharesConcurrentReadsAndSurvivesDismissal() async throws {
         let requests = HistoryRequests()

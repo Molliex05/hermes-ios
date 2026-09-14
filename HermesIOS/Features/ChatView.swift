@@ -142,7 +142,12 @@ struct ChatView: View {
                                     .foregroundStyle(AppTheme.accent)
                                     .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion)
                                     .accessibilityHidden(true)
-                                Text(activity).lineLimit(2)
+                                TimelineView(.periodic(from: .now, by: 1)) { context in
+                                    Text(model.sending ? "Transmission à Hermès…"
+                                         : model.state == .connected && model.transcript.isWaitingForResponse(at: context.date)
+                                         ? "En attente de la réponse du modèle…" : activity)
+                                        .lineLimit(2)
+                                }
                             }.font(.caption).foregroundStyle(.secondary).padding(.leading, 2)
                         }
                         if let failure = model.transcript.failure, !failure.isEmpty {

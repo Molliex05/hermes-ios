@@ -11,7 +11,9 @@ struct HermesIOSApp: App {
                 .tint(AppTheme.accent)
                 .task { await model.boot() }
                 .onChange(of: phase) { _, value in
-                    Task { await model.setForeground(value == .active) }
+                    // A temporary inactive phase must not tear down the chat socket.
+                    if value == .active { Task { await model.setForeground(true) } }
+                    else if value == .background { Task { await model.setForeground(false) } }
                 }
         }
     }

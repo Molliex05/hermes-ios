@@ -4,6 +4,7 @@ import Observation
 struct CachedWorkspace: Codable, Sendable {
     var profiles: [AgentProfile] = []
     var sessions: [Conversation] = []
+    var historyIndex: ConversationIndex?
     var chats: [String: ChatSnapshot] = [:]
     var drafts: [String: String] = [:]
     var selected: String?
@@ -21,7 +22,10 @@ final class AppModel {
     var sessions: [Conversation] = []
     var historyRevision = 0
     @ObservationIgnored private let historyRequests = HistoryRequests()
-    var profile = "default"
+    @ObservationIgnored private var historyIndex = ConversationIndex()
+    var profile = "default" {
+        didSet { if !demo, oldValue != profile { sessions = historyIndex[profile] } }
+    }
     var selected: ChatSnapshot?
     var transcript = Transcript()
     var draft = ""
@@ -96,6 +100,7 @@ final class AppModel {
     }
 
     func activate(_ connection: SavedConnection) async {
+        saveTask?.cancel(); saveTask = nil
         await persistNow()
         reconnectTask?.cancel(); reconnectTask = nil
         refreshTask?.cancel(); streamTask?.cancel()
@@ -113,9 +118,11 @@ final class AppModel {
         workspace = restored
         attachmentDrafts = restored.attachments ?? [:]
         imageCleanup = restored.imageCleanup ?? [:]
-        profiles = workspace.profiles; sessions = workspace.sessions
+        profiles = workspace.profiles
+        historyIndex = workspace.historyIndex ?? ConversationIndex(legacy: workspace.sessions)
         selected = workspace.selected.flatMap { workspace.chats[$0] }
         profile = selected?.profile ?? profiles.first?.name ?? "default"
+        sessions = historyIndex[profile]
         transcript = Transcript(messages: selected?.messages ?? [], lastSequence: selected?.lastSequence ?? 0)
         draft = workspace.drafts[draftKey] ?? ""
         http = HermesHTTP(connection)
@@ -133,32 +140,38 @@ final class AppModel {
                     guard let http = self.http else { return }
                     let channel = HermesSocket()
                     self.socket = channel
-                    channel.onEvent = { [weak self] in self?.receive($0) }
-                    channel.onDisconnect = { [weak self] error in self?.disconnected(error) }
+                    channel.onEvent = { [weak self, weak channel] event in
+                        guard let self, let channel, self.socket === channel, generation == self.connectionGeneration else { return }
+                        self.receive(event)
+                    }
+                    channel.onDisconnect = { [weak self, weak channel] error in
+                        guard let self, let channel, self.socket === channel, generation == self.connectionGeneration else { return }
+                        self.disconnected(error)
+                    }
                     self.buffering = true; self.held = ReplayBuffer()
                     try await channel.open(http: http)
                     try Task.checkCancellation()
                     guard generation == self.connectionGeneration else { return }
-                    try await self.refreshProfiles()
-                    guard generation == self.connectionGeneration, !Task.isCancelled else { return }
-                    if let selected = self.selected {
-                        do { try await self.attach(selected, generation: self.selectionGeneration) }
-                        catch let error as RPCFailure where error.code > 0 && error.code != 401 {
-                            self.selected?.runtimeID = ""; self.buffering = false
-                            self.notice = error.localizedDescription
+                    while let selected = self.selected {
+                        let selection = self.selectionGeneration
+                        do { try await self.attach(selected, generation: selection) }
+                        catch is CancellationError {
+                            try Task.checkCancellation()
+                            guard generation == self.connectionGeneration else { return }
+                            if selection != self.selectionGeneration { continue }
+                            throw CancellationError()
+                        } catch let error as RPCFailure where error.code > 0 && error.code != 401 {
+                            if selection == self.selectionGeneration {
+                                self.selected?.runtimeID = ""; self.notice = error.localizedDescription
+                            }
                         }
-                    } else {
-                        self.buffering = false
+                        if selection == self.selectionGeneration { break }
                     }
+                    self.buffering = false
                     guard generation == self.connectionGeneration, !Task.isCancelled else { return }
                     self.state = .connected
-                    do { try await self.refreshSessions() }
-                    catch {
-                        // Listing failure must not tear down an otherwise healthy chat connection.
-                        if self.state != .connected { throw error }
-                    }
-                    guard generation == self.connectionGeneration, !Task.isCancelled else { return }
                     self.reconnectTask = nil
+                    self.scheduleListRefresh(delay: 0)
                     return
                 } catch {
                     guard !Task.isCancelled, generation == self.connectionGeneration else { return }
@@ -189,11 +202,33 @@ final class AppModel {
     func setForeground(_ active: Bool) async {
         foreground = active
         if active {
-            if state != .connected { reconnectTask = nil; startReconnect() }
+            if state != .connected, !sending { startReconnect() }
         } else {
+            let lease = BackgroundLease(name: "Save Hermès conversation")
+            defer { lease.end() }
+            // Keep the channel until an in-flight submission is acknowledged.
+            if !sending { suspendConnection() }
             await persistNow()
-            reconnectTask?.cancel(); reconnectTask = nil
-            socket?.close(); state = .offline
+        }
+    }
+
+    private func suspendConnection() {
+        reconnectTask?.cancel(); reconnectTask = nil
+        refreshTask?.cancel(); refreshTask = nil
+        flushStream()
+        socket?.close(); state = .offline
+    }
+
+    private func scheduleListRefresh(delay: Double = 0.7) {
+        guard foreground, state == .connected else { return }
+        refreshTask?.cancel()
+        refreshTask = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(delay)) } catch { return }
+            guard let self, !Task.isCancelled else { return }
+            // Independent reads: a slow roster must never block the chat or history.
+            async let roster: Void = self.refreshProfiles()
+            do { try await self.refreshSessions() } catch { }
+            do { try await roster } catch { }
         }
     }
 
@@ -201,10 +236,12 @@ final class AppModel {
         guard let socket else { return }
         let generation = connectionGeneration
         let result = try await socket.call("profiles.list", ["include_sessions": true])
-        guard generation == connectionGeneration else { return }
+        try Task.checkCancellation()
+        guard generation == connectionGeneration, self.socket === socket else { return }
+        guard case .array = result["profiles"] else { throw RPCFailure("Hermes a renvoyé une liste de profils invalide.") }
         profiles = result["profiles"].array.map(AgentProfile.init)
         hasBotProtocol = result["bot_mode_protocol"].bool
-        if !profiles.contains(where: { $0.name == profile }), let first = profiles.first { profile = first.name }
+        if selected == nil, !profiles.contains(where: { $0.name == profile }), let first = profiles.first { profile = first.name }
         scheduleSave()
     }
 
@@ -218,10 +255,10 @@ final class AppModel {
             try await socket.call("session.list", ["profile": .string(owner), "limit": 100])
         }
         try Task.checkCancellation()
-        guard profile == owner, generation == connectionGeneration, self.socket === socket, state == .connected else { throw CancellationError() }
+        guard generation == connectionGeneration, self.socket === socket, state == .connected else { throw CancellationError() }
         guard case .array = result["sessions"] else { throw RPCFailure("Hermes a renvoyé une liste de conversations invalide.") }
-        sessions = result["sessions"].array.map { Conversation($0, profile: owner) }
-        historyRevision += 1
+        historyIndex.update(result["sessions"].array.map { Conversation($0, profile: owner) }, profile: owner)
+        if profile == owner { sessions = historyIndex[owner]; historyRevision += 1 }
         scheduleSave()
     }
 
@@ -229,7 +266,7 @@ final class AppModel {
         guard !sending, !voiceActive, name != profile else { return }
         saveCurrent()
         selectionGeneration = UUID(); buffering = false; held = ReplayBuffer(); opening = false
-        selected = nil; transcript = Transcript(); profile = name; sessions = []
+        selected = nil; transcript = Transcript(); profile = name
         draft = workspace.drafts[draftKey] ?? ""
         do { try await refreshSessions() } catch { notice = error.localizedDescription }
     }
@@ -267,7 +304,12 @@ final class AppModel {
             }
             guard generation == selectionGeneration, let row = canonical else { return }
             await openConversation(Conversation(row, profile: bot.name), title: bot.title)
-        } catch { if generation == selectionGeneration { selected?.runtimeID = ""; notice = error.localizedDescription } }
+        } catch {
+            if generation == selectionGeneration {
+                selected?.runtimeID = ""
+                if foreground, !(error is CancellationError) { notice = error.localizedDescription }
+            }
+        }
     }
 
     func openConversation(_ conversation: Conversation, title: String? = nil) async {
@@ -284,24 +326,29 @@ final class AppModel {
         defer { if generation == selectionGeneration { opening = false } }
         guard !demo, state == .connected, let selected else { return }
         do { try await attach(selected, generation: generation) }
-        catch { if generation == selectionGeneration { notice = error.localizedDescription } }
+        catch { if generation == selectionGeneration, foreground, !(error is CancellationError) { notice = error.localizedDescription } }
     }
 
     private func attach(_ chat: ChatSnapshot, generation: UUID) async throws {
         guard let socket else { return }
+        let connection = connectionGeneration
+        func validate() throws {
+            try Task.checkCancellation()
+            guard generation == selectionGeneration, connection == connectionGeneration, self.socket === socket else { throw CancellationError() }
+        }
         buffering = true; held = ReplayBuffer()
         defer { if generation == selectionGeneration { buffering = false } }
         let canReplay = !chat.runtimeID.isEmpty && chat.epoch == socket.epoch && chat.lastSequence > 0 && !transcript.messages.contains(where: { $0.delivery != .confirmed })
         let response = try await socket.call("session.resume", ["profile": .string(chat.profile), "session_id": .string(chat.storedID), "omit_messages": .bool(canReplay)])
-        guard generation == selectionGeneration else { return }
+        try validate()
         let runtime = response["session_id"].string
         guard !runtime.isEmpty else { throw RPCFailure("Hermes n’a pas retourné de session active.") }
         selected?.runtimeID = runtime
         let stored = response["session_key"].string.isEmpty ? response["stored_session_id"].string : response["session_key"].string
         if !stored.isEmpty { selected?.storedID = stored }
         selected?.epoch = socket.epoch
-        let replay = try await socket.call("session.events.since", ["session_id": .string(runtime), "last_seen": .number(Double(canReplay && runtime == chat.runtimeID ? chat.lastSequence : 0))], timeout: 12)
-        guard generation == selectionGeneration else { return }
+        let replay = try await socket.call("session.events.since", ["session_id": .string(runtime), "last_seen": .number(Double(canReplay && runtime == chat.runtimeID ? chat.lastSequence : 0))], timeout: 40)
+        try validate()
         if canReplay && runtime == chat.runtimeID && !replay["truncated"].bool && replay["epoch"].string == socket.epoch {
             let events = held.drain(replayed: replay["events"].array, after: transcript.lastSequence, session: runtime)
             for event in events { transcript.apply(event) }
@@ -310,9 +357,12 @@ final class AppModel {
             if !events.contains(where: { $0["type"].string == "message.complete" }) { transcript.running = response["running"].bool }
         } else {
             let full = response["messages_omitted"].bool ? try await socket.call("session.resume", ["profile": .string(chat.profile), "session_id": .string(chat.storedID)]) : response
-            guard generation == selectionGeneration else { return }
-            let fresh = try await socket.call("session.events.since", ["session_id": .string(runtime), "last_seen": 0], timeout: 12)
-            guard generation == selectionGeneration else { return }
+            try validate()
+            // Reuse the first replay when the same response already carried the full snapshot.
+            let fresh = response["messages_omitted"].bool
+                ? try await socket.call("session.events.since", ["session_id": .string(runtime), "last_seen": 0], timeout: 40)
+                : replay
+            try validate()
             let events = held.drain(replayed: fresh["events"].array, after: 0, session: runtime)
             transcript.recover(full, events: events, latestSequence: max(fresh["latest_seq"].int, events.map { $0["seq"].int }.max() ?? 0))
         }
@@ -368,10 +418,22 @@ final class AppModel {
         var text = input
         if text.isEmpty { text = pending.allSatisfy(\.isImage) ? "Que vois-tu dans ces images ?" : "Examine ces fichiers." }
         sending = true
-        defer { if connection == connectionGeneration { sending = false } }
+        let lease = BackgroundLease(name: "Send message to Hermès") { [weak self] in
+            guard let self, connection == self.connectionGeneration, !self.foreground else { return }
+            // Expiration is a transport interruption, never an automatic resend/agent stop.
+            self.suspendConnection()
+        }
+        defer {
+            lease.end()
+            if connection == connectionGeneration {
+                sending = false
+                if !foreground { suspendConnection() }
+                else if state != .connected { startReconnect() }
+            }
+        }
         func validate() throws {
             try Task.checkCancellation()
-            guard generation == selectionGeneration, connection == connectionGeneration else { throw CancellationError() }
+            guard generation == selectionGeneration, connection == connectionGeneration, self.socket === socket else { throw CancellationError() }
         }
         if selected == nil {
             let result = try await socket.call("session.create", ["profile": .string(profile)])
@@ -437,7 +499,7 @@ final class AppModel {
             try validate()
             if let i = transcript.messages.firstIndex(where: { $0.id == optimistic.id }) { transcript.messages[i].delivery = .confirmed }
         } catch {
-            guard generation == selectionGeneration, connection == connectionGeneration else { throw error }
+            guard generation == selectionGeneration, connection == connectionGeneration, self.socket === socket else { throw CancellationError() }
             let rejected = ((error as? RPCFailure)?.code ?? -1) > 0
             if let i = transcript.messages.firstIndex(where: { $0.id == optimistic.id }) { transcript.messages[i].delivery = rejected ? .failed : .uncertain }
             transcript.running = false; transcript.activity = nil
@@ -445,11 +507,11 @@ final class AppModel {
                 attachmentDrafts[draftKey] = pending
                 draft = input
             }
-            scheduleSave()
+            await persistNow()
             throw RPCFailure("Envoi à vérifier : \(error.localizedDescription) Le message ne sera pas renvoyé automatiquement.")
         }
         for item in pending { await cache.removeAttachment(item.id) }
-        scheduleSave()
+        await persistNow()
         return optimistic.id
     }
 
@@ -572,15 +634,7 @@ final class AppModel {
 
     private func receive(_ event: JSONValue) {
         let type = event["type"].string
-        if type.hasSuffix(".changed") {
-            refreshTask?.cancel()
-            refreshTask = Task { [weak self] in
-                do {
-                    try await Task.sleep(for: .milliseconds(700))
-                    try await self?.refreshProfiles(); try await self?.refreshSessions()
-                } catch { }
-            }
-        }
+        if type.hasSuffix(".changed") { scheduleListRefresh() }
         if buffering { held.held.append(event); return }
         guard event["session_id"].string == selected?.runtimeID else { return }
         if type == "message.delta" || type == "reasoning.delta" || type == "thinking.delta" {
@@ -637,29 +691,31 @@ final class AppModel {
     }
 
     private func scheduleSave() {
-        guard !demo else { return }
-        saveTask?.cancel()
+        guard !demo, saveTask == nil else { return }
+        let generation = connectionGeneration
         saveTask = Task { [weak self] in
             do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
-            await self?.persistNow()
+            guard let self, generation == self.connectionGeneration, !Task.isCancelled else { return }
+            await self.persistNow()
+            if generation == self.connectionGeneration { self.saveTask = nil }
         }
     }
 
     private func persistNow() async {
         guard !demo, let activeConnection else { return }
         saveCurrent()
-        workspace.profiles = profiles; workspace.sessions = sessions
+        workspace.profiles = profiles; workspace.sessions = sessions; workspace.historyIndex = historyIndex
         do { try await cache.save(workspace, key: activeConnection.id.uuidString) }
         catch { notice = "Le cache local n’a pas pu être enregistré. Votre historique reste chez Hermes." }
     }
 
     func removeConnection(_ connection: SavedConnection) async {
         if activeConnection?.id == connection.id {
-            saveTask?.cancel(); reconnectTask?.cancel(); reconnectTask = nil
+            saveTask?.cancel(); saveTask = nil; reconnectTask?.cancel(); reconnectTask = nil
             socket?.close(); http?.invalidate(); http = nil; socket = nil
             connectionGeneration = UUID(); selectionGeneration = UUID()
             activeConnection = nil; selected = nil; profiles = []; sessions = []; draft = ""
-            transcript = Transcript(); workspace = CachedWorkspace(); attachmentDrafts = [:]; state = .offline
+            transcript = Transcript(); workspace = CachedWorkspace(); historyIndex = ConversationIndex(); attachmentDrafts = [:]; state = .offline
         }
         Keychain.delete(connection.id.uuidString)
         connections.removeAll { $0.id == connection.id }
