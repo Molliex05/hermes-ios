@@ -8,7 +8,7 @@
 | Official Hermes protocol probe | 13 checks passed, including auth, live replay, canonical Bot Chat, profile isolation, routines and hosted groups |
 | Native tools probe | Passed: skills list/content/toggle isolation, workspace isolation, model assignment isolation, Kanban triage creation and idempotency |
 | Native iOS integration | Passed: sign-in, persisted auth, streaming and resume; skill toggling, profile model/workspace/board reads; automatic voice send, playback, resumed listening and draft preservation |
-| Release device build | Development-signed ARM64 build 13 succeeded; installed and launched on iPhone 16 Plus |
+| Release device build | Development-signed ARM64 build 13 succeeded; installed on iPhone 16 Plus |
 
 The integration backend is the official, unmodified Hermes Agent **0.21.2**, commit `b7b35a84b7fbe1aa2e223a6ce726a2471300d0a4`, in an isolated home. Model, STT and TTS provider endpoints use deterministic local fixtures; native Hermes remains unmodified. Production agent data and credentials are excluded from automated tests and screenshots.
 
@@ -36,6 +36,6 @@ Build 12 (September 14) adds a native SF Symbol pulse to the active thinking/too
 
 Build 13 improves synchronization and background submission. Core: 33 tests passed. The new native iOS background test passed: immediate backgrounding after Send, 40 seconds away while the official Hermes fixture continues a slow turn, one complete answer after return, and successful cache/reconnect after process relaunch. The isolated database confirms exactly one user message and one assistant response for that test. The native tools probe also passed. Simulator backgrounding exercises the app lifecycle; a physical lock-screen/OS-expiration test has not been automated. No production server configuration was changed.
 
-Build 13 Release was installed and launched on the physical iPhone. An additional broad native UI run verified sign-in/resume, profile opening, skills and model display, then repeatedly waited 60 seconds for missing iOS 27 animation-completion notifications. That run was interrupted and is not counted as a passing full native suite. The focused background/relaunch test above completed successfully.
+The final build 13 Release was installed on the physical iPhone. Automatic launch of the final revision was blocked by the lock screen; an earlier build 13 revision had launched successfully. An additional broad native UI run verified sign-in/resume, profile opening, skills and model display, then repeatedly waited 60 seconds for missing iOS 27 animation-completion notifications. That run was interrupted and is not counted as a passing full native suite. The focused background/relaunch test above completed successfully.
 
 The separate focused UI test also passed for profile switching, isolated drafts, conversation history and X dismissal. Both focused UI runs completed; the broad animation-stalled run remains excluded.
