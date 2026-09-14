@@ -138,7 +138,10 @@ struct ChatView: View {
                         }
                         if let activity = model.transcript.activity, model.transcript.running {
                             HStack(spacing: 9) {
-                                Image(systemName: "sparkle").foregroundStyle(AppTheme.accent)
+                                Image(systemName: "sparkle")
+                                    .foregroundStyle(AppTheme.accent)
+                                    .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion)
+                                    .accessibilityHidden(true)
                                 Text(activity).lineLimit(2)
                             }.font(.caption).foregroundStyle(.secondary).padding(.leading, 2)
                         }

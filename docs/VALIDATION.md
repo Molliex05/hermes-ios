@@ -1,4 +1,4 @@
-# Validation — September 13, 2026
+# Validation — September 14, 2026
 
 | Check | Result |
 | --- | --- |
@@ -8,7 +8,7 @@
 | Official Hermes protocol probe | 13 checks passed, including auth, live replay, canonical Bot Chat, profile isolation, routines and hosted groups |
 | Native tools probe | Passed: skills list/content/toggle isolation, workspace isolation, model assignment isolation, Kanban triage creation and idempotency |
 | Native iOS integration | Passed: sign-in, persisted auth, streaming and resume; skill toggling, profile model/workspace/board reads; automatic voice send, playback, resumed listening and draft preservation |
-| Release device build | Development-signed ARM64 build 11 succeeded; installed and launched on iPhone 16 Plus |
+| Release device build | Development-signed ARM64 build 12 succeeded; installed and launched on iPhone 16 Plus |
 
 The integration backend is the official, unmodified Hermes Agent **0.21.2**, commit `b7b35a84b7fbe1aa2e223a6ce726a2471300d0a4`, in an isolated home. Model, STT and TTS provider endpoints use deterministic local fixtures; native Hermes remains unmodified. Production agent data and credentials are excluded from automated tests and screenshots.
 
@@ -31,3 +31,5 @@ For build 10, 28 core tests, native config/STT/agent/TTS integration probes and 
 Build 11 addresses history refresh recovery. Read-only production diagnostics found native gateway event-loop stalls of 21.7–24.9 seconds, exceeding the previous 15-second heartbeat deadline. Native read-only database listing succeeded in 12 ms or less for the two inspected profiles. The original app error discarded its cause, so these findings identify a plausible interruption mechanism, not a recovered exception. The app also retained stale errors after successful background refreshes and could request history before the socket was ready. These cases are corrected, concurrent reads are shared, and the next failure preserves its actual reason. No production server settings or data were changed.
 
 Build 11 validation: all 30 core tests passed, including concurrent history reads, cancellation without aborting another reader, failure retry and profile scoping. The targeted iOS UI test passed for profile switching, separate drafts, conversation history and X dismissal. The signed Release build was installed and launched on iPhone 16 Plus. Automated recovery tests use the request coordinator; the observed production server stalls have not been deliberately reproduced on device.
+
+Build 12 (September 14) adds a native SF Symbol pulse to the active thinking/tool indicator. It respects Reduce Motion and keeps the text and layout stable. The signed Release build passed and was installed and launched on iPhone 16 Plus; no core logic changed and the earlier core/UI results were not rerun for this visual-only change.
