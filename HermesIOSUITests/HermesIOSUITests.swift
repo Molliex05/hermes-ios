@@ -103,6 +103,32 @@ final class HermesIOSUITests: XCTestCase {
         }
     }
 
+    func testNativeStreamingMarkdown() throws {
+        guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Requires isolated Hermes fixture") }
+        let app = XCUIApplication()
+        app.launch()
+        connectFixtureIfNeeded(app)
+        XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
+        app.buttons["Nouvelle conversation"].tap()
+        let composer = app.textFields["chat-composer"]
+        composer.tap(); composer.typeText("HERMES_IOS_MARKDOWN_TEST")
+        app.buttons["send-message"].tap()
+        let answer = app.descendants(matching: .any).matching(identifier: "assistant-message")
+        XCTAssertTrue(answer.matching(NSPredicate(format: "label CONTAINS %@", "Premiers mots reçus")).firstMatch.waitForExistence(timeout: 12))
+        XCTAssertFalse(answer.matching(NSPredicate(format: "label CONTAINS %@", "Réponse terminée.")).firstMatch.exists)
+        XCTAssertFalse(app.keyboards.firstMatch.exists)
+        capture("23-live-stream")
+        XCTAssertTrue(answer.matching(NSPredicate(format: "label CONTAINS %@", "Réponse terminée.")).firstMatch.waitForExistence(timeout: 50))
+        XCTAssertEqual(answer.count, 1)
+        XCTAssertTrue(app.buttons["Copier le code"].exists)
+        app.buttons["Copier le code"].tap()
+        XCTAssertTrue(app.buttons["Copier le code"].exists)
+        capture("24-markdown-chat")
+        // Read earlier content without being dragged back down by layout changes.
+        app.swipeDown()
+        capture("25-markdown-heading")
+    }
+
     func testNativeSendThenImmediatelyBackground() throws {
         guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Requires isolated Hermes fixture") }
         let app = XCUIApplication()

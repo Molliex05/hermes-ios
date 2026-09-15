@@ -34,6 +34,7 @@ public struct Transcript: Sendable {
         case "message.start":
             running = true; failure = nil; activity = "Réfléchit…"
         case "message.delta":
+            guard !p["text"].string.isEmpty else { return }
             running = true; activity = nil
             appendDelta(p["text"].string)
         case "message.interim":
@@ -45,8 +46,10 @@ public struct Transcript: Sendable {
         case "message.complete":
             let text = p["text"].string
             if let index = messages.lastIndex(where: { $0.streaming }) {
-                messages[index].text = text; messages[index].streaming = false
-                if text.isEmpty { messages.remove(at: index) }
+                let interrupted = ["error", "interrupted", "cancelled"].contains(p["status"].string)
+                if !text.isEmpty || !interrupted { messages[index].text = text }
+                messages[index].streaming = false
+                if messages[index].text.isEmpty { messages.remove(at: index) }
             } else if !text.isEmpty, messages.last?.text != text || messages.last?.role != "assistant" {
                 messages.append(.init(role: "assistant", text: text))
             }
@@ -69,7 +72,9 @@ public struct Transcript: Sendable {
         case "approval.expire": approval = nil
         case "clarify.expire": clarification = nil
         case "sudo.expire", "secret.expire": credential = nil
-        case "error": failure = p["message"].string; running = false; activity = nil
+        case "error":
+            failure = p["message"].string; running = false; activity = nil
+            for i in messages.indices { messages[i].streaming = false }
         default: break
         }
     }

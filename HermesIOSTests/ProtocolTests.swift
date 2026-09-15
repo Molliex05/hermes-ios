@@ -2,6 +2,61 @@ import XCTest
 @testable import HermesIOSCore
 
 final class ProtocolTests: XCTestCase {
+    func testMarkdownBlocksAndNestedLists() {
+        XCTAssertEqual(ChatMarkdown.parse("## Titre\n\nTexte **fort**\n\n3. Trois\n  - Enfant\n- [x] Fait\n> Citation\n---"), [
+            .heading(2, "Titre"), .paragraph("Texte **fort**"),
+            .item(depth: 0, marker: "3.", text: "Trois", checked: nil),
+            .item(depth: 1, marker: "•", text: "Enfant", checked: nil),
+            .item(depth: 0, marker: "•", text: "Fait", checked: true), .quote("Citation"), .rule])
+    }
+
+    func testStreamingCodeFencePreservesIndentationAndInlineBackticks() {
+        XCTAssertEqual(ChatMarkdown.parse("Du `code` ici.\n\n```swift\n  let x = 1\n"), [
+            .paragraph("Du `code` ici."), .code(language: "swift", text: "  let x = 1\n")])
+        XCTAssertEqual(ChatMarkdown.parse("````md\n```swift\n````\nAprès"), [
+            .code(language: "md", text: "```swift"), .paragraph("Après")])
+        XCTAssertEqual(ChatMarkdown.parse("~~~~\n a\n~~~~"), [.code(language: "", text: " a")])
+    }
+
+    func testMarkdownTableEscapingAndIncompleteRows() {
+        XCTAssertEqual(ChatMarkdown.cells("| ``a`|b`` | c |"), ["``a`|b``", "c"])
+        XCTAssertEqual(ChatMarkdown.parse("| Nom | Valeur |\n| --- | :---: |\n| `a|b` | **oui** |\n| Suite |"), [
+            .table([["Nom", "Valeur"], ["`a|b`", "**oui**"], ["Suite", ""]])])
+        XCTAssertEqual(ChatMarkdown.cells("| a\\|b | c |"), ["a\\|b", "c"])
+    }
+
+    func testStreamingParagraphKeepsUnicodeAndBlankLines() {
+        XCTAssertEqual(ChatMarkdown.parse("Été 👋\nligne 2\n\nFin"), [.paragraph("Été 👋\nligne 2"), .paragraph("Fin")])
+        XCTAssertEqual(ChatMarkdown.parse(""), [])
+    }
+
+    func testEmptyDeltasDoNotHideThinking() {
+        var transcript = Transcript()
+        transcript.apply(event(1, "message.start"))
+        transcript.apply(event(2, "message.delta", text: ""))
+        XCTAssertEqual(transcript.activity, "Réfléchit…")
+        XCTAssertTrue(transcript.messages.isEmpty)
+    }
+
+    func testInterruptedCompletionKeepsVisiblePartialAnswer() {
+        var transcript = Transcript()
+        transcript.apply(event(1, "message.delta", text: "Déjà reçu"))
+        transcript.apply(["seq": 2, "type": "message.complete", "payload": ["status": "interrupted", "text": ""]])
+        XCTAssertEqual(transcript.messages.first?.text, "Déjà reçu")
+        XCTAssertFalse(transcript.messages.first?.streaming ?? true)
+        XCTAssertFalse(transcript.running)
+    }
+
+    func testErrorEndsBubbleBeforeTheNextStream() {
+        var transcript = Transcript()
+        transcript.apply(event(1, "message.delta", text: "Ancienne réponse"))
+        transcript.apply(["seq": 2, "type": "error", "payload": ["message": "Provider unavailable"]])
+        transcript.apply(event(3, "message.start"))
+        transcript.apply(event(4, "message.delta", text: "Nouvelle réponse"))
+        XCTAssertEqual(transcript.messages.map(\.text), ["Ancienne réponse", "Nouvelle réponse"])
+        XCTAssertNil(transcript.failure)
+    }
+
     func testProfileHistoryMigratesAndKeepsSeparateLists() throws {
         let local = Conversation(["id": "local"], profile: "default")
         let bot = Conversation(["id": "bot"], profile: "noriven")

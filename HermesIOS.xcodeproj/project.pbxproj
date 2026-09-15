@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		02E9FD6AC902DE453BB27C28 /* ChatMarkdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBAAD9CB1B93F3090CFE6326 /* ChatMarkdown.swift */; };
 		0799FACAFF21D17D20153DE2 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 4B6516CD29F52E374AAF519F /* PrivacyInfo.xcprivacy */; };
 		0EAAC808AC8CD5F546371AFE /* PhotoAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEEDE2B035F0E274D1A677E0 /* PhotoAttachment.swift */; };
 		1401D88BADB2CE45AD67B6E1 /* AgentToolsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76ACDEB64D082DA4095A0544 /* AgentToolsView.swift */; };
@@ -34,6 +35,7 @@
 		C64A73C0EABAD25C4AB4E961 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02A462CE3A3E115F981A5C76 /* Models.swift */; };
 		D673AF44E66D90BFC2648926 /* HermesSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A87F904778F7AD694B573F1 /* HermesSocket.swift */; };
 		D681AB6A78A919CC947068D4 /* HermesIOSUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E603ABD353FD2203064ED4D6 /* HermesIOSUITests.swift */; };
+		E3BDA5080F70B105FDDA04F3 /* MarkdownText.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8C2642D7ADE3DDF465C6E89 /* MarkdownText.swift */; };
 		E4687AFCE99263487AB19A15 /* AgentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB4E2583813D830A3E900B68 /* AgentsView.swift */; };
 		EB76A6E45F00A3052ABE4188 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E36DE38AF4ABDF2227F4C599 /* RootView.swift */; };
 		EEF0B72EEC204B07A6808D5A /* BackgroundLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA19D67E64E6BC861BA6083F /* BackgroundLease.swift */; };
@@ -81,10 +83,12 @@
 		B083DF2BEBD828CF266749E2 /* DraftAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraftAttachment.swift; sourceTree = "<group>"; };
 		B104A4361ECD7B91A321759C /* NativeVoiceAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeVoiceAPI.swift; sourceTree = "<group>"; };
 		BB4E2583813D830A3E900B68 /* AgentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsView.swift; sourceTree = "<group>"; };
+		BBAAD9CB1B93F3090CFE6326 /* ChatMarkdown.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatMarkdown.swift; sourceTree = "<group>"; };
 		C910078020A4AF8014712019 /* HistoryRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryRequests.swift; sourceTree = "<group>"; };
 		CEEDE2B035F0E274D1A677E0 /* PhotoAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoAttachment.swift; sourceTree = "<group>"; };
 		D13C6E169393755487F106D2 /* StoredCookie.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoredCookie.swift; sourceTree = "<group>"; };
 		D69DD335D5BB61C6A77C2EC6 /* LocalCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalCache.swift; sourceTree = "<group>"; };
+		D8C2642D7ADE3DDF465C6E89 /* MarkdownText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownText.swift; sourceTree = "<group>"; };
 		E36DE38AF4ABDF2227F4C599 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		E603ABD353FD2203064ED4D6 /* HermesIOSUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesIOSUITests.swift; sourceTree = "<group>"; };
 		E6736CBC0AB49572EDDC3502 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
@@ -151,6 +155,7 @@
 				7C4FC914201C38D1A165638D /* ChatView.swift */,
 				399BB0F5CE1F8FF278DE6053 /* GroupsView.swift */,
 				19B9D9CC524C6E12BC3360D4 /* KanbanView.swift */,
+				D8C2642D7ADE3DDF465C6E89 /* MarkdownText.swift */,
 				851E43F4DDB4C85BF0F4C3EB /* NativeToolSession.swift */,
 				2C4EE51D78FA0482C1CE5323 /* OnboardingView.swift */,
 				CEEDE2B035F0E274D1A677E0 /* PhotoAttachment.swift */,
@@ -167,6 +172,7 @@
 		D0CFD82F4F8493D2EDBCA6C1 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				BBAAD9CB1B93F3090CFE6326 /* ChatMarkdown.swift */,
 				5045723AB4101C15BB122A44 /* ConversationIndex.swift */,
 				B083DF2BEBD828CF266749E2 /* DraftAttachment.swift */,
 				EA403258EBDBCDA2BBA568D1 /* Endpoint.swift */,
@@ -293,6 +299,7 @@
 				E4687AFCE99263487AB19A15 /* AgentsView.swift in Sources */,
 				C0F97796889C0EF73909DE34 /* AppModel.swift in Sources */,
 				EEF0B72EEC204B07A6808D5A /* BackgroundLease.swift in Sources */,
+				02E9FD6AC902DE453BB27C28 /* ChatMarkdown.swift in Sources */,
 				A126D118743D5F3FB318EC9F /* ChatView.swift in Sources */,
 				BDE7E9AD8486B77176875B30 /* ConversationIndex.swift in Sources */,
 				A95A1A969026C220303DA621 /* DraftAttachment.swift in Sources */,
@@ -306,6 +313,7 @@
 				F843B14A351EDA859765A6D3 /* KanbanView.swift in Sources */,
 				C4E5F98CEC41BFB069485A78 /* Keychain.swift in Sources */,
 				B3E754254F266AC7A3A72788 /* LocalCache.swift in Sources */,
+				E3BDA5080F70B105FDDA04F3 /* MarkdownText.swift in Sources */,
 				C64A73C0EABAD25C4AB4E961 /* Models.swift in Sources */,
 				1C0F76837800CB263FE2F9FA /* NativeToolSession.swift in Sources */,
 				F6F4E6CC72851994C165964E /* NativeVoiceAPI.swift in Sources */,

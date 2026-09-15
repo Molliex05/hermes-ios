@@ -2,19 +2,19 @@
 
 | Check | Result |
 | --- | --- |
-| Foundation core suite | 33 tests passed, including replay/scoping, shared history requests, profile cache migration/isolation and waiting-state behavior |
+| Foundation core suite | 40 tests passed, including Markdown streaming/fences/tables, interrupted replies, replay/scoping and profile cache isolation |
 | Offline iOS UI suite | 6 tests passed: chat/agents/settings, onboarding, draft preservation, filtered tool discovery, quick profile switching and attachment/voice controls |
 | Integrated composer | Passed: controls inside the bubble, keyboard layout, photo/file menu and voice sheet preserve the written draft |
 | Official Hermes protocol probe | 13 checks passed, including auth, live replay, canonical Bot Chat, profile isolation, routines and hosted groups |
 | Native tools probe | Passed: skills list/content/toggle isolation, workspace isolation, model assignment isolation, Kanban triage creation and idempotency |
 | Native iOS integration | Passed: sign-in, persisted auth, streaming and resume; skill toggling, profile model/workspace/board reads; automatic voice send, playback, resumed listening and draft preservation |
-| Release device build | Development-signed ARM64 build 13 succeeded; installed on iPhone 16 Plus |
+| Release device build | Development-signed ARM64 build 14 succeeded; installed and launched on iPhone 16 Plus |
 
 The integration backend is the official, unmodified Hermes Agent **0.21.2**, commit `b7b35a84b7fbe1aa2e223a6ce726a2471300d0a4`, in an isolated home. Model, STT and TTS provider endpoints use deterministic local fixtures; native Hermes remains unmodified. Production agent data and credentials are excluded from automated tests and screenshots.
 
-UI tests use a dedicated iPhone 17 Pro simulator on iOS 27 with Xcode 27 (`27A5218g`). The application targets iOS 17; older OS versions have not been exercised. The physical iPhone 16 Plus also runs iOS 27. Installation preserves existing app data. The user confirmed the native private-HTTP/Tailscale connection after the ATS correction in the earlier build.
+Earlier UI tests used a dedicated iPhone 17 Pro simulator on iOS 27 with Xcode 27 (`27A5218g`). Build 14 uses a fresh iPhone 18 Pro simulator on iOS 27 with Xcode 27 (`27A266a`). The application targets iOS 17; older OS versions have not been exercised. The physical iPhone 16 Plus also runs iOS 27. Installation preserves existing app data. The user confirmed the native private-HTTP/Tailscale connection after the ATS correction in the earlier build.
 
-The app is approximately **6.3 MB**, unpacked and development-signed, with no third-party runtime packages. This is not an App Store download-size measurement.
+The app occupies approximately **7 MiB**, unpacked and development-signed, with no third-party runtime packages. This is not an App Store download-size measurement.
 
 The media contract probe passes image staging/attach/detach retry, encoded paths and file references. The chained voice probe passes transcription → native agent → speech playback data for two profiles; the fixture confirms their distinct configured voices (`nova` and `echo`). Real microphone capture and speech-provider quality still require a manual device check. Chained conversations are supported; GPT-Live/WebRTC and automatic barge-in remain outside this release.
 
@@ -39,3 +39,5 @@ Build 13 improves synchronization and background submission. Core: 33 tests pass
 The final build 13 Release was installed on the physical iPhone. Automatic launch of the final revision was blocked by the lock screen; an earlier build 13 revision had launched successfully. An additional broad native UI run verified sign-in/resume, profile opening, skills and model display, then repeatedly waited 60 seconds for missing iOS 27 animation-completion notifications. That run was interrupted and is not counted as a passing full native suite. The focused background/relaunch test above completed successfully.
 
 The separate focused UI test also passed for profile switching, isolated drafts, conversation history and X dismissal. Both focused UI runs completed; the broad animation-stalled run remains excluded.
+
+Build 14 adds immediate first-fragment rendering, structured native Markdown, verbatim user messages and improved scroll following. The 40 core tests pass. The native streaming UI test verifies that the beginning is visible before completion, the keyboard closes after Send, a single final reply, and the code-copy control; screenshots were inspected. The final Release revision was installed and launched on the physical iPhone 16 Plus. The build uses Xcode 27 (`27A266a`) at `Xcode.app` after the workspace move to external storage. Fresh build caches avoid stale paths from the prior toolchain. No third-party runtime dependencies were added.

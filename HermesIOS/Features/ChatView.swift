@@ -10,6 +10,8 @@ struct ChatView: View {
     @State private var attachmentContext = ""
     @State private var destination: AppDestination?
     @State private var pinnedToBottom = true
+    @State private var draggingHistory = false
+    @State private var bottomVisible = true
     @FocusState private var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -129,12 +131,9 @@ struct ChatView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 27) {
-                        Text("\(model.demo ? "APERÇU" : "VOTRE CONVERSATION") · \(model.agent?.title.uppercased() ?? "HERMES")")
-                            .font(.system(size: 10, weight: .medium)).tracking(1.6).foregroundStyle(.tertiary)
-                            .frame(maxWidth: .infinity).padding(.top, 24).padding(.bottom, 4)
                         ForEach(model.transcript.messages) { message in
                             MessageView(message: message, agent: model.agent?.title ?? "Hermes")
-                                .id(message.id)
+                                .equatable().id(message.id)
                         }
                         if let activity = model.transcript.activity, model.transcript.running {
                             HStack(spacing: 9) {
@@ -159,14 +158,25 @@ struct ChatView: View {
                         Color.clear.frame(height: 1).id("bottom").background(GeometryReader { marker in
                             Color.clear.preference(key: BottomPreference.self, value: marker.frame(in: .named("chat-scroll")).maxY)
                         })
-                    }.padding(.horizontal, 26).padding(.bottom, 20).frame(maxWidth: 720).frame(maxWidth: .infinity)
+                    }.padding(.horizontal, 26).padding(.top, 14).padding(.bottom, 20).frame(maxWidth: 720).frame(maxWidth: .infinity)
                 }
                 .coordinateSpace(name: "chat-scroll")
                 .scrollDismissesKeyboard(.interactively)
                 .chatScrollAnchors()
-                .onPreferenceChange(BottomPreference.self) { y in pinnedToBottom = y < geo.size.height + 100 }
+                .simultaneousGesture(DragGesture(minimumDistance: 5)
+                    .onChanged { value in
+                        guard abs(value.translation.height) > abs(value.translation.width) else { return }
+                        draggingHistory = true
+                        if value.translation.height > 5 { pinnedToBottom = false }
+                    }
+                    .onEnded { _ in draggingHistory = false; if bottomVisible { pinnedToBottom = true } })
+                .onPreferenceChange(BottomPreference.self) { y in
+                    bottomVisible = y <= geo.size.height + 55
+                    if !draggingHistory, bottomVisible { pinnedToBottom = true }
+                    if pinnedToBottom, !draggingHistory, y > geo.size.height + 1 { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
                 .onChange(of: model.transcript.messages.last?.text) { _, _ in
-                    if pinnedToBottom { proxy.scrollTo("bottom", anchor: .bottom) }
+                    if pinnedToBottom, !draggingHistory { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
                 .onChange(of: model.transcript.messages.count) { _, _ in
                     if pinnedToBottom { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo("bottom", anchor: .bottom) } }
@@ -284,7 +294,7 @@ struct ChatView: View {
         Button {
             Task {
                 if model.transcript.running { await model.interrupt() }
-                else { await model.send() }
+                else { pinnedToBottom = true; focused = false; await model.send() }
             }
         } label: {
             Image(systemName: model.transcript.running ? "stop.fill" : "arrow.up")
@@ -327,7 +337,7 @@ private struct BottomPreference: PreferenceKey {
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
-struct MessageView: View {
+struct MessageView: View, Equatable {
     let message: ChatMessage
     let agent: String
     private var user: Bool { message.role == "user" }
@@ -338,7 +348,10 @@ struct MessageView: View {
                 if !user {
                     HStack(spacing: 8) { AgentMark(size: 17); Text(agent).font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
                 }
-                MarkdownText(text: message.text)
+                Group {
+                    if user { Text(verbatim: message.text).lineSpacing(4) }
+                    else { MarkdownText(text: message.text) }
+                }
                     .textSelection(.enabled)
                     .padding(user ? 17 : 0)
                     .background(user ? AppTheme.surface : .clear, in: RoundedRectangle(cornerRadius: 21))
@@ -356,30 +369,6 @@ struct MessageView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(user ? "user-message" : "assistant-message")
-    }
-}
-
-struct MarkdownText: View {
-    let text: String
-    var body: some View {
-        let sections = text.components(separatedBy: "```")
-        VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(sections.enumerated()), id: \.offset) { index, section in
-                if index % 2 == 1 {
-                    let lines = section.components(separatedBy: "\n")
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text(lines.first ?? "code").font(.caption2).foregroundStyle(.secondary)
-                            Spacer()
-                            Button { UIPasteboard.general.string = lines.dropFirst().joined(separator: "\n") } label: { Image(systemName: "doc.on.doc") }.accessibilityLabel("Copier le code")
-                        }
-                        ScrollView(.horizontal) { Text(lines.dropFirst().joined(separator: "\n").trimmingCharacters(in: .newlines)).font(.system(.caption, design: .monospaced)) }
-                    }.padding(15).background(Color.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14))
-                } else if !section.isEmpty {
-                    Text(LocalizedStringKey(section)).font(.body).lineSpacing(6).tint(AppTheme.accent)
-                }
-            }
-        }.fixedSize(horizontal: false, vertical: true)
     }
 }
 

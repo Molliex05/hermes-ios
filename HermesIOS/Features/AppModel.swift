@@ -637,6 +637,11 @@ final class AppModel {
         if type.hasSuffix(".changed") { scheduleListRefresh() }
         if buffering { held.held.append(event); return }
         guard event["session_id"].string == selected?.runtimeID else { return }
+        if type == "message.delta", !event["payload"]["text"].string.isEmpty,
+           transcript.messages.last?.streaming != true {
+            // First visible token bypasses batching; later fragments stay capped at ~30 fps.
+            flushStream(); transcript.apply(event); scheduleSave(); return
+        }
         if type == "message.delta" || type == "reasoning.delta" || type == "thinking.delta" {
             streamEvents.append(event)
             if streamTask == nil {

@@ -49,19 +49,21 @@ class Model(BaseHTTPRequestHandler):
             return
         self.send_response(200)
         slow = any("HERMES_IOS_BACKGROUND_TEST" in str(m.get("content", "")) for m in body.get("messages", []) if m.get("role") == "user")
+        markdown = any("HERMES_IOS_MARKDOWN_TEST" in str(m.get("content", "")) for m in body.get("messages", []) if m.get("role") == "user")
+        reply = "Premiers mots reçus.\n\n## Une réponse structurée\n\nDu **gras**, de l’*italique* et du `code inline`.\n\n1. Première étape\n2. Deuxième étape\n\n> Une citation lisible.\n\n| Option | État |\n| --- | --- |\n| Streaming | Actif |\n| Markdown | Natif |\n\n```swift\nlet message = \"Bonjour\"\nprint(message)\n```\n\nRéponse terminée." if markdown else REPLY
         if body.get("stream"):
             self.send_header("Content-Type", "text/event-stream")
             self.end_headers()
-            for word in REPLY.split(" "):
+            for word in reply.split(" "):
                 chunk = {"id": "test", "object": "chat.completion.chunk", "created": int(time.time()), "model": "hermes-ios-fixture", "choices": [{"index": 0, "delta": {"content": word + " "}, "finish_reason": None}]}
                 self.wfile.write(("data: " + json.dumps(chunk) + "\n\n").encode())
                 self.wfile.flush()
-                time.sleep(1.0 if slow else 0.16)
+                time.sleep(1.0 if slow else 0.4 if markdown else 0.16)
             self.wfile.write(b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
         else:
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"id": "test", "object": "chat.completion", "created": int(time.time()), "model": "hermes-ios-fixture", "choices": [{"index": 0, "message": {"role": "assistant", "content": REPLY}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 35, "total_tokens": 45}}).encode())
+            self.wfile.write(json.dumps({"id": "test", "object": "chat.completion", "created": int(time.time()), "model": "hermes-ios-fixture", "choices": [{"index": 0, "message": {"role": "assistant", "content": reply}, "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 35, "total_tokens": 45}}).encode())
 
 
 def main():

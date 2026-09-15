@@ -67,3 +67,11 @@ Conversation history uses date-grouped cards, a visible active-session state, an
 History cards keep both title and preview on one line, with trailing truncation and a compact 72-point minimum height. Full conversation titles remain available to accessibility.
 
 Conversation lists are persisted per profile with backward-compatible migration from the former single list. Profile switching renders that profile’s cached list immediately and revalidates separately. A slow background response can update its own cached profile without replacing the currently displayed list. The connection indicator remains distinct from the activity label; after 15 seconds without progress during thinking, the label reports that the model response is pending, without claiming a provider outage.
+
+## Streaming and chat rendering
+
+Native `message.delta` remains the only source of streamed reply text. The first nonempty fragment bypasses batching; subsequent fragments are coalesced at approximately 30 fps. Empty fragments retain the thinking indicator, and interrupted/error turns finalize their partial bubble so a later reply cannot append into it. Earlier unchanged message views and Markdown blocks use value equality to avoid unnecessary rerendering.
+
+The chat uses a small Foundation block parser plus Apple's inline `AttributedString` Markdown interpretation. Supported blocks are ATX headings, paragraphs, ordered/unordered/task list items with indentation, block quotes, pipe tables, horizontal rules and backtick/tilde fences. Streaming can end in an unfinished code fence. Code keeps indentation and provides a 44-point copy action; wide code and tables scroll horizontally. Raw HTML, remote image loading, LaTeX and full CommonMark/GFM conformance are not implemented. No WebView, syntax-highlighting engine or runtime package is added. Unsupported constructs remain readable text. User messages are rendered verbatim, so underscores and code punctuation are preserved.
+
+Sending dismisses the keyboard and follows the reply. Content growth cannot independently disable following; an upward reading gesture pauses it, and the latest-message button restores it. The redundant conversation banner has been removed.

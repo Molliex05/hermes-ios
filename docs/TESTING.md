@@ -17,7 +17,7 @@ xcodebuild -scheme HermesIOS \
 
 Choose an installed simulator. The regular suite runs offline previews, captures welcome/chat/agents/settings/connection screenshots, checks that all navigation and message controls stay inside the composer bubble, including with the keyboard open, with no tab bar, verifies draft preservation through navigation and sheet dismissal, and exercises Work/Agent tool filters plus global tool search. A dedicated test switches profiles from the bottom picker, checks that selecting the active agent preserves the chat, and verifies separate drafts when returning to each demo Bot Chat. Native integration is skipped in this scheme. Keep code signing enabled for Keychain tests. Do not run competing XCUITest processes on the same simulator.
 
-If your simulator runtime belongs to a second Xcode installation, select it for the command with `DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer` rather than changing the machine-wide selection.
+If your simulator runtime belongs to a second Xcode installation, select it for the command with `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` rather than changing the machine-wide selection.
 
 ## Real Hermes integration
 
@@ -60,3 +60,7 @@ The media probe verifies native image staging/attach/detach with encoded paths, 
 ## Background submission and recovery
 
 With the isolated fixture running, select `HermesIOSIntegration` and run `testNativeSendThenImmediatelyBackground`. The test sends `HERMES_IOS_BACKGROUND_TEST` and immediately backgrounds the app without waiting for acknowledgement or the first token. Only that fixture marker slows the deterministic provider stream to about 30 seconds. After 40 seconds away (longer than the native 20-second orphan grace), the test requires exactly one complete answer and one user bubble, then verifies recovery after process relaunch. This exercises native Hermes server-side continuation with no provider outage or production data. It does not guarantee the amount of background execution time granted by iOS or cover force-quitting before transmission.
+
+## Streaming Markdown
+
+`testNativeStreamingMarkdown` uses the isolated Hermes fixture with a deliberately gradual Markdown reply. It requires visible first words before the final sentence exists, checks keyboard dismissal, then verifies one reply and the code-copy action. Screenshots cover the partial stream, formatted answer and scrolling back to earlier content. Core tests cover block structure, unfinished/nested fences, escaped table pipes, Unicode and partial-answer retention after interruption.
