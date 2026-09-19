@@ -2,6 +2,8 @@ import Foundation
 
 @MainActor
 final class HermesSocket {
+    var onRequestsChanged: (() -> Void)?
+    private(set) var requests = ServerRequests()
     var onEvent: ((JSONValue) -> Void)?
     var onDisconnect: ((Error) -> Void)?
     private var socket: URLSessionWebSocketTask?
@@ -13,6 +15,7 @@ final class HermesSocket {
 
     func open(http: HermesHTTP) async throws {
         close()
+        requests = ServerRequests()
         let request = try await http.socketRequest()
         let ws = http.socketSession.webSocketTask(with: request)
         ws.maximumMessageSize = 16 * 1024 * 1024
@@ -78,15 +81,58 @@ final class HermesSocket {
 
     private func receive(_ frame: JSONValue) {
         let id = frame["id"].string
-        if !id.isEmpty {
+        if !id.isEmpty, !frame["method"].string.isEmpty {
+            if requests.insert(frame) { onRequestsChanged?() }
+            else if !ServerRequests.supported.contains(frame["method"].string) {
+                Task { try? await sendFrame(["jsonrpc": "2.0", "id": frame["id"], "error": ["code": -32601, "message": "This client does not support this interactive request."]]) }
+            }
+        } else if !id.isEmpty {
             if !frame["error"].isNull {
-                resolve(id, result: .failure(RPCFailure(frame["error"]["message"].string, code: frame["error"]["code"].int)))
-            } else { resolve(id, result: .success(frame["result"])) }
+                resolve(id, result: .failure(RPCFailure(responseError: frame["error"])))
+            } else {
+                for request in frame["result"]["open_requests"].array {
+                    if requests.insert(request) { onRequestsChanged?() }
+                }
+                resolve(id, result: .success(frame["result"]))
+            }
         } else if frame["method"].string == "event" {
             let event = frame["params"]
             if event["type"].string == "gateway.ready" { epoch = event["payload"]["replay_epoch"].string }
+            if event["type"].string == "request.cancel" { requests.retire(event["payload"]["id"].string); onRequestsChanged?() }
+            if event["type"].string == "message.complete" || event["type"].string == "message.error" {
+                requests.retire(session: event["session_id"].string); onRequestsChanged?()
+            }
             onEvent?(event)
         }
+    }
+
+    func answerRequest(_ id: String, result: JSONValue) async throws {
+        guard requests.frames.contains(where: { $0["id"].string == id }) else { throw RPCFailure("Cette demande a expiré.") }
+        do {
+            let response = try await call("request.answer", ["id": .string(id), "result": result])
+            guard response["status"].string == "ok" else {
+                requests.retire(id); onRequestsChanged?(); throw RPCFailure("Cette demande a expiré.")
+            }
+        } catch let error as RPCFailure where error.code == -32601 {
+            // Early bidirectional gateways only accept a standard JSON-RPC response.
+            try await sendFrame(["jsonrpc": "2.0", "id": .string(id), "result": result])
+        }
+        requests.retire(id); onRequestsChanged?()
+    }
+
+    func lockAnswer(_ id: String, question: String, answer: String) async throws {
+        let response = try await call("clarify.lock", ["request_id": .string(id), "question_id": .string(question), "answer": .string(answer)])
+        guard response["status"].string == "ok" else {
+            requests.retire(id); onRequestsChanged?(); throw RPCFailure("Cette question a expiré.")
+        }
+        if response["remaining"] == .array([]) || response["remaining"] == .number(0) { requests.retire(id) }
+        else { requests.lock(id, question: question, answer: answer) }
+        onRequestsChanged?()
+    }
+
+    private func sendFrame(_ frame: JSONValue) async throws {
+        guard let socket else { throw RPCFailure("Hermes est déconnecté.") }
+        try await socket.send(.string(String(decoding: try frame.data(), as: UTF8.self)))
     }
 
     private func resolve(_ id: String, result: Result<JSONValue, Error>) {

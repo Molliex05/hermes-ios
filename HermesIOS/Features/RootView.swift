@@ -11,7 +11,10 @@ struct RootView: View {
             }
         }
         .background(AppTheme.background)
-        .alert("Hermès iOS", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
+        .alert(model.notice == RPCFailure.ownershipMessage ? "Conversation ouverte ailleurs" : "Hermès iOS", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
+            if model.canContinueInNewChat {
+                Button("Nouveau fil avec mon brouillon") { Task { await model.continueInNewChat() } }
+            }
             Button("Compris", role: .cancel) { model.notice = nil }
         } message: { Text(model.notice ?? "") }
     }

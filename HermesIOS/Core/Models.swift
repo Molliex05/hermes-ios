@@ -10,12 +10,14 @@ public struct AgentProfile: Identifiable, Codable, Equatable, Sendable {
     public var canonicalID: String?
     public var preview: String
     public var skillCount: Int
+    public var pinned: Bool?
+    public var hidden: Bool?
 
     public init(_ v: JSONValue) {
         name = v["name"].string
         let meta = v["ui_meta"]["hermes-bots"]
-        title = v["display_name"].string
-        if title.isEmpty { title = meta["title"].string }
+        title = meta["title"].string
+        if title.isEmpty { title = v["display_name"].string }
         if title.isEmpty { title = name == "default" ? "Hermes" : name.capitalized }
         detail = v["description"].string
         model = v["model"].string
@@ -25,6 +27,7 @@ public struct AgentProfile: Identifiable, Codable, Equatable, Sendable {
         canonicalID = cid.isEmpty ? nil : cid
         preview = canonical["preview"].string
         skillCount = v["skill_count"].int
+        pinned = meta["pinned"].bool; hidden = meta["hidden"].bool
     }
 }
 

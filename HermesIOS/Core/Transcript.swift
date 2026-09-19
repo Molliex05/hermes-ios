@@ -22,6 +22,18 @@ public struct Transcript: Sendable {
         self.messages = messages; self.lastSequence = lastSequence
     }
 
+    /// A lost RPC reply is not a rejected turn. Only native acknowledgement/history
+    /// can confirm receipt; unrelated tool events on a shared session cannot.
+    @discardableResult
+    public mutating func submissionFailed(id: String, error: Error) -> ChatMessage.Delivery? {
+        guard let i = messages.firstIndex(where: { $0.id == id }) else { return nil }
+        guard messages[i].delivery != .confirmed else { return .confirmed }
+        let rejected = (error as? RPCFailure)?.rejectsPromptBeforeAdmission == true
+        messages[i].delivery = rejected ? .failed : .uncertain
+        if rejected { running = false; activity = nil }
+        return messages[i].delivery
+    }
+
     public mutating func apply(_ event: JSONValue) {
         let seq = event["seq"].int
         if seq > 0 {
@@ -53,12 +65,12 @@ public struct Transcript: Sendable {
             } else if !text.isEmpty, messages.last?.text != text || messages.last?.role != "assistant" {
                 messages.append(.init(role: "assistant", text: text))
             }
-            running = false; activity = nil; approval = nil; clarification = nil
+            running = false; activity = nil; approval = nil; clarification = nil; credential = nil
             if p["status"].string == "error" { failure = p["error"].string }
-            for i in messages.indices where messages[i].delivery == .sending { messages[i].delivery = .confirmed }
         case "thinking.delta", "reasoning.delta":
             running = true; activity = "Réfléchit…"
         case "tool.start", "tool.progress", "tool.generating":
+            running = true
             activity = p["name"].string.isEmpty ? "Utilise un outil…" : p["name"].string
         case "tool.complete": activity = nil
         case "status.update":
@@ -69,11 +81,11 @@ public struct Transcript: Sendable {
             var request = p.object
             request["event_type"] = event["type"]
             credential = .object(request)
-        case "approval.expire": approval = nil
-        case "clarify.expire": clarification = nil
-        case "sudo.expire", "secret.expire": credential = nil
+        case "approval.expire": if p["request_id"].isNull || approval?["request_id"] == p["request_id"] { approval = nil }
+        case "clarify.expire": if p["request_id"].isNull || clarification?["request_id"] == p["request_id"] { clarification = nil }
+        case "sudo.expire", "secret.expire": if p["request_id"].isNull || credential?["request_id"] == p["request_id"] { credential = nil }
         case "error":
-            failure = p["message"].string; running = false; activity = nil
+            failure = p["message"].string; running = false; activity = nil; approval = nil; clarification = nil; credential = nil
             for i in messages.indices { messages[i].streaming = false }
         default: break
         }
@@ -129,6 +141,7 @@ public struct Transcript: Sendable {
         messages = projected
         approval = payload["pending_approval"].isNull ? nil : payload["pending_approval"]
         clarification = payload["pending_clarify"].isNull ? nil : payload["pending_clarify"]
+        if !running { credential = nil }
         activity = running ? "En cours…" : nil
         if !inflight["error"].string.isEmpty { failure = inflight["error"].string }
     }
@@ -150,7 +163,7 @@ public struct Transcript: Sendable {
                 messages[i].text = Self.mergeStream(snapshot: messages[i].text, replay: deltaText)
             }
             // Control cards are stateful; don't drop them just because the text ring overflowed.
-            for event in ordered where ["message.complete", "approval.request", "clarify.request", "error"].contains(event["type"].string) { apply(event) }
+            for event in ordered where ["message.complete", "approval.request", "clarify.request", "sudo.request", "secret.request", "approval.expire", "clarify.expire", "sudo.expire", "secret.expire", "error"].contains(event["type"].string) { apply(event) }
         }
         lastSequence = max(lastSequence, latestSequence)
     }

@@ -84,6 +84,7 @@ private final class VoiceConversation {
     enum Phase { case ready, listening, transcribing, thinking, speaking, paused }
     let tools: NativeToolSession
     let audio = PhoneAudio()
+    let speechStream = NativeSpeechStream()
     var phase = Phase.ready
     var heard = ""
     var answer = ""
@@ -119,7 +120,7 @@ private final class VoiceConversation {
         tools.app.voiceActive = true; error = nil
         operation = Task {
             defer {
-                if generation == attempt { audio.cleanup(); tools.app.voiceActive = false; operation = nil; phase = .paused; releaseLease() }
+                if generation == attempt { speechStream.stop(); audio.cleanup(); tools.app.voiceActive = false; operation = nil; phase = .paused; releaseLease() }
             }
             do {
                 let preferences = try await voiceAPI.preferences()
@@ -156,26 +157,45 @@ private final class VoiceConversation {
                     let message = try await tools.app.sendVoice(heard)
                     sessionID = tools.app.selected?.storedID
                     try validate(attempt)
+                    let streaming = try await speechStream.open(tools: tools)
+                    var cursor = VoiceTextCursor()
                     let deadline = Date().addingTimeInterval(600)
-                    while tools.app.transcript.running {
-                        try await Task.sleep(for: .milliseconds(100)); try validate(attempt)
+                    repeat {
+                        try validate(attempt)
                         let transcript = tools.app.transcript
                         if transcript.approval != nil || transcript.clarification != nil || transcript.credential != nil {
                             throw RPCFailure("Hermes attend votre réponse dans le chat.")
                         }
+                        if let failure = transcript.failure { throw RPCFailure(failure) }
                         guard Date() < deadline else { throw RPCFailure("Hermes travaille encore. Retrouvez sa réponse dans le chat.") }
-                    }
-                    try validate(attempt)
-                    if let failure = tools.app.transcript.failure { throw RPCFailure(failure) }
-                    let messages = tools.app.transcript.messages
-                    guard let index = messages.firstIndex(where: { $0.id == message }) else { throw RPCFailure("La conversation a changé. Retrouvez la réponse dans le chat.") }
-                    answer = messages.dropFirst(index + 1).filter { $0.role == "assistant" }.map(\.text).joined(separator: "\n\n")
+                        guard let index = transcript.messages.firstIndex(where: { $0.id == message }) else { throw RPCFailure("La conversation a changé. Retrouvez la réponse dans le chat.") }
+                        answer = transcript.messages.dropFirst(index + 1).filter { $0.role == "assistant" }.map(\.text).joined(separator: "\n\n")
+                        if streaming {
+                            if let failure = speechStream.failure { throw RPCFailure(failure) }
+                            let delta = try cursor.delta(answer)
+                            if !delta.isEmpty || !transcript.running { try await speechStream.send(delta, done: !transcript.running) }
+                            if speechStream.hasAudio { phase = .speaking }
+                        }
+                        if !transcript.running { break }
+                        try await Task.sleep(for: .milliseconds(100))
+                    } while true
                     guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw RPCFailure("Hermes n’a pas renvoyé de réponse à lire.") }
-                    let speech = try await voiceAPI.speech(answer)
-                    try validate(attempt)
-                    phase = .speaking
-                    try audio.play(speech)
-                    while audio.playing { try await Task.sleep(for: .milliseconds(100)); try validate(attempt) }
+                    if streaming {
+                        while !speechStream.drained {
+                            try await Task.sleep(for: .milliseconds(100)); try validate(attempt)
+                            if speechStream.hasAudio { phase = .speaking }
+                            if let failure = speechStream.failure { throw RPCFailure(failure) }
+                            guard Date() < deadline else { throw RPCFailure("La lecture vocale prend trop de temps. La réponse reste dans le chat.") }
+                        }
+                    }
+                    let needsFallback = !streaming || !speechStream.hasAudio
+                    speechStream.stop()
+                    if needsFallback {
+                        let speech = try await voiceAPI.speech(answer)
+                        try validate(attempt); phase = .speaking; try audio.play(speech)
+                        while audio.playing { try await Task.sleep(for: .milliseconds(100)); try validate(attempt) }
+                    }
+
                 }
             } catch is CancellationError { }
             catch { if generation == attempt { self.error = error.localizedDescription } }
@@ -199,11 +219,23 @@ private final class VoiceConversation {
     }
     func pause() {
         generation = UUID(); operation?.cancel(); operation = nil
-        audio.cleanup(); phase = .paused; tools.app.voiceActive = false; releaseLease()
+        speechStream.stop(); audio.cleanup(); phase = .paused; tools.app.voiceActive = false; releaseLease()
     }
     func speakNow() {
         // Playback can be interrupted locally without cancelling a completed agent turn.
-        if phase == .speaking { pause(); start() }
+        if phase == .speaking {
+            pause()
+            let attempt = generation
+            Task {
+                if tools.app.transcript.running { await tools.app.interrupt() }
+                for _ in 0..<50 {
+                    guard generation == attempt else { return }
+                    if !tools.app.transcript.running { start(); return }
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                if generation == attempt { error = "Hermes termine son interruption. Touchez le micro pour reprendre." }
+            }
+        }
         else if phase == .listening { finishUtterance = true }
         else if phase == .ready || phase == .paused { start() }
     }

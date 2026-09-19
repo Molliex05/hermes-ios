@@ -82,12 +82,12 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertEqual(composer.value as? String, "Mon brouillon reste ici")
     }
 
-    private func connectFixtureIfNeeded(_ app: XCUIApplication) {
+    private func connectFixtureIfNeeded(_ app: XCUIApplication, address endpoint: String = "http://127.0.0.1:19119") {
         if app.buttons["Rencontrer mon Hermes"].waitForExistence(timeout: 5) {
             app.buttons["Rencontrer mon Hermes"].tap()
             let address = app.textFields["Adresse Hermes"]
             XCTAssertTrue(address.waitForExistence(timeout: 3))
-            address.tap(); address.typeText("http://127.0.0.1:19119")
+            address.tap(); address.typeText(endpoint)
             let user = app.textFields["Utilisateur"]
             user.tap()
             user.typeText("hermes-ios-test")
@@ -101,6 +101,49 @@ final class HermesIOSUITests: XCTestCase {
             // optional password-manager sheet without saving disposable fixture credentials.
             app.terminate(); app.launch()
         }
+    }
+
+    func testNativeInteractiveRecoveryAndPermissions() throws {
+        guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Requires isolated Hermes fixture on port 19123.") }
+        let app = XCUIApplication()
+        app.launchArguments = ["--integration-test", "--voice-fixture"]
+        app.launch()
+        connectFixtureIfNeeded(app, address: "http://127.0.0.1:19123")
+        XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
+        app.buttons["Nouvelle conversation"].tap()
+        let composer = app.textFields["chat-composer"]
+        composer.tap(); composer.typeText("HERMES_IOS_REQUEST_TEST")
+        app.buttons["send-message"].tap()
+        let blue = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Bleu")).firstMatch
+        XCTAssertTrue(blue.waitForExistence(timeout: 45))
+        capture("24-native-questions")
+        blue.tap()
+        XCTAssertTrue(app.staticTexts["Un détail à ajouter ?"].waitForExistence(timeout: 10))
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
+        XCTAssertTrue(app.staticTexts["Un détail à ajouter ?"].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.staticTexts["Choisir une couleur"].exists)
+        let response = app.textFields["Votre réponse…"]
+        XCTAssertTrue(response.waitForExistence(timeout: 5)); response.tap(); response.typeText("Simple et fluide")
+        app.buttons["Répondre"].tap()
+        let final = app.descendants(matching: .any).matching(identifier: "assistant-message").matching(NSPredicate(format: "label CONTAINS %@", "le fil est retrouvé."))
+        XCTAssertTrue(final.firstMatch.waitForExistence(timeout: 45))
+        XCTAssertFalse(app.staticTexts["Un détail à ajouter ?"].exists)
+        app.buttons["app-navigation"].tap()
+        let search = app.textFields["spaces-search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText("Permissions")
+        app.buttons["space-capabilities"].tap()
+        app.buttons["Permissions"].tap()
+        XCTAssertTrue(app.staticTexts["Quand demander mon accord"].waitForExistence(timeout: 20))
+        capture("25-native-permissions")
+        app.buttons["return-to-chat"].tap()
+        app.buttons["voice-mode"].tap()
+        XCTAssertTrue(app.staticTexts["Bonjour Hermes, résume mon projet."].waitForExistence(timeout: 30))
+        XCTAssertTrue(app.staticTexts["Hermes vous répond."].waitForExistence(timeout: 45))
+        capture("26-native-voice-stream")
+        XCTAssertTrue(app.staticTexts["Je vous écoute."].waitForExistence(timeout: 30))
+        app.buttons["return-to-chat"].tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
     }
 
     func testNativeStreamingMarkdown() throws {
@@ -127,6 +170,30 @@ final class HermesIOSUITests: XCTestCase {
         // Read earlier content without being dragged back down by layout changes.
         app.swipeDown()
         capture("25-markdown-heading")
+    }
+
+    func testNativeToolContinuesWhileBackgrounded() throws {
+        guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Requires isolated Hermes fixture on port 19129") }
+        let app = XCUIApplication()
+        app.launchArguments = ["--integration-test"]
+        app.launch()
+        connectFixtureIfNeeded(app, address: "http://127.0.0.1:19129")
+        XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
+        app.buttons["Nouvelle conversation"].tap()
+        let composer = app.textFields["chat-composer"]
+        composer.tap(); composer.typeText("HERMES_IOS_TOOL_BACKGROUND_TEST")
+        app.buttons["send-message"].tap()
+        XCTAssertTrue(app.staticTexts["terminal"].waitForExistence(timeout: 30))
+        XCUIDevice.shared.press(.home)
+        sleep(55)
+        app.activate()
+        let final = app.descendants(matching: .any).matching(identifier: "assistant-message").matching(NSPredicate(format: "label CONTAINS %@", "le fil est retrouvé."))
+        XCTAssertTrue(final.firstMatch.waitForExistence(timeout: 45))
+        XCTAssertEqual(final.count, 1)
+        let sent = app.descendants(matching: .any).matching(identifier: "user-message").matching(NSPredicate(format: "label CONTAINS %@", "HERMES_IOS_TOOL_BACKGROUND_TEST"))
+        XCTAssertEqual(sent.count, 1)
+        XCTAssertFalse(app.staticTexts["Non envoyé · copiez pour réessayer"].exists)
+        capture("28-tool-background-completed")
     }
 
     func testNativeSendThenImmediatelyBackground() throws {

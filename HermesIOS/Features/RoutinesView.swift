@@ -16,7 +16,7 @@ struct RoutinesView: View {
                 ForEach(model.routines) { routine in
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            Text(routine.name).font(.headline)
+                            NavigationLink { RoutineDetailView(app: model, routine: routine) } label: { Text(routine.name).font(.headline) }
                             Spacer()
                             Button { Task { await model.toggleRoutine(routine) } } label: {
                                 Image(systemName: routine.paused ? "play.circle" : "pause.circle").font(.title2)
@@ -62,7 +62,9 @@ struct RoutineEditor: View {
                         Text("En semaine à 9 h").tag("0 9 * * 1-5")
                         Text("Le vendredi à 17 h").tag("0 17 * * 5")
                         Text("Toutes les heures").tag("0 * * * *")
+                        if !["0 8 * * *", "0 9 * * 1-5", "0 17 * * 5", "0 * * * *"].contains(schedule) { Text("Personnalisé").tag(schedule) }
                     }
+                    TextField("Horaire personnalisé", text: $schedule).textInputAutocapitalization(.never).autocorrectionDisabled()
                 } footer: { Text("Heure du serveur Hermes. Le résultat arrive dans le Bot Chat de cet agent.") }
                 if let error { Text(error).foregroundStyle(AppTheme.accent) }
             }.modernList()

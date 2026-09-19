@@ -77,13 +77,13 @@ final class HermesHTTP {
         try Keychain.save(Data(token!.utf8), key: connection.id.uuidString)
     }
 
-    func socketRequest() async throws -> URLRequest {
+    func socketRequest(path: String = "/api/ws", query: [URLQueryItem] = []) async throws -> URLRequest {
         let url: URL
-        if let token { url = connection.endpoint.socket(token: token) }
+        if let token { url = connection.endpoint.socket(token: token, path: path, query: query) }
         else {
             let response = try await request("/api/auth/ws-ticket", method: "POST", body: [:])
             guard !response["ticket"].string.isEmpty else { throw RPCFailure("Hermes n’a pas fourni de ticket WebSocket.") }
-            url = connection.endpoint.socket(ticket: response["ticket"].string)
+            url = connection.endpoint.socket(ticket: response["ticket"].string, path: path, query: query)
         }
         var request = URLRequest(url: url)
         request.timeoutInterval = 15

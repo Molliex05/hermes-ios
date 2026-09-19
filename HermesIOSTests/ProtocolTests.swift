@@ -374,3 +374,139 @@ final class ProtocolTests: XCTestCase {
         ["session_id": "runtime", "seq": .number(Double(seq)), "type": .string(type), "payload": ["text": .string(text)]]
     }
 }
+
+extension ProtocolTests {
+    func testModernRequestsAreSessionScopedAndCanceledSnapshotCannotResurrect() {
+        var inbox = ServerRequests()
+        let request: JSONValue = ["id": "srq-a", "method": "approval", "params": ["session_id": "a", "choices": ["once", "deny"]]]
+        XCTAssertTrue(inbox.insert(request))
+        XCTAssertTrue(inbox.insert(request)); XCTAssertEqual(inbox.frames.count, 1)
+        XCTAssertNil(inbox.payload(session: "b", methods: ["approval"]))
+        XCTAssertEqual(inbox.payload(session: "a", methods: ["approval"])?["rpc_id"], "srq-a")
+        inbox.retire("srq-a")
+        XCTAssertFalse(inbox.insert(request)); XCTAssertTrue(inbox.frames.isEmpty)
+        XCTAssertFalse(inbox.insert(["id": "unknown", "method": "preview.act"]))
+    }
+
+    func testLockedBatchAnswerSurvivesStaleSnapshot() {
+        var inbox = ServerRequests()
+        let request: JSONValue = ["id": "srq-q", "method": "clarify", "params": ["session_id": "a", "questions": [["qid": "one", "question": "A?"]]]]
+        inbox.insert(request); inbox.lock("srq-q", question: "one", answer: "Yes")
+        inbox.insert(request)
+        XCTAssertEqual(inbox.payload(session: "a", methods: ["clarify"])?["answers"]["one"], "Yes")
+    }
+
+    func testRecoveryDoesNotResurrectExpiredControlCards() {
+        var transcript = Transcript()
+        transcript.recover(["messages": [], "running": true], events: [
+            ["seq": 1, "type": "approval.request", "payload": ["request_id": "old"]],
+            ["seq": 2, "type": "approval.expire", "payload": ["request_id": "old"]],
+            ["seq": 3, "type": "clarify.request", "payload": ["request_id": "question"]],
+            ["seq": 4, "type": "clarify.expire", "payload": ["request_id": "question"]]
+        ], latestSequence: 4)
+        XCTAssertNil(transcript.approval); XCTAssertNil(transcript.clarification)
+        transcript.apply(["seq": 5, "type": "approval.request", "payload": ["request_id": "new"]])
+        transcript.apply(["seq": 6, "type": "approval.expire", "payload": ["request_id": "old"]])
+        XCTAssertEqual(transcript.approval?["request_id"], "new")
+    }
+
+    func testCompletionClearsSensitivePrompt() {
+        var transcript = Transcript()
+        transcript.apply(["type": "secret.request", "payload": ["request_id": "s"]])
+        transcript.apply(["type": "message.complete", "payload": ["text": "Finished"]])
+        XCTAssertNil(transcript.credential)
+    }
+    func testVoiceCursorNeverReplaysOnFinalSnapshot() throws {
+        var cursor = VoiceTextCursor()
+        XCTAssertEqual(try cursor.delta("Bonjour 👋. "), "Bonjour 👋. ")
+        XCTAssertEqual(try cursor.delta("Bonjour 👋. Suite. "), "Suite. ")
+        XCTAssertEqual(try cursor.delta("Bonjour 👋. Suite."), "")
+        XCTAssertThrowsError(try cursor.delta("Une autre réponse."))
+    }
+    func testVoiceSocketKeepsProfileAndProxyPrefix() throws {
+        let endpoint = try Endpoint("https://agent.ts.net/hermes")
+        let url = endpoint.socket(ticket: "a&b", path: "/api/audio/speak-stream", query: [.init(name: "profile", value: "research")])
+        XCTAssertEqual(url.path, "/hermes/api/audio/speak-stream")
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)!.queryItems!
+        XCTAssertEqual(query.first { $0.name == "profile" }?.value, "research")
+        XCTAssertEqual(query.first { $0.name == "ticket" }?.value, "a&b")
+    }
+    func testConfigurationPatchAndBotPresentation() {
+        let patch = JSONValue.patch("approvals.mode", value: "manual")
+        XCTAssertEqual(patch.at("approvals.mode"), "manual")
+        XCTAssertTrue(patch.at("approvals.other").isNull)
+        let bot = AgentProfile(["name": "research", "display_name": "Old", "ui_meta": ["hermes-bots": ["title": "Recherche", "pinned": true, "hidden": true]]])
+        XCTAssertEqual(bot.title, "Recherche"); XCTAssertEqual(bot.pinned, true); XCTAssertEqual(bot.hidden, true)
+    }
+
+    func testSlashParsingPreservesArgumentsAndIgnoresFilePaths() {
+        XCTAssertEqual(SlashInput("/compact  garder les décisions")?.name, "compact")
+        XCTAssertEqual(SlashInput("/compact  garder les décisions")?.argument, "garder les décisions")
+        XCTAssertNil(SlashInput("/Users/maxime/fichier.md"))
+        XCTAssertNil(SlashInput("Un texte /compact"))
+    }
+    func testCompletedSessionRetiresOnlyItsOpenRequests() {
+        var store = ServerRequests()
+        let frame: JSONValue = ["id": "srq-1", "method": "secret", "params": ["session_id": "one"]]
+        store.insert(frame)
+        store.insert(["id": "srq-2", "method": "approval", "params": ["session_id": "two"]])
+        store.retire(session: "one")
+        XCTAssertFalse(store.insert(frame))
+        XCTAssertEqual(store.frames.count, 1)
+        XCTAssertEqual(store.frames[0]["id"], "srq-2")
+    }
+
+    func testOwnershipRefusalKeepsMachineReadableReason() {
+        let failure = RPCFailure(responseError: ["code": 4090, "message": "Localized server text", "data": ["reason": "SESSION_NOT_OWNED"]])
+        XCTAssertTrue(failure.sessionOwnedElsewhere)
+        XCTAssertEqual(failure.reason, "SESSION_NOT_OWNED")
+        XCTAssertTrue(RPCFailure("Session abc already has a live owner (desktop)", code: 4090).sessionOwnedElsewhere)
+        XCTAssertFalse(RPCFailure("Session limit", code: 4090, reason: "MAX_CONCURRENT_SESSIONS").sessionOwnedElsewhere)
+        XCTAssertFalse(RPCFailure("already has a live owner", code: 4090, reason: "SESSION_COORDINATION_UNAVAILABLE").sessionOwnedElsewhere)
+        XCTAssertFalse(RPCFailure("Network timeout", code: -2).sessionOwnedElsewhere)
+    }
+
+    func testAcceptedTurnCannotBecomeUnsentAfterLateFailure() {
+        for error in [RPCFailure("connection lost", code: -1), RPCFailure("late server error", code: 5000), RPCFailure("late refusal", code: 4090)] {
+            var transcript = Transcript(messages: [.init(id: "sent", role: "user", text: "Work", delivery: .confirmed)])
+            transcript.running = true
+            XCTAssertEqual(transcript.submissionFailed(id: "sent", error: error), .confirmed)
+            XCTAssertTrue(transcript.running)
+        }
+    }
+
+    func testLostAcknowledgementPreservesTurnUntilNativeResume() {
+        for error in [RPCFailure("timeout", code: -2), RPCFailure("internal", code: 5000), CancellationError()] as [Error] {
+            var transcript = Transcript(messages: [.init(id: "sent", role: "user", text: "Work", delivery: .sending)])
+            transcript.running = true
+            XCTAssertEqual(transcript.submissionFailed(id: "sent", error: error), .uncertain)
+            XCTAssertTrue(transcript.running)
+            transcript.hydrate(["running": false, "messages": [["role": "user", "text": "Work"], ["role": "assistant", "text": "Done"]]])
+            XCTAssertEqual(transcript.messages.count, 2)
+            XCTAssertEqual(transcript.messages.first?.id, "sent")
+            XCTAssertEqual(transcript.messages.first?.delivery, .confirmed)
+            XCTAssertFalse(transcript.running)
+        }
+    }
+
+    func testNativeRefusalRemainsDistinctFromConnectionLoss() {
+        var transcript = Transcript(messages: [.init(id: "sent", role: "user", text: "Work", delivery: .sending)])
+        transcript.running = true
+        XCTAssertEqual(transcript.submissionFailed(id: "sent", error: RPCFailure("owned", code: 4090)), .failed)
+        XCTAssertFalse(transcript.running)
+        XCTAssertTrue(RPCFailure("settling", code: 4009).retryableSessionResume)
+        XCTAssertTrue(RPCFailure("retry resume", code: 4007).retryableSessionResume)
+        XCTAssertFalse(RPCFailure("owned", code: 4090).retryableSessionResume)
+    }
+
+    func testToolEventsRestoreExecutionWithoutAcknowledgingUnrelatedPrompt() {
+        var transcript = Transcript(messages: [.init(id: "pending", role: "user", text: "Work", delivery: .uncertain)])
+        transcript.apply(["seq": 1, "type": "tool.start", "payload": ["name": "terminal"]])
+        XCTAssertTrue(transcript.running)
+        XCTAssertEqual(transcript.messages.first?.delivery, .uncertain)
+        transcript.apply(["seq": 2, "type": "message.complete", "payload": ["text": "Done"]])
+        XCTAssertFalse(transcript.running)
+        XCTAssertEqual(transcript.messages.first?.delivery, .uncertain)
+    }
+
+}

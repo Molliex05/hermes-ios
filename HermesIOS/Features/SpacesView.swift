@@ -2,7 +2,7 @@ import SwiftUI
 
 /// One catalogue drives discovery and routing; adding a tool never adds another tab.
 enum AppDestination: String, Identifiable, CaseIterable {
-    case spaces, profiles, history, agents, groups, routines, kanban, workspace, skills, models, voice, settings
+    case spaces, profiles, history, agents, groups, routines, kanban, workspace, skills, models, voice, settings, capabilities
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -17,6 +17,7 @@ enum AppDestination: String, Identifiable, CaseIterable {
         case .skills: "Skills"
         case .models: "Modèles"
         case .voice: "Voix"
+        case .capabilities: "Mon agent"
         case .settings: "Réglages"
         }
     }
@@ -33,6 +34,7 @@ enum AppDestination: String, Identifiable, CaseIterable {
         case .skills: "Ses compétences"
         case .models: "Choisir son modèle"
         case .voice: "Parler avec votre agent"
+        case .capabilities: "Permissions, outils et mémoire"
         case .settings: "Connexions et préférences"
         }
     }
@@ -49,6 +51,7 @@ enum AppDestination: String, Identifiable, CaseIterable {
         case .skills: "sparkles"
         case .models: "cpu"
         case .voice: "waveform"
+        case .capabilities: "hand.raised"
         case .settings: "slider.horizontal.3"
         }
     }
@@ -66,8 +69,8 @@ private enum ToolCategory: String, CaseIterable {
     var destinations: [AppDestination] {
         switch self {
         case .work: [.kanban, .routines, .workspace]
-        case .agent: [.skills, .models, .voice, .groups]
-        case .all: [.kanban, .routines, .workspace, .skills, .models, .voice, .groups, .agents, .history, .settings]
+        case .agent: [.capabilities, .skills, .models, .voice, .groups]
+        case .all: [.capabilities, .kanban, .routines, .workspace, .skills, .models, .voice, .groups, .agents, .history, .settings]
         }
     }
 }
@@ -178,6 +181,7 @@ struct SpacesView: View {
         case .agents: AgentsView(model: model, openChat: { dismiss() })
         case .routines: RoutinesView(model: model)
         case .settings: SettingsView(model: model).safeAreaInset(edge: .bottom, spacing: 0) { ToolDock() }
+        case .capabilities: AgentSettingsView(app: model).safeAreaInset(edge: .bottom, spacing: 0) { ToolDock() }
         case .skills: SkillsView(app: model).safeAreaInset(edge: .bottom, spacing: 0) { ToolDock() }
         case .models: ModelsView(app: model).safeAreaInset(edge: .bottom, spacing: 0) { ToolDock() }
         case .workspace: WorkspaceView(app: model).safeAreaInset(edge: .bottom, spacing: 0) { ToolDock() }

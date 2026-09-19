@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 struct ChatView: View {
     @Bindable var model: AppModel
     @State private var showPhotos = false
+    @State private var compressing = false
     @State private var showFiles = false
     @State private var photos: [PhotosPickerItem] = []
     @State private var attachmentContext = ""
@@ -19,7 +20,7 @@ struct ChatView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 header
-                if model.transcript.messages.isEmpty { emptyChat }
+                if model.transcript.messages.isEmpty && model.transcript.approval == nil && model.transcript.clarification == nil && model.transcript.credential == nil { emptyChat }
                 else { messages }
             }
             .background(AppTheme.background)
@@ -29,6 +30,16 @@ struct ChatView: View {
                 SpacesView(model: model, initial: page == .spaces ? nil : page)
                     .presentationDragIndicator(.visible)
                     .presentationCornerRadius(30)
+            }
+            .confirmationDialog("Résumer le contexte de cette conversation ?", isPresented: $compressing, titleVisibility: .visible) {
+                Button("Résumer avec Hermes") { Task { await model.compactConversation() } }
+            } message: { Text("Hermes conserve l’historique et réduit le contexte utilisé pour les prochaines réponses.") }
+            .sheet(isPresented: Binding(get: { model.commandOutput != nil }, set: { if !$0 { model.commandOutput = nil } })) {
+                NavigationStack {
+                    ScrollView { MarkdownText(text: model.commandOutput ?? "").textSelection(.enabled).padding(24).frame(maxWidth: .infinity, alignment: .leading) }
+                        .background(AppTheme.background).navigationTitle("Réponse de Hermes").navigationBarTitleDisplayMode(.inline)
+                        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fermer", systemImage: "xmark") { model.commandOutput = nil } } }
+                }
             }
             .photosPicker(isPresented: $showPhotos, selection: $photos, maxSelectionCount: max(1, 4 - model.attachments.count), matching: .images)
             .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
@@ -85,6 +96,14 @@ struct ChatView: View {
                 }
             }.buttonStyle(.plain).accessibilityLabel("Choisir un agent").accessibilityIdentifier("quick-agents")
             Spacer()
+            if model.selected != nil {
+                Menu {
+                    Button("Créer une branche", systemImage: "arrow.triangle.branch") { Task { await model.branchConversation() } }
+                    Button("Résumer le contexte", systemImage: "arrow.down.right.and.arrow.up.left") { compressing = true }
+                } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }
+                    .disabled(model.transcript.running || model.sending || model.voiceActive || model.state != .connected)
+                    .accessibilityLabel("Actions de la conversation")
+            }
             RoundButton(symbol: "square.and.pencil", label: "Nouvelle conversation") { model.newChat(); focused = true }
         }.padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 16)
     }
@@ -152,9 +171,9 @@ struct ChatView: View {
                         if let failure = model.transcript.failure, !failure.isEmpty {
                             Label(failure, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(AppTheme.accent)
                         }
-                        if let approval = model.transcript.approval { ApprovalCard(payload: approval, model: model) }
-                        if let clarification = model.transcript.clarification { ClarificationCard(payload: clarification, model: model) }
-                        if let credential = model.transcript.credential { CredentialCard(payload: credential, model: model) }
+                        if let approval = model.transcript.approval { ApprovalCard(payload: approval, model: model).id(approval["rpc_id"].string + approval["request_id"].string) }
+                        if let clarification = model.transcript.clarification { ClarificationCard(payload: clarification, model: model).id(clarification["rpc_id"].string + clarification["request_id"].string) }
+                        if let credential = model.transcript.credential { CredentialCard(payload: credential, model: model).id(credential["rpc_id"].string + credential["request_id"].string) }
                         Color.clear.frame(height: 1).id("bottom").background(GeometryReader { marker in
                             Color.clear.preference(key: BottomPreference.self, value: marker.frame(in: .named("chat-scroll")).maxY)
                         })
@@ -328,7 +347,7 @@ struct CredentialCard: View {
     }
     private func respond(_ text: String) {
         busy = true
-        Task { await model.answerCredential(text); value = ""; busy = false }
+        Task { if await model.answerCredential(text, request: payload) { value = "" }; busy = false }
     }
 }
 
@@ -373,6 +392,7 @@ struct MessageView: View, Equatable {
 }
 
 struct ApprovalCard: View {
+    @State private var persistent = false
     let payload: JSONValue
     let model: AppModel
     @State private var busy = false
@@ -380,6 +400,7 @@ struct ApprovalCard: View {
         VStack(alignment: .leading, spacing: 15) {
             Label("Hermes vous demande l’accord", systemImage: "hand.raised").font(.subheadline.weight(.semibold))
             Text(payload["command"].string).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+            if !payload["description"].string.isEmpty { Text(payload["description"].string).font(.caption).foregroundStyle(.secondary) }
             if !payload["reason"].string.isEmpty { Text(payload["reason"].string).font(.caption).foregroundStyle(.secondary) }
             HStack {
                 Button("Refuser") { answer("deny") }.buttonStyle(.bordered)
@@ -388,15 +409,25 @@ struct ApprovalCard: View {
                     Button("Autoriser une fois") { answer("once") }.buttonStyle(.borderedProminent)
                 }
             }.font(.caption).disabled(busy)
+            if payload["choices"].array.contains("session") || payload["choices"].array.contains("always") {
+                Menu("Autres autorisations") {
+                    if payload["choices"].array.contains("session") { Button("Pour cette session") { answer("session") } }
+                    if payload["choices"].array.contains("always") { Button("Toujours pour cette règle") { persistent = true } }
+                }.font(.caption).disabled(busy)
+            }
         }.hermesCard()
+            .confirmationDialog("Autoriser durablement cette règle pour cet agent ?", isPresented: $persistent, titleVisibility: .visible) {
+                Button("Toujours autoriser cette règle") { answer("always") }
+            }
     }
-    private func answer(_ choice: String) { busy = true; Task { await model.answerApproval(choice); busy = false } }
+    private func answer(_ choice: String) { busy = true; Task { await model.answerApproval(choice, request: payload); busy = false } }
 }
 
 struct ClarificationCard: View {
     let payload: JSONValue
     let model: AppModel
-    @State private var answer = ""
+    @State private var answers: [String: String] = [:]
+    @State private var selections: [String: Set<String>] = [:]
     @State private var busy = false
     @State private var answered = Set<String>()
     var body: some View {
@@ -406,23 +437,42 @@ struct ClarificationCard: View {
                 question(payload, qid: nil)
             } else {
                 ForEach(Array(payload["questions"].array.enumerated()), id: \.offset) { _, q in
-                    if !answered.contains(q["qid"].string) { question(q, qid: q["qid"].string) }
+                    if !answered.contains(q["qid"].string) && payload["answers"][q["qid"].string].isNull { question(q, qid: q["qid"].string) }
                 }
             }
         }.hermesCard()
     }
     @ViewBuilder private func question(_ q: JSONValue, qid: String?) -> some View {
         Text(q["question"].string).font(.subheadline)
+        let key = qid ?? "single"
         ForEach(Array(q["choices"].array.enumerated()), id: \.offset) { _, choice in
-            Button(choice.string) { respond(choice.string, qid: qid) }.buttonStyle(.bordered).disabled(busy)
+            Button {
+                if q["multi_select"].bool {
+                    if selections[key, default: []].contains(choice.string) { selections[key]?.remove(choice.string) }
+                    else { selections[key, default: []].insert(choice.string) }
+                } else { respond(choice.string, qid: qid) }
+            } label: {
+                HStack { Text(choice.string); if selections[key, default: []].contains(choice.string) { Image(systemName: "checkmark") } }
+            }.buttonStyle(.bordered).disabled(busy)
         }
         HStack {
-            TextField("Votre réponse…", text: $answer).textFieldStyle(.roundedBorder)
-            Button { respond(answer, qid: qid) } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }.disabled(answer.isEmpty || busy)
+            TextField("Votre réponse…", text: Binding(get: { answers[key] ?? "" }, set: { answers[key] = $0 })).textFieldStyle(.roundedBorder)
+            Button {
+                let selected = q["choices"].array.map(\.string).filter { selections[key, default: []].contains($0) }
+                respond((selected + [answers[key] ?? ""]).filter { !$0.isEmpty }.joined(separator: ", "), qid: qid)
+            } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }
+                .accessibilityLabel("Répondre")
+                .disabled(((answers[key] ?? "").isEmpty && selections[key, default: []].isEmpty) || busy)
         }
     }
     private func respond(_ text: String, qid: String?) {
         busy = true
-        Task { await model.answerClarification(text, qid: qid); if let qid { answered.insert(qid) }; answer = ""; busy = false }
+        Task {
+            if await model.answerClarification(text, request: payload, qid: qid) {
+                if let qid { answered.insert(qid) }
+                answers[qid ?? "single"] = ""; selections[qid ?? "single"] = []
+            }
+            busy = false
+        }
     }
 }

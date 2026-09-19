@@ -44,8 +44,27 @@ class Model(BaseHTTPRequestHandler):
                 wav.setnchannels(1); wav.setsampwidth(2); wav.setframerate(24000)
                 wav.writeframes(b"\x00\x00" * 72000)
             self.send_response(200); self.send_header("Content-Type", "audio/wav"); self.end_headers()
-            self.wfile.write(output.getvalue())
+            self.wfile.write(b"\x00\x00" * 72000 if body.get("response_format") == "pcm" else output.getvalue())
             print("Fixture TTS voice: " + str(body.get("voice")), flush=True)
+            return
+        messages = body.get("messages", [])
+        last_user = max((i for i,m in enumerate(messages) if m.get("role") == "user"), default=-1)
+        interactive = last_user >= 0 and "HERMES_IOS_REQUEST_TEST" in str(messages[last_user].get("content", "")) and not any(m.get("role") == "tool" for m in messages[last_user+1:])
+        tool_background = last_user >= 0 and "HERMES_IOS_TOOL_BACKGROUND_TEST" in str(messages[last_user].get("content", "")) and not any(m.get("role") == "tool" for m in messages[last_user+1:])
+        if interactive or tool_background:
+            arguments = json.dumps({"questions": [{"question": "Choisir une couleur", "choices": ["Bleu", "Vert"]}, {"question": "Un détail à ajouter ?"}]})
+            tool = {"id": "fixture-clarify", "type": "function", "function": {"name": "clarify", "arguments": arguments}}
+            if tool_background:
+                tool = {"id": "fixture-terminal", "type": "function", "function": {"name": "terminal", "arguments": json.dumps({"command": "sleep 35; echo HERMES_BACKGROUND_TOOL_DONE", "timeout": 60})}}
+            self.send_response(200)
+            if body.get("stream"):
+                self.send_header("Content-Type", "text/event-stream"); self.end_headers()
+                chunk = {"id":"interactive", "object":"chat.completion.chunk", "created":int(time.time()), "model":"hermes-ios-fixture", "choices":[{"index":0,"delta":{"tool_calls":[{"index":0, **tool}]},"finish_reason":None}]}
+                self.wfile.write(("data: " + json.dumps(chunk) + "\n\n").encode())
+                self.wfile.write(b'data: {"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}\n\ndata: [DONE]\n\n')
+            else:
+                self.send_header("Content-Type", "application/json"); self.end_headers()
+                self.wfile.write(json.dumps({"id":"interactive", "object":"chat.completion", "created":int(time.time()), "model":"hermes-ios-fixture", "choices":[{"index":0,"message":{"role":"assistant", "content":None,"tool_calls":[tool]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":10,"completion_tokens":10,"total_tokens":20}}).encode())
             return
         self.send_response(200)
         slow = any("HERMES_IOS_BACKGROUND_TEST" in str(m.get("content", "")) for m in body.get("messages", []) if m.get("role") == "user")
@@ -78,6 +97,7 @@ def main():
     home.mkdir(parents=True, exist_ok=True)
     import yaml
     config = {"model": {"provider": "custom", "default": "hermes-ios-fixture", "base_url": f"http://127.0.0.1:{args.model_port}/v1"}, "terminal": {"backend": "local", "cwd": str(home)}, "dashboard": {"public_url": "http://hermes-ios.test"}, "compression": {"enabled": False}}
+    config["approvals"] = {"mode": "off"}  # Disposable fixture only: deterministic terminal sleep.
     config["stt"] = {"provider": "openai"}
     config["tts"] = {"provider": "openai", "openai": {"base_url": f"http://127.0.0.1:{args.model_port}/v1", "voice": "alloy"}}
     (home / "config.yaml").write_text(yaml.safe_dump(config))

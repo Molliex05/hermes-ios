@@ -41,3 +41,12 @@ The final build 13 Release was installed on the physical iPhone. Automatic launc
 The separate focused UI test also passed for profile switching, isolated drafts, conversation history and X dismissal. Both focused UI runs completed; the broad animation-stalled run remains excluded.
 
 Build 14 adds immediate first-fragment rendering, structured native Markdown, verbatim user messages and improved scroll following. The 40 core tests pass. The native streaming UI test verifies that the beginning is visible before completion, the keyboard closes after Send, a single final reply, and the code-copy control; screenshots were inspected. The final Release revision was installed and launched on the physical iPhone 16 Plus. The build uses Xcode 27 (`27A266a`) at `Xcode.app` after the workspace move to external storage. Fresh build caches avoid stale paths from the prior toolchain. No third-party runtime dependencies were added.
+
+
+## 2026-09-19 — build 15 background recovery
+
+- Core: 54 tests passed, including delivery-state races and native resume classification.
+- Native backend contract: a real terminal tool ran for 35 seconds after admission, the client disconnected for 55 seconds, and native resume returned one completed answer and exactly one user message. This used the installed Hermes source with an isolated home and deterministic model; production configuration was unchanged.
+- Release iPhone build succeeded with Xcode 27. Build 15 was installed and launched successfully on the paired physical iPhone 16 Plus.
+- `testNativeToolContinuesWhileBackgrounded` passed on the dedicated QA simulator (80.4 seconds): tool observed before backgrounding, 55 seconds away, exactly one final answer and one user bubble, no false unsent label. The physical device received the build; the automated background scenario ran on the simulator.
+- Earlier build-15 management, bidirectional clarification and streaming-speech contract checks passed on 2026-09-16. No claim of complete Hermes feature parity; see FEATURES.md.

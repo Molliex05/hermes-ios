@@ -15,6 +15,7 @@ struct ToolFeedback: View {
 struct SkillsView: View {
     @State private var tools: NativeToolSession
     @State private var search = ""
+    @State private var adding = false
     init(app: AppModel) { _tools = State(initialValue: NativeToolSession(app)) }
     private var skills: [JSONValue] {
         tools.data.array.filter { search.isEmpty || "\($0["name"].string) \($0["description"].string)".localizedCaseInsensitiveContains(search) }
@@ -45,6 +46,8 @@ struct SkillsView: View {
 }.searchable(text: $search, prompt: "Rechercher un skill")
                 .modernList()
                 .navigationTitle("Skills").navigationBarTitleDisplayMode(.inline)
+                .toolbar { Button("Ajouter", systemImage: "plus") { adding = true }.disabled(tools.app.demo) }
+                .sheet(isPresented: $adding) { SkillEditorView(tools: tools, refreshed: load) }
                 .refreshable { await load() }.task { await load() }
         }
     }
@@ -57,6 +60,10 @@ private struct SkillDetailView: View {
     @State private var content = ""
     @State private var enabled = true
     @State private var reading = true
+    @State private var editing = false
+    @State private var operation: String?
+    @State private var output: String?
+    @Environment(\.dismiss) private var dismiss
     var body: some View {
         List { Group {
             Section {
@@ -71,6 +78,14 @@ private struct SkillDetailView: View {
                 })).disabled(tools.busy || tools.app.demo)
             }
             ToolFeedback(tools: tools)
+            Section("Gérer") {
+                Button("Modifier les instructions") { editing = true }.disabled(reading || tools.app.demo)
+                if skill["provenance"].string == "hub" {
+                    Button("Mettre à jour depuis sa source") { operation = "update" }.disabled(tools.app.demo)
+                    Button("Désinstaller", role: .destructive) { operation = "uninstall" }.disabled(tools.app.demo)
+                } else { Text("Pour retirer cette compétence de l’agent, désactivez-la ci-dessus.").font(.caption).foregroundStyle(.secondary) }
+            }.disabled(tools.busy)
+            if let output { Text(output).font(.caption).textSelection(.enabled) }
             Section("Instructions") {
                 if reading { ProgressView() }
                 else { Text(content.isEmpty ? "Aucune instruction disponible." : content).font(.system(.subheadline, design: .monospaced)).textSelection(.enabled) }
@@ -78,6 +93,26 @@ private struct SkillDetailView: View {
         }.listRowBackground(Color.clear)
 }.modernList()
             .navigationTitle(skill["name"].string).navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $editing) { SkillEditorView(tools: tools, skill: skill) {
+                content = (try? await tools.request("/api/skills/content", query: [URLQueryItem(name: "name", value: skill["name"].string)]))?["content"].string ?? content
+                await tools.load("/api/skills")
+            } }
+            .confirmationDialog(operation == "uninstall" ? "Désinstaller ce skill ?" : "Mettre à jour ce skill ?", isPresented: Binding(get: { operation != nil }, set: { if !$0 { operation = nil } }), titleVisibility: .visible) {
+                Button(operation == "uninstall" ? "Désinstaller" : "Mettre à jour", role: operation == "uninstall" ? .destructive : nil) {
+                    guard let action = operation else { return }; operation = nil
+                    Task { await tools.perform {
+                        var args: [JSONValue] = ["--profile", .string(tools.profile), "skills", .string(action), skill["name"]]
+                        if action == "uninstall" { args.append("--yes") }
+                        let result = try await tools.request("cli.exec", body: ["argv": .array(args), "timeout": 180], rpc: true)
+                        guard !result["blocked"].bool, result["code"].int == 0 else { throw RPCFailure(result["hint"].string + " " + result["output"].string) }
+                        output = result["output"].string; await tools.load("/api/skills")
+                        if action == "uninstall" {
+                            guard !tools.data.array.contains(where: { $0["name"] == skill["name"] }) else { throw RPCFailure("Hermes n’a pas retiré ce skill. " + result["output"].string) }
+                            dismiss()
+                        }
+                    } }
+                }
+            }
             .task {
                 enabled = skill["enabled"] != false
                 defer { reading = false }
@@ -168,6 +203,7 @@ struct ModelsView: View {
 struct WorkspaceView: View {
     @State private var tools: NativeToolSession
     @State private var search = ""
+    @State private var creating = false
     init(app: AppModel) { _tools = State(initialValue: NativeToolSession(app)) }
     var body: some View {
         NavigationStack {
@@ -178,6 +214,7 @@ struct WorkspaceView: View {
                     NavigationLink {
                         List { Group {
                             if !project["description"].string.isEmpty { Text(project["description"].string) }
+                            Section("Fichiers") { NavigationLink("Parcourir le dossier") { RemoteFilesView(tools: tools, path: project["primary_path"].string) } }
                             Section("Dossier principal") { Text(project["primary_path"].string).font(.system(.subheadline, design: .monospaced)).textSelection(.enabled) }
                             Section("Dossiers du projet") {
                                 ForEach(project["folders"].array, id: \.["path"].string) { folder in
@@ -186,6 +223,10 @@ struct WorkspaceView: View {
                                         Text(folder["path"].string).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
                                     }
                                 }
+                            }
+                            Section("Gérer") {
+                                NavigationLink("Modifier le projet") { ProjectEditor(tools: tools, project: project, saved: load) }
+                                Button("Utiliser dans la conversation") { Task { await tools.perform { try await tools.app.useWorkspace(project["primary_path"].string); _ = try await tools.request("projects.set_active", body: ["id": project["id"]], rpc: true) } } }.disabled(tools.app.transcript.running)
                             }
                             if !project["board_slug"].string.isEmpty { Section("Tableau associé") { Text(project["board_slug"].string) } }
                         }.listRowBackground(Color.clear)
@@ -206,6 +247,8 @@ struct WorkspaceView: View {
 }.searchable(text: $search, prompt: "Retrouver un projet")
                 .modernList()
                 .navigationTitle("Workspace").navigationBarTitleDisplayMode(.inline)
+                .toolbar { Button("Créer", systemImage: "plus") { creating = true }.disabled(tools.app.demo) }
+                .sheet(isPresented: $creating) { ProjectEditor(tools: tools, saved: load) }
                 .task { await load() }.refreshable { await load() }
         }
     }

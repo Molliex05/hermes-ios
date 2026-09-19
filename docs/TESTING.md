@@ -64,3 +64,26 @@ With the isolated fixture running, select `HermesIOSIntegration` and run `testNa
 ## Streaming Markdown
 
 `testNativeStreamingMarkdown` uses the isolated Hermes fixture with a deliberately gradual Markdown reply. It requires visible first words before the final sentence exists, checks keyboard dismissal, then verifies one reply and the code-copy action. Screenshots cover the partial stream, formatted answer and scrolling back to earlier content. Core tests cover block structure, unfinished/nested fences, escaped table pipes, Unicode and partial-answer retention after interruption.
+
+
+## Management and bidirectional requests (build 15)
+
+Use the same disposable fixture with Hermes 0.21.3. `check_management_contract.py` verifies partial configuration writes and profile isolation, toolsets, skill content, native project/file operations, history archives/search, cron editing, Kanban comments/status, Bot metadata revision conflicts and group administration.
+
+`check_interactive_contract.py` requests a real `clarify` tool call from the deterministic model. It answers one question, reconnects, verifies the accepted answer in `open_requests`, answers the remaining question, and checks that a late answer expires. `check_speech_stream_contract.py` verifies PCM arrives before text completion and checks two profile voices.
+
+```sh
+python scripts/check_management_contract.py
+HERMES_TEST_BASE=http://127.0.0.1:19123 python scripts/check_interactive_contract.py
+HERMES_TEST_BASE=http://127.0.0.1:19123 python scripts/check_speech_stream_contract.py
+```
+
+Start the second fixture with a fresh empty home, `--port 19123 --model-port 19224`. The focused `testNativeInteractiveRecoveryAndPermissions` UI test expects this second fixture and a clean dedicated simulator app install. It verifies question recovery after relaunch, permissions discovery and the voice playback/listening loop. Do not clear a real device’s app data for these tests.
+
+### Tool execution while the phone is away (build 15)
+
+Run `HERMES_TEST_BASE=http://127.0.0.1:19129 python scripts/check_background_tool_contract.py` against a disposable fixture started with `--port 19129 --model-port 19230`. It waits for a native terminal tool to start, closes the WebSocket for 55 seconds (beyond the 20-second orphan grace), then resumes and requires one persisted user message and one completed answer. The terminal tool sleeps for 35 seconds; no production agent is modified.
+
+The matching `testNativeToolContinuesWhileBackgrounded` UI test uses port 19129 and a fresh QA simulator app container. It backgrounds the app after observing the tool, returns after 55 seconds, and checks recovery without duplicate bubbles or a false unsent label. Core regression tests cover lost acknowledgements, late failures after confirmed receipt, native admission refusals, transient resume races and tool events from a shared session.
+
+The app explicitly requests `close_on_disconnect: false` using native session create/resume. Hermes owns execution. iOS receives a finite background allowance only to finish transmission and save local state; after that the phone disconnects and retrieves the authoritative session on return. Unknown send outcomes are never automatically resent. A provider failure, server restart or Hermes interruption remains a separate execution failure.

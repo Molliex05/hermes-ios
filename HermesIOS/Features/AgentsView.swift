@@ -14,7 +14,7 @@ struct QuickProfilePicker: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 5) {
-                        ForEach(model.profiles) { agent in
+                        ForEach(model.visibleBots) { agent in
                             Button {
                                 close()
                                 if agent.name != model.profile { Task { await model.openBot(agent) } }
@@ -145,6 +145,12 @@ struct ProfilePicker: View {
 struct SessionsView: View {
     let model: AppModel
     @State private var search = ""
+    @State private var remoteRows: [Conversation]?
+    @State private var total = 0
+    @State private var resultScope = ""
+    @State private var archived = false
+    @State private var renaming: Conversation?
+    @State private var renamedTitle = ""
     @State private var loading = false
     @State private var loadError: String?
     @State private var openingID: String?
@@ -153,11 +159,13 @@ struct SessionsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.toolNavigation) private var navigation
 
+    private var queryScope: String { "\(model.attachmentContext)|\(search)|\(archived)" }
     private var conversations: [Conversation] {
-        model.sessions.filter { $0.profile == model.profile }.sorted { $0.updated > $1.updated }
+        (resultScope == queryScope ? (remoteRows ?? []) : (archived ? [] : model.sessions)).filter { $0.profile == model.profile }.sorted { $0.updated > $1.updated }
     }
     private var filtered: [Conversation] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        if resultScope == queryScope && remoteRows != nil && !query.isEmpty { return conversations }
         return conversations.filter { query.isEmpty || "\($0.title) \($0.preview)".localizedStandardContains(query) }
     }
     private var sections: [(title: String, rows: [Conversation])] {
@@ -187,6 +195,9 @@ struct SessionsView: View {
                         Spacer(minLength: 0)
                         AgentAvatar(name: model.profile, size: 42)
                     }.padding(.top, 12).padding(.bottom, 2)
+                    Picker("Historique", selection: $archived) {
+                        Text("Conversations").tag(false); Text("Archives").tag(true)
+                    }.pickerStyle(.segmented)
                     if !model.demo && model.state != .connected {
                         ConnectionIndicator(model: model)
                     }
@@ -214,6 +225,9 @@ struct SessionsView: View {
                             }
                         }
                     }
+                    if !model.demo, resultScope == queryScope, search.isEmpty, conversations.count < total {
+                        Button(loading ? "Chargement…" : "Conversations plus anciennes") { Task { await loadPage(more: true) } }.disabled(loading).frame(minHeight: 44)
+                    }
                 }.padding(.horizontal, 22).padding(.bottom, 24).frame(maxWidth: 680).frame(maxWidth: .infinity)
             }.scrollDismissesKeyboard(.interactively)
                 .background(AppTheme.background)
@@ -230,7 +244,18 @@ struct SessionsView: View {
                     refreshID = UUID(); loading = false; loadError = nil
                     if model.demo || model.state == .connected { await refresh() }
                 }
-                .onChange(of: model.historyRevision) { _, _ in loadError = nil }
+                .task(id: "\(search)|\(archived)") {
+                    do { try await Task.sleep(for: .milliseconds(300)); try Task.checkCancellation() } catch { return }
+                    await loadPage(more: false)
+                }
+                .alert("Renommer la conversation", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+                    TextField("Titre", text: $renamedTitle)
+                    Button("Enregistrer") {
+                        guard let row = renaming else { return }; renaming = nil
+                        Task { do { try await model.updateConversation(row, patch: ["title": .string(renamedTitle)]); await loadPage(more: false) } catch { loadError = error.localizedDescription } }
+                    }
+                    Button("Annuler", role: .cancel) { renaming = nil }
+                }
         }
     }
 
@@ -272,6 +297,12 @@ struct SessionsView: View {
                 .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(current ? AppTheme.accent.opacity(0.2) : AppTheme.line.opacity(0.6)))
                 .contentShape(RoundedRectangle(cornerRadius: 18))
         }.buttonStyle(.plain).disabled(openingID != nil || model.sending || model.voiceActive)
+            .contextMenu {
+                Button("Renommer", systemImage: "pencil") { renamedTitle = session.title; renaming = session }
+                Button(archived ? "Restaurer" : "Archiver", systemImage: archived ? "tray.and.arrow.up" : "archivebox") {
+                    Task { do { try await model.updateConversation(session, patch: ["archived": .bool(!archived)]); await loadPage(more: false) } catch { loadError = error.localizedDescription } }
+                }.disabled(current && model.transcript.running)
+            }
             .accessibilityIdentifier("conversation-" + session.id)
             .accessibilityAddTraits(current ? .isSelected : [])
     }
@@ -307,7 +338,7 @@ struct SessionsView: View {
         let revision = model.historyRevision
         loading = true; loadError = nil
         defer { if refreshID == attempt { loading = false } }
-        do { try await model.refreshSessions() }
+        do { try await model.refreshSessions(); loading = false; await loadPage(more: false) }
         catch is CancellationError { }
         catch {
             guard refreshID == attempt, model.state == .connected, revision == model.historyRevision else { return }
@@ -317,6 +348,26 @@ struct SessionsView: View {
             } else { loadError = reason }
         }
     }
+    private func loadPage(more: Bool) async {
+        guard !model.demo, model.state == .connected else { return }
+        let attempt = UUID(); refreshID = attempt
+        let scope = model.attachmentContext, query = search, isArchive = archived
+        let previous = more ? (remoteRows ?? []) : []
+        loading = true; loadError = nil
+        defer { if refreshID == attempt { loading = false } }
+        do {
+            let page = try await model.historyPage(query: query, offset: previous.count, archived: isArchive)
+            try Task.checkCancellation()
+            guard refreshID == attempt, scope == model.attachmentContext, query == search, isArchive == archived else { return }
+            let rows = query.isEmpty ? page["sessions"].array : page["results"].array.filter { $0["archived"].bool == isArchive }
+            var known = Set(previous.map(\.id))
+            remoteRows = previous + rows.map { Conversation($0, profile: model.profile) }.filter { known.insert($0.id).inserted }
+            resultScope = queryScope
+            total = query.isEmpty ? page["total"].int : rows.count
+        } catch is CancellationError { }
+        catch { if refreshID == attempt { loadError = error.localizedDescription } }
+    }
+
 }
 
 struct BotEditor: View {
@@ -325,6 +376,10 @@ struct BotEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var detail = ""
+    @State private var title = ""
+    @State private var pinned = false
+    @State private var hidden = false
+    @State private var deleting = false
     @State private var soul = ""
     @State private var clone = "default"
     @State private var busy = false
@@ -337,6 +392,13 @@ struct BotEditor: View {
                     TextField("Nom du profil (ex. chercheur)", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled().disabled(bot != nil)
                     TextField("Son rôle, en quelques mots", text: $detail, axis: .vertical).lineLimit(2...4)
                 } header: { Text("Identité") } footer: { Text("Ce profil sera disponible dans toutes vos interfaces Hermes.") }
+                if bot != nil {
+                    Section("Dans Bot Mode") {
+                        TextField("Nom affiché", text: $title)
+                        Toggle("Épingler cet agent", isOn: $pinned)
+                        Toggle("Masquer du sélecteur rapide", isOn: $hidden)
+                    }
+                }
                 if bot == nil {
                     Section("Point de départ") {
                         Picker("Configuration", selection: $clone) {
@@ -346,6 +408,9 @@ struct BotEditor: View {
                     }
                 }
                 Section { TextEditor(text: $soul).frame(minHeight: 150) } header: { Text("Personnalité · SOUL.md") } footer: { Text("Sa façon de penser, son ton et ses instructions permanentes.") }
+                if let bot, bot.name != "default" {
+                    Section { Button("Supprimer cet agent", role: .destructive) { deleting = true }.disabled(busy || model.demo) }
+                }
                 if let error { Section { Text(error).foregroundStyle(AppTheme.accent) } }
             }.modernList()
                 .navigationTitle(bot == nil ? "Un nouvel agent" : "Modifier \(bot!.title)").navigationBarTitleDisplayMode(.inline)
@@ -355,9 +420,16 @@ struct BotEditor: View {
                         Button(busy ? "En cours…" : "Enregistrer") { save() }.disabled(busy || name.isEmpty || (bot != nil && !loaded) || model.demo)
                     }
                 }
+                .confirmationDialog("Supprimer définitivement cet agent ?", isPresented: $deleting, titleVisibility: .visible) {
+                    Button("Supprimer l’agent et ses données", role: .destructive) {
+                        guard let bot else { return }; busy = true
+                        Task { do { try await model.deleteBot(bot.name); dismiss() } catch { self.error = error.localizedDescription }; busy = false }
+                    }
+                } message: { Text("Hermes supprimera ce profil, son historique, ses skills et sa configuration sur le serveur.") }
+                .interactiveDismissDisabled(busy)
                 .task {
                     if let bot {
-                        name = bot.name; detail = bot.detail
+                        name = bot.name; detail = bot.detail; title = bot.title; pinned = bot.pinned == true; hidden = bot.hidden == true
                         do { let data = try await model.describeBot(bot.name); soul = data["soul"].string; loaded = true }
                         catch { self.error = error.localizedDescription }
                     } else { loaded = true }
@@ -369,7 +441,10 @@ struct BotEditor: View {
         Task {
             do {
                 if bot == nil { try await model.createBot(name: name, description: detail, soul: soul, clone: clone) }
-                else { try await model.editBot(name: name, description: detail, soul: soul) }
+                else {
+                    try await model.editBot(name: name, description: detail, soul: soul)
+                    try await model.editBotPresentation(name: name, title: title, pinned: pinned, hidden: hidden)
+                }
                 dismiss()
             } catch { self.error = error.localizedDescription }
             busy = false

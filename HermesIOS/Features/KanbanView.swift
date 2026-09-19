@@ -132,33 +132,76 @@ private struct KanbanDetailView: View {
     let task: JSONValue
     let board: String
     @State private var full: JSONValue = .null
+    @State private var title = ""
+    @State private var bodyText = ""
+    @State private var assignee = ""
+    @State private var comment = ""
+    @State private var assignees: [String] = []
+    @State private var confirmAction: String?
     @Environment(\.dismiss) private var dismiss
+    private var path: String { "/api/plugins/kanban/tasks/" + task["id"].string }
+    private var query: [URLQueryItem] { [URLQueryItem(name: "board", value: board)] }
+    private var current: JSONValue { full["task"].isNull ? task : full["task"] }
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    Text(task["title"].string).font(.title2.weight(.semibold))
-                    Label(statusName(task["status"].string), systemImage: "circle.dotted").foregroundStyle(AppTheme.accent)
-                    Text(full["task"]["body"].isNull ? task["body"].string : full["task"]["body"].string).textSelection(.enabled)
+            Form {
+                Section("La tâche") {
+                    TextField("Titre", text: $title)
+                    TextField("Description", text: $bodyText, axis: .vertical).lineLimit(4...12)
+                    Picker("Agent", selection: $assignee) {
+                        Text("Non assignée").tag("")
+                        ForEach(Array(Set(assignees + [assignee])).filter { !$0.isEmpty }.sorted(), id: \.self) { Text($0).tag($0) }
+                    }
+                    Label(statusName(current["status"].string), systemImage: "circle.dotted").foregroundStyle(AppTheme.accent)
+                    Button("Enregistrer") { Task { await tools.perform {
+                        _ = try await tools.request(path, method: "PATCH", body: ["title": .string(title), "body": .string(bodyText), "assignee": .string(assignee)], query: query)
+                        try await load()
+                    } } }.disabled(title.isEmpty || full.isNull || tools.busy || tools.app.demo)
                 }
                 ToolFeedback(tools: tools)
-                if !full["task"]["result"].string.isEmpty { Section("Résultat") { Text(full["task"]["result"].string).textSelection(.enabled) } }
-                if !full["comments"].array.isEmpty {
-                    Section("Commentaires") {
-                        ForEach(Array(full["comments"].array.enumerated()), id: \.offset) { _, comment in
-                            VStack(alignment: .leading, spacing: 6) { Text(comment["author"].string).font(.caption.weight(.semibold)); Text(comment["body"].string) }
+                Section("Faire avancer") {
+                    Menu("Déplacer la tâche") {
+                        ForEach(["triage", "todo", "ready", "review", "done", "archived"], id: \.self) { state in
+                            Button(statusName(state)) { confirmAction = state }
                         }
-                    }
+                    }.disabled(tools.busy || tools.app.demo)
+                    if ["failed", "blocked"].contains(current["status"].string) { Button("Remettre en attente") { confirmAction = "ready" }.disabled(tools.busy) }
                 }
-            }.navigationTitle("La tâche").navigationBarTitleDisplayMode(.inline)
-                .safeAreaInset(edge: .bottom) { Button("Revenir au tableau") { dismiss() }.buttonStyle(.borderedProminent).controlSize(.large).padding(16) }
+                if !current["result"].string.isEmpty { Section("Résultat") { MarkdownText(text: current["result"].string).textSelection(.enabled) } }
+                Section("Commentaires") {
+                    ForEach(Array(full["comments"].array.enumerated()), id: \.offset) { _, row in
+                        VStack(alignment: .leading, spacing: 6) { Text(row["author"].string).font(.caption.weight(.semibold)); Text(row["body"].string) }
+                    }
+                    TextField("Ajouter un commentaire", text: $comment, axis: .vertical)
+                    Button("Publier") { Task { await tools.perform {
+                        _ = try await tools.request(path + "/comments", method: "POST", body: ["body": .string(comment), "author": "Hermès iOS"], query: query)
+                        comment = ""; try await load()
+                    } } }.disabled(comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || tools.busy || tools.app.demo)
+                }
+            }.modernList().navigationTitle("La tâche").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Fermer", systemImage: "xmark") { dismiss() } } }
                 .task {
+                    title = task["title"].string; bodyText = task["body"].string; assignee = task["assignee"].string
                     guard !tools.app.demo else { return }
                     await tools.perform {
-                        full = try await tools.request("/api/plugins/kanban/tasks/\(task["id"].string)", query: [URLQueryItem(name: "board", value: board)])
+                        try await load()
+                        assignees = try await tools.request("/api/plugins/kanban/assignees", query: query)["assignees"].array.map(\.string)
                     }
                 }
+                .confirmationDialog("Déplacer vers \(statusName(confirmAction ?? "")) ?", isPresented: Binding(get: { confirmAction != nil }, set: { if !$0 { confirmAction = nil } }), titleVisibility: .visible) {
+                    Button("Déplacer") {
+                        guard let state = confirmAction else { return }; confirmAction = nil
+                        Task { await tools.perform {
+                            _ = try await tools.request(path, method: "PATCH", body: ["status": .string(state)], query: query)
+                            try await load()
+                        } }
+                    }
+                } message: { Text("Hermes applique ses règles de dépendance et peut lancer un agent lorsqu’une tâche devient prête.") }
         }
+    }
+    private func load() async throws {
+        full = try await tools.request(path, query: query)
+        title = full["task"]["title"].string; bodyText = full["task"]["body"].string; assignee = full["task"]["assignee"].string
     }
 }
 

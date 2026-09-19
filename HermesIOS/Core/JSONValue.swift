@@ -48,7 +48,23 @@ extension JSONValue: ExpressibleByStringLiteral, ExpressibleByBooleanLiteral, Ex
 public struct RPCFailure: Error, LocalizedError, Sendable {
     public let code: Int
     public let message: String
-    public init(_ message: String, code: Int = 0) { self.message = message; self.code = code }
+    public let reason: String?
+    public init(_ message: String, code: Int = 0, reason: String? = nil) { self.message = message; self.code = code; self.reason = reason }
+    public init(responseError: JSONValue) {
+        self.init(responseError["message"].string, code: responseError["code"].int,
+                  reason: responseError["data"]["reason"].isNull ? nil : responseError["data"]["reason"].string)
+    }
+    public var sessionOwnedElsewhere: Bool {
+        if let reason { return reason == "SESSION_NOT_OWNED" }
+        return code == 4090 && message.contains("already has a live owner")
+    }
+    /// Only documented refusals before admission prove that a prompt was not sent.
+    /// Internal/server and transport errors can arrive after the turn has started.
+    public var rejectsPromptBeforeAdmission: Bool {
+        (4000...4999).contains(code) || [401, 403, 5070, 5071, 5072, -32601, -32602].contains(code)
+    }
+    public var retryableSessionResume: Bool { code == 4007 || code == 4009 }
+    public static let ownershipMessage = "Ce fil est encore ouvert dans une autre interface Hermes. Votre message n’a pas été envoyé et votre brouillon est conservé. Fermez ce fil dans l’interface qui le détient, puis réessayez ici. Vous pouvez aussi continuer dans un nouveau fil avec ce brouillon."
     public var errorDescription: String? { message }
 }
 
