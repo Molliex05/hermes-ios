@@ -90,6 +90,7 @@ def main():
     parser.add_argument("--home", required=True, type=Path)
     parser.add_argument("--port", type=int, default=19119)
     parser.add_argument("--model-port", type=int, default=19220)
+    parser.add_argument("--push-plugin", action="store_true")
     args = parser.parse_args()
     home = args.home.resolve()
     if home.exists() and any(home.iterdir()):
@@ -100,12 +101,20 @@ def main():
     config["approvals"] = {"mode": "off"}  # Disposable fixture only: deterministic terminal sleep.
     config["stt"] = {"provider": "openai"}
     config["tts"] = {"provider": "openai", "openai": {"base_url": f"http://127.0.0.1:{args.model_port}/v1", "voice": "alloy"}}
+    if args.push_plugin:
+        import shutil
+        plugin = Path(__file__).resolve().parent.parent / "server" / "hermes-ios-push"
+        shutil.copytree(plugin, home / "plugins" / "hermes-ios-push")
+        config["plugins"] = {"enabled": ["hermes-ios-push"]}
     (home / "config.yaml").write_text(yaml.safe_dump(config))
     for name in ["research", "studio"]:
         profile = home / "profiles" / name
         profile.mkdir(parents=True)
         profile_config = {**config, "tts": {"provider": "openai", "openai": {"base_url": f"http://127.0.0.1:{args.model_port}/v1", "voice": "nova" if name == "research" else "echo"}}}
         (profile / "config.yaml").write_text(yaml.safe_dump(profile_config))
+        if args.push_plugin:
+            (profile / "plugins").mkdir()
+            (profile / "plugins" / "hermes-ios-push").symlink_to(home / "plugins" / "hermes-ios-push", target_is_directory=True)
         (profile / "profile.yaml").write_text(yaml.safe_dump({"name": name, "description": "Profil de test HermesIOS"}))
     env = {"PATH": str(Path(sys.executable).parent) + os.pathsep + os.defpath, "LANG": "en_US.UTF-8", "HERMES_HOME": str(home), "HERMES_DASHBOARD_BASIC_AUTH_USERNAME": "hermes-ios-test", "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD": "hermes-ios-local-fixture", "HERMES_DASHBOARD_BASIC_AUTH_SECRET": secrets.token_urlsafe(32), "STT_OPENAI_BASE_URL": f"http://127.0.0.1:{args.model_port}/v1", "OPENAI_API_KEY": "hermes-ios-local-fixture", "OPENAI_BASE_URL": f"http://127.0.0.1:{args.model_port}/v1"}
     model = ThreadingHTTPServer(("127.0.0.1", args.model_port), Model)

@@ -34,6 +34,7 @@ final class AppModel {
     var voiceActive = false
     var importingAttachments = false
     @ObservationIgnored private var imageCleanup: [String: [String]] = [:]
+    var navigationRevision = UUID()
     var notice: String?
     private var ownershipConflictContext: String?
     var canContinueInNewChat: Bool { notice == RPCFailure.ownershipMessage && ownershipConflictContext == attachmentContext && !sending && !voiceActive }
@@ -44,6 +45,7 @@ final class AppModel {
     var sending = false
     var demo = false
     var hasBooted = false
+    var notificationRoutingReady = false
     var hasBotProtocol = false
     var draftKey: String { selected.map { key($0.profile, $0.storedID) } ?? "draft-\(profile)" }
     var agent: AgentProfile? { profiles.first { $0.name == (selected?.profile ?? profile) } }
@@ -68,11 +70,36 @@ final class AppModel {
     func boot() async {
         guard !hasBooted else { return }
         hasBooted = true
+        defer { notificationRoutingReady = true }
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--demo") { loadDemo(); return }
         #endif
         connections = await cache.read([SavedConnection].self, key: "connections") ?? []
         if let first = connections.first { await activate(first) }
+    }
+
+    func openNotification(_ target: NotificationTarget) async {
+        // Notification taps can precede boot, or arrive during an in-flight upload.
+        // Keep the target durable until it can be selected without losing a draft.
+        while !notificationRoutingReady || sending || voiceActive {
+            if notificationRoutingReady && connections.isEmpty {
+                notice = "Reconnectez le serveur de cette notification dans les réglages."
+                PushNotifications.shared.opened(target)
+                return
+            }
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+        }
+        guard !Task.isCancelled, PushNotifications.shared.pendingTarget == target else { return }
+        guard let connection = connections.first(where: { $0.id == target.connectionID }) else {
+            notice = "Le serveur de cette notification n’est plus enregistré sur cet iPhone."
+            PushNotifications.shared.opened(target); return
+        }
+        if activeConnection?.id != connection.id { await activate(connection) }
+        guard !Task.isCancelled, PushNotifications.shared.pendingTarget == target else { return }
+        navigationRevision = UUID()
+        let row: JSONValue = ["id": .string(target.sessionID), "title": "Conversation"]
+        await openConversation(Conversation(row, profile: target.profile))
+        if !Task.isCancelled { PushNotifications.shared.opened(target) }
     }
 
     func addConnection(_ connection: SavedConnection, username: String, password: String, token: String) async throws {
@@ -865,6 +892,14 @@ final class AppModel {
     }
 
     func removeConnection(_ connection: SavedConnection) async {
+        let push = PushNotifications.shared
+        if push.enabled.contains(connection.id) {
+            await push.setEnabled(false, for: connection)
+            guard !push.enabled.contains(connection.id) else {
+                notice = "Reconnectez ce serveur pour y désactiver les notifications avant de retirer la connexion."
+                return
+            }
+        }
         if activeConnection?.id == connection.id {
             saveTask?.cancel(); saveTask = nil; reconnectTask?.cancel(); reconnectTask = nil
             socket?.close(); http?.invalidate(); http = nil; socket = nil

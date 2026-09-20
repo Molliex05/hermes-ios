@@ -509,4 +509,23 @@ extension ProtocolTests {
         XCTAssertEqual(transcript.messages.first?.delivery, .uncertain)
     }
 
+    func testNotificationSelectsOnlyAnExplicitNativeConversation() {
+        let connection = UUID()
+        let payload: JSONValue = ["aps": ["alert": "Message"], "hermes": [
+            "version": 1, "event_id": "event-42", "connection_id": .string(connection.uuidString),
+            "profile": "research", "session_id": "20260920_bot_123"]]
+        let target = NotificationTarget(payload)
+        XCTAssertEqual(target?.connectionID, connection)
+        XCTAssertEqual(target?.profile, "research")
+        XCTAssertEqual(target?.sessionID, "20260920_bot_123")
+        var fields = payload["hermes"].object
+        fields["session_id"] = "../../private"
+        XCTAssertNil(NotificationTarget(["hermes": .object(fields)]))
+        fields["session_id"] = "https://attacker.example"
+        XCTAssertNil(NotificationTarget(["hermes": .object(fields)]))
+        fields["session_id"] = "valid"; fields["connection_id"] = "unknown"
+        XCTAssertNil(NotificationTarget(["hermes": .object(fields)]))
+        XCTAssertNil(NotificationTarget(["url": "https://attacker.example", "session_id": "valid"]))
+    }
+
 }

@@ -7,7 +7,7 @@ struct RootView: View {
             if model.connections.isEmpty && !model.demo {
                 OnboardingView(model: model)
             } else {
-                ChatView(model: model)
+                ChatView(model: model).id(model.navigationRevision)
             }
         }
         .background(AppTheme.background)

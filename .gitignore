@@ -9,3 +9,8 @@ xcuserdata/
 *.mobileprovision
 
 __pycache__/
+
+# Apple push provider credentials stay on the server.
+*.p8
+apns.json
+notifications.sqlite*

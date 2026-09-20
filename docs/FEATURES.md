@@ -15,7 +15,7 @@ Hermès iOS remains a native client of Hermes. No proxy, replacement scheduler, 
 | Workspace/memory | Create/edit projects, choose conversation cwd, browse/read/edit server text files, profile MEMORY.md/USER.md | Binary/truncated files stay read-only; missing memory files are not created automatically; check-before-write is not atomic CAS |
 | Models/config | Existing main-model chooser plus schema-driven profile settings, including reasoning/auxiliary fields exposed by Hermes | No dedicated provider authentication or current-session model switch |
 | Voice | STT → native agent; native incremental PCM stream with profile provider/voice; fallback synthesis; tap to interrupt; automatic resumed listening | GPT-Live/WebRTC and hands-free barge-in are not implemented; real provider/microphone quality needs device validation |
-| Background | Native agent execution persists on the server; reconnect/replay/cache on return | No APNs push transport; iOS suspension cannot deliver live socket updates |
+| Background | Native agent execution persists on the server; reconnect/replay/cache on return | Optional APNs extension + exact conversation routing; requires Apple key, push-capable signing and server activation (see NOTIFICATIONS.md) |
 
 ## Concurrency and scope
 

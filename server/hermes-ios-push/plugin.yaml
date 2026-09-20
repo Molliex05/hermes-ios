@@ -1,0 +1,5 @@
+name: hermes-ios-push
+version: 0.1.0
+description: Private Apple notifications for Hermès iOS, using native Hermes lifecycle hooks.
+provides_hooks:
+  - post_llm_call

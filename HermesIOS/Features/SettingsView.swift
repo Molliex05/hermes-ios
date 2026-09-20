@@ -42,6 +42,11 @@ struct SettingsView: View {
                     }
                     Button { adding = true } label: { Label("Connecter un Hermes", systemImage: "plus") }
                 }
+                Section {
+                    NavigationLink { NotificationsView(connections: model.connections) } label: {
+                        Label("Notifications", systemImage: "bell.badge")
+                    }
+                }
                 Section("Simple, par nature") {
                     Label("Interface native SwiftUI", systemImage: "iphone")
                     Label("Connexion directe à votre serveur", systemImage: "point.3.connected.trianglepath.dotted")

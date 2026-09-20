@@ -50,3 +50,13 @@ Build 14 adds immediate first-fragment rendering, structured native Markdown, ve
 - Release iPhone build succeeded with Xcode 27. Build 15 was installed and launched successfully on the paired physical iPhone 16 Plus.
 - `testNativeToolContinuesWhileBackgrounded` passed on the dedicated QA simulator (80.4 seconds): tool observed before backgrounding, 55 seconds away, exactly one final answer and one user bubble, no false unsent label. The physical device received the build; the automated background scenario ran on the simulator.
 - Earlier build-15 management, bidirectional clarification and streaming-speech contract checks passed on 2026-09-16. No claim of complete Hermes feature parity; see FEATURES.md.
+
+
+## 2026-09-20 — optional Apple notifications
+
+- 55 Swift core tests passed; notification targets reject URLs, paths and malformed connection IDs.
+- Six Python outbox/APNs tests passed: callback deduplication, private payload, token rotation/revocation, retries, connection separation, ES256 headers and sandbox/production selection. HTTP transport is mocked; no Apple request was made.
+- Real Hermes integration passed: authenticated plugin API, actual completion hook in a named profile, cron with the phone disconnected, exactly one outbox event for the destination Bot Chat, and native resume of its answer. No Hermes source modifications.
+- `testNativeNotificationOpensCorrectConversationAfterColdLaunch` passed using an actual iOS simulator notification injected from the cron's payload. The test force-terminates the app, taps the banner in SpringBoard, checks the Research profile and its final native answer, and confirms the old draft is not placed in the new conversation. A subsequent simulator-cache assertion verified that the original default-profile draft was preserved. The initial test attempt failed only on an incorrect expected placeholder string; the corrected test passed.
+- Debug simulator build and unsigned Release iPhone compilation passed. **A signed build 16 was blocked:** Xcode has no developer account available, and the existing wildcard profile lacks Push Notifications / `aps-environment`.
+- **Not activated or installed on the physical iPhone.** No APNs key is configured, no real push has been sent, and no production Hermes plugin/configuration was changed. Existing build 15 remains the installed version. The server Python environment received the HTTP/2 dependencies h2, hpack and hyperframe required by the extension.

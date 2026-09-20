@@ -172,6 +172,34 @@ final class HermesIOSUITests: XCTestCase {
         capture("25-markdown-heading")
     }
 
+    func testNativeNotificationOpensCorrectConversationAfterColdLaunch() throws {
+        guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Requires push fixture and external simctl push injector") }
+        let app = XCUIApplication()
+        app.launchArguments = ["--integration-test", "--notification-fixture-permission"]
+        app.launch()
+        connectFixtureIfNeeded(app, address: "http://127.0.0.1:19133")
+        let system = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let allow = system.buttons["Allow"]
+        if allow.waitForExistence(timeout: 8) { allow.tap() }
+        else if system.buttons["Autoriser"].exists { system.buttons["Autoriser"].tap() }
+        XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
+        app.buttons["Nouvelle conversation"].tap()
+        let composer = app.textFields["chat-composer"]
+        composer.tap(); composer.typeText("Mon brouillon avant notification")
+        XCUIDevice.shared.press(.home)
+        app.terminate()
+        print("HERMES_NOTIFICATION_READY")
+        let alert = system.staticTexts["Un nouveau message vous attend."]
+        XCTAssertTrue(alert.waitForExistence(timeout: 60))
+        alert.tap()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 15))
+        XCTAssertTrue(app.staticTexts["Research"].firstMatch.waitForExistence(timeout: 40))
+        let answer = app.descendants(matching: .any).matching(identifier: "assistant-message").matching(NSPredicate(format: "label CONTAINS %@", "le fil est retrouvé."))
+        XCTAssertTrue(answer.firstMatch.waitForExistence(timeout: 40))
+        XCTAssertEqual(composer.value as? String, "Message…")
+        capture("29-notification-correct-conversation")
+    }
+
     func testNativeToolContinuesWhileBackgrounded() throws {
         guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Requires isolated Hermes fixture on port 19129") }
         let app = XCUIApplication()

@@ -53,6 +53,9 @@
 		F78C38E621878F2516DBF4C8 /* StoredCookie.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13C6E169393755487F106D2 /* StoredCookie.swift */; };
 		F843B14A351EDA859765A6D3 /* KanbanView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19B9D9CC524C6E12BC3360D4 /* KanbanView.swift */; };
 		FC50ED3C6CBD0ED6853464C3 /* VoiceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B1B07CAFC53C700A7E55E59 /* VoiceView.swift */; };
+		BCA8D2E22E95B69C4E04CDA8 /* NotificationTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39FB8429B0E31F3C6A7B0023 /* NotificationTarget.swift */; };
+		2B37559E140B9532635465FE /* PushNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0634EF7A0419E7E2FA936EB /* PushNotifications.swift */; };
+		AEB7417AA591DC13934AF202 /* NotificationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CB540B0533B810DEE098B54 /* NotificationsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -115,6 +118,9 @@
 		EA403258EBDBCDA2BBA568D1 /* Endpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Endpoint.swift; sourceTree = "<group>"; };
 		F836B8FAB56D3E5A0BBD6BD2 /* WorkspaceFilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFilesView.swift; sourceTree = "<group>"; };
 		F9CE976027FBF5395EF1C01C /* HermesIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HermesIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		39FB8429B0E31F3C6A7B0023 /* NotificationTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationTarget.swift; sourceTree = "<group>"; };
+		D0634EF7A0419E7E2FA936EB /* PushNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotifications.swift; sourceTree = "<group>"; };
+		9CB540B0533B810DEE098B54 /* NotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -140,6 +146,7 @@
 		51B7412825D43DF353A324F5 /* Networking */ = {
 			isa = PBXGroup;
 			children = (
+				D0634EF7A0419E7E2FA936EB /* PushNotifications.swift */,
 				EA19D67E64E6BC861BA6083F /* BackgroundLease.swift */,
 				7F6FE9D7F1FBAB1A65EDA562 /* HermesHTTP.swift */,
 				7A87F904778F7AD694B573F1 /* HermesSocket.swift */,
@@ -170,6 +177,7 @@
 		AA536AEDC870E5C6BF73E0CA /* Features */ = {
 			isa = PBXGroup;
 			children = (
+				9CB540B0533B810DEE098B54 /* NotificationsView.swift */,
 				1C1CA4BD09AAD37D7D849AF6 /* AgentSettingsView.swift */,
 				BB4E2583813D830A3E900B68 /* AgentsView.swift */,
 				76ACDEB64D082DA4095A0544 /* AgentToolsView.swift */,
@@ -198,6 +206,7 @@
 		D0CFD82F4F8493D2EDBCA6C1 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				39FB8429B0E31F3C6A7B0023 /* NotificationTarget.swift */,
 				BBAAD9CB1B93F3090CFE6326 /* ChatMarkdown.swift */,
 				B19818CCC8AD6C15BBC328BA /* ConfigurationValue.swift */,
 				5045723AB4101C15BB122A44 /* ConversationIndex.swift */,
@@ -325,6 +334,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				AEB7417AA591DC13934AF202 /* NotificationsView.swift in Sources */,
+				2B37559E140B9532635465FE /* PushNotifications.swift in Sources */,
+				BCA8D2E22E95B69C4E04CDA8 /* NotificationTarget.swift in Sources */,
 				6791B4012468C461CA03A0D3 /* AgentSettingsView.swift in Sources */,
 				1401D88BADB2CE45AD67B6E1 /* AgentToolsView.swift in Sources */,
 				E4687AFCE99263487AB19A15 /* AgentsView.swift in Sources */,
@@ -459,6 +471,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = HermesIOS/Resources/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = HermesIOS/Resources/HermesIOS.entitlements;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -475,6 +488,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				INFOPLIST_FILE = HermesIOS/Resources/Info.plist;
+				CODE_SIGN_ENTITLEMENTS = HermesIOS/Resources/HermesIOS.entitlements;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

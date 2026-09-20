@@ -87,3 +87,10 @@ Run `HERMES_TEST_BASE=http://127.0.0.1:19129 python scripts/check_background_too
 The matching `testNativeToolContinuesWhileBackgrounded` UI test uses port 19129 and a fresh QA simulator app container. It backgrounds the app after observing the tool, returns after 55 seconds, and checks recovery without duplicate bubbles or a false unsent label. Core regression tests cover lost acknowledgements, late failures after confirmed receipt, native admission refusals, transient resume races and tool events from a shared session.
 
 The app explicitly requests `close_on_disconnect: false` using native session create/resume. Hermes owns execution. iOS receives a finite background allowance only to finish transmission and save local state; after that the phone disconnects and retrieves the authoritative session on return. Unknown send outcomes are never automatically resent. A provider failure, server restart or Hermes interruption remains a separate execution failure.
+
+
+## Apple notification routing
+
+See [NOTIFICATIONS.md](NOTIFICATIONS.md) for the server outbox unit tests and the real Hermes cron contract. `testNativeNotificationOpensCorrectConversationAfterColdLaunch` uses a fresh dedicated QA simulator, the fixture on port 19133, and `scripts/inject_notification_fixture.py --output <test-output-directory>` running alongside XCTest. The output directory must contain the successful cron contract's `cron-notification.apns` and the current test log named `ui.log`. The injector waits for the test checkpoint, reads only the simulator's fixture connection ID, and injects the actual cron target through `simctl push`. The test terminates the app, taps the iOS notification banner, and verifies the correct profile and native answer after cold launch.
+
+A DEBUG-only `--notification-fixture-permission` flag requests notification permission only for a loopback fixture. It does not bypass notification decoding/routing or enable a server registration. Simulator injection validates the iOS delegate and navigation; it does not validate APNs signing or physical delivery.

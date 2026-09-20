@@ -1,0 +1,9 @@
+{
+  "name": "hermes-ios-push",
+  "label": "Hermès iOS Push",
+  "description": "Apple notifications for the native iOS client",
+  "version": "0.1.0",
+  "tab": {"hidden": true},
+  "entry": "index.js",
+  "api": "plugin_api.py"
+}
