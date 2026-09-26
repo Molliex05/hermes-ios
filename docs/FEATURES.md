@@ -15,7 +15,7 @@ Hermès iOS remains a native client of Hermes. No proxy, replacement scheduler, 
 | Skills | Read/toggle/create/edit; native hub install/update/uninstall | Hub-only uninstall; locally authored/bundled skills use disable; native CLI output is displayed because CLI exit zero can still report refusal |
 | Workspace/memory | Create/edit projects, choose conversation cwd, browse/read/edit server text files, profile MEMORY.md/USER.md | Binary/truncated files stay read-only; missing memory files are not created automatically; check-before-write is not atomic CAS |
 | Models/config | Existing main-model chooser plus schema-driven profile settings, including reasoning/auxiliary fields exposed by Hermes | No dedicated provider authentication or current-session model switch |
-| Voice | STT → native agent; native incremental PCM stream with profile provider/voice; fallback synthesis; tap to interrupt; automatic resumed listening | GPT-Live/WebRTC and hands-free barge-in are not implemented; real provider/microphone quality needs device validation |
+| Voice | Automatic listening → native STT → agent → incremental PCM speech; profile provider/voice and fallback synthesis; duplex microphone/playback, native-setting-controlled spoken interruption with pre-roll, mute/restart and end-call controls; expandable transcript and isolated Canvas animation | GPT-Live/WebRTC are not implemented; GPT-Live profiles can explicitly choose standard voice for the call; real microphone, Bluetooth and speaker echo behavior need physical iPhone validation |
 | Background | Native agent execution persists on the server; reconnect/replay/cache on return | Optional APNs extension + exact conversation routing; requires Apple key, push-capable signing and server activation (see NOTIFICATIONS.md) |
 
 ## Concurrency and scope
@@ -31,6 +31,14 @@ Reading markers and recent profile visits are stored with the saved gateway cach
 “In progress” is reserved for the selected conversation with an actual running turn. A pending native approval, clarification or credential request takes priority. The tool activity summary keeps at most 40 steps from the live/replayed turn. It is reset with the turn/conversation and is not saved in the transcript cache.
 
 Tool favorites use local app preferences and retain their chosen order. They supplement the catalogue; they never remove a destination. Routine schedule controls generate native Hermes expressions rather than running a client scheduler. Existing custom and one-shot schedules remain unchanged when only a routine's text is edited. Times selected for a schedule follow Hermes' profile timezone; the returned next-run timestamp is displayed in the iPhone's timezone.
+
+## Voice behavior and boundaries
+
+The conversation starts automatically and does not pause after 15 seconds of silence. Speech endpoint detection uses the profile's native threshold and silence duration. Quiet recordings rotate within a two-minute bound. A duplex `AVAudioEngine` with Apple voice processing leaves input monitoring available during playback. Native barge-in preferences control interruption; a 750 ms pre-roll preserves the detected onset, and a previous server turn must finish or acknowledge interruption before another is submitted. Mute discards the current microphone capture and pre-roll while allowing playback to continue. Ending the call stops local audio; an accepted agent turn may still finish in chat.
+
+Audio graph/session changes, WAV encoding, conversion and file decoding run on a serial worker rather than MainActor. The microphone capture is mono Int16, bounded to 120 seconds: approximately 11.5 MB of raw samples at 48 kHz or 23 MB at 96 kHz, excluding encoding/copy overhead and other app memory. Decoded PCM playback is queued in small chunks with approximately 3.2 seconds of backpressure. The decorative Canvas has a 24 fps clock, is isolated from the transcript and controls, and stops animated motion when inactive or Reduce Motion is enabled.
+
+The isolated simulator fixture has exercised an 18-second quiet start, two automatic turns and preservation of the written draft. It uses synthetic input and does not validate acoustic echo cancellation or Bluetooth behavior. See [validation results](VALIDATION.md) for the tested scope.
 
 ## Sources
 

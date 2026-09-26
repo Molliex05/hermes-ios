@@ -111,3 +111,15 @@ xcodebuild -scheme HermesIOSIntegration \
 ```
 
 The probe creates and triggers its own routine, follows the native run's exact profile/session, resumes the answer and deletes its routine afterward. The UI test uses a fresh dedicated simulator app container on the same fixture, creates a future one-shot routine, triggers it explicitly, opens its result and reads the native permission settings. Neither test uses production agents. Presence of a test in the suite is not a passing result; see VALIDATION.md for the runs actually completed.
+
+## Hands-free voice (September 26)
+
+Start a disposable fixture with a new home, `--port 19149 --model-port 19250`. Run the native speech contract with `HERMES_TEST_BASE=http://127.0.0.1:19149 python scripts/check_speech_stream_contract.py`. On a dedicated simulator, use scheme `HermesIOSIntegration` for:
+
+- `testNativeHandsFreeVoiceConversation`: 18 seconds of initial silence, two automatically submitted/spoken turns without a send gesture, microphone mute, expandable transcript and preserved written draft.
+- `testNativeVoiceBargeInAndNextTurn`: microphone activity over the first playback, immediate local audio interruption, native agent interruption and a second completed response.
+- `testNativeVoiceCanCloseAndReopenWithoutLateCapture`: rapid close/reopen, no late submitted utterance and an immediately usable chat.
+
+The DEBUG-only `--voice-fixture` requires a loopback connection and replaces microphone samples/transcription input, while exercising the actual iOS PCM converter/player, native Hermes requests and server execution. `--voice-quiet-fixture` and `--voice-barge-fixture` only affect this fixture. They do not prove physical echo rejection, microphone sensitivity or Bluetooth routing. Validate those manually on the physical iPhone: let Hermès speak on the speaker, interrupt with a full phrase, repeat with headphones, mute/unmute and disconnect the headphones. An incoming call or backgrounding should stop local recording/playback; an admitted agent turn remains in the chat.
+
+`testVoiceAccessibilityAndDismissal` covers the largest accessibility text size and reachable bottom controls. The audio-only animation is bounded to 24 fps and respects Reduce Motion. Core tests exercise native preference parsing, short-noise rejection, long silence, confirmed pre-roll handoff, interruption grace and disabled barge-in.

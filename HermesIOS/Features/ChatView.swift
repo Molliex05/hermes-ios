@@ -300,14 +300,22 @@ struct ChatView: View {
                     profileShortcut
                     Button { present(.history) } label: {
                         Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 18)).frame(width: 44, height: 44)
-                            .overlay(alignment: .topTrailing) { if model.hasUnread(profile: model.profile) { Circle().fill(AppTheme.accent).frame(width: 6, height: 6).padding(6) } }
+                            .overlay(alignment: .topTrailing) {
+                                if model.hasUnread(profile: model.profile) {
+                                    Circle().fill(AppTheme.accent).frame(width: 6, height: 6).padding(6)
+                                        .accessibilityHidden(true).allowsHitTesting(false)
+                                }
+                            }
+                            .contentShape(Rectangle())
                     }.accessibilityLabel("Conversations du profil actif").accessibilityIdentifier("quick-history")
                     Button { present(.spaces) } label: {
                         Image(systemName: "slider.horizontal.3").font(.system(size: 18)).frame(width: 44, height: 44)
+                            .contentShape(Rectangle())
                     }.accessibilityLabel("Outils").accessibilityIdentifier("app-navigation")
                     Button { present(.voice) } label: {
                         Image(systemName: "waveform").font(.system(size: 20)).frame(width: 44, height: 44)
                             .foregroundStyle(AppTheme.accent)
+                            .contentShape(Rectangle())
                     }.buttonStyle(.plain).accessibilityLabel("Conversation vocale").accessibilityIdentifier("voice-mode")
                         .disabled(model.sending || model.opening || model.transcript.running || (!model.demo && model.state != .connected))
                 }.foregroundStyle(.secondary).buttonStyle(.plain)
@@ -328,6 +336,7 @@ struct ChatView: View {
         } label: {
             Image(systemName: "plus").font(.system(size: 20, weight: .regular))
                 .foregroundStyle(.secondary).frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }.disabled(model.sending || model.importingAttachments || model.attachments.count >= 4).accessibilityLabel("Ajouter une pièce jointe").accessibilityIdentifier("message-actions")
     }
 
@@ -345,6 +354,7 @@ struct ChatView: View {
                 }.padding(.horizontal, 6)
             }.frame(minWidth: 44, maxWidth: .infinity, minHeight: 44)
                 .background(AppTheme.background, in: Capsule())
+                .contentShape(Rectangle())
         }.font(.caption.weight(.medium)).foregroundStyle(.primary)
             .accessibilityLabel("Changer de profil : \(model.agent?.title ?? "Hermes")")
             .accessibilityIdentifier("switch-profile")
@@ -361,6 +371,7 @@ struct ChatView: View {
                 .font(.system(size: model.transcript.running ? 13 : 19, weight: .semibold))
                 .foregroundStyle(.white).frame(width: 44, height: 44)
                 .background(model.canSend || model.transcript.running ? AppTheme.accent : Color.secondary.opacity(0.28), in: Circle())
+                .contentShape(Rectangle())
         }.disabled(!model.canSend && !model.transcript.running)
             .accessibilityLabel(model.transcript.running ? "Arrêter la réponse" : "Envoyer")
             .accessibilityIdentifier("send-message")

@@ -45,13 +45,14 @@ final class HermesHTTP {
     func request(_ path: String, method: String = "GET", body: JSONValue? = nil, query: [URLQueryItem] = []) async throws -> JSONValue {
         var request = URLRequest(url: connection.endpoint.url(path, query: query))
         request.httpMethod = method
-        request.timeoutInterval = path.hasPrefix("/api/audio/") ? 180 : 20
+        request.timeoutInterval = path == "/api/audio/tts-lease" ? 10 : path.hasPrefix("/api/audio/") ? 180 : 20
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let token { request.setValue(token, forHTTPHeaderField: "X-Hermes-Session-Token") }
         if let body {
-            request.httpBody = try body.data()
+            request.httpBody = try await Task.detached(priority: .userInitiated) { try body.data() }.value
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
+        try Task.checkCancellation()
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw RPCFailure("Réponse Hermes invalide.") }
         if response.statusCode == 401 || response.statusCode == 403 {
@@ -64,7 +65,10 @@ final class HermesHTTP {
             throw RPCFailure(response.statusCode == 429 ? "Trop de tentatives. Réessayez dans un instant." : message, code: response.statusCode)
         }
         try persistCookies()
-        return data.isEmpty ? .object([:]) : try JSONValue.decode(data)
+        guard !data.isEmpty else { return .object([:]) }
+        let decoded = try await Task.detached(priority: .userInitiated) { try JSONValue.decode(data) }.value
+        try Task.checkCancellation()
+        return decoded
     }
 
     func signIn(username: String, password: String) async throws {

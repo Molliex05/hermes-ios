@@ -662,6 +662,14 @@ final class AppModel {
         catch { chatError = error.localizedDescription }
     }
 
+    func interruptVoice(connectionID: UUID?, profile expected: String, runtimeID: String) async throws {
+        guard activeConnection?.id == connectionID, profile == expected,
+              selected?.runtimeID == runtimeID, state == .connected, let socket else { throw CancellationError() }
+        _ = try await socket.call("session.interrupt", ["session_id": .string(runtimeID)], timeout: 10)
+        try Task.checkCancellation()
+        guard activeConnection?.id == connectionID, profile == expected, selected?.runtimeID == runtimeID else { throw CancellationError() }
+    }
+
     private func syncServerRequests() {
         guard let socket, let session = selected?.runtimeID else { return }
         let inbox = socket.requests

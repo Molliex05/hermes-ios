@@ -144,6 +144,8 @@ final class HermesIOSUITests: XCTestCase {
         capture("25-native-permissions")
         app.buttons["return-to-chat"].tap()
         app.buttons["voice-mode"].tap()
+        let transcriptToggle = app.buttons["voice-transcript-toggle"]
+        XCTAssertTrue(transcriptToggle.waitForExistence(timeout: 30)); transcriptToggle.tap()
         XCTAssertTrue(app.staticTexts["Bonjour Hermes, résume mon projet."].waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["Hermes vous répond."].waitForExistence(timeout: 45))
         capture("26-native-voice-stream")
@@ -412,6 +414,8 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
         composer.tap(); composer.typeText("Brouillon préservé pendant la voix")
         app.buttons["voice-mode"].tap()
+        let transcriptToggle = app.buttons["voice-transcript-toggle"]
+        XCTAssertTrue(transcriptToggle.waitForExistence(timeout: 30)); transcriptToggle.tap()
         XCTAssertTrue(app.staticTexts["Bonjour Hermes, résume mon projet."].waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["Hermes vous répond."].waitForExistence(timeout: 45))
         XCTAssertTrue(app.staticTexts["Je vous écoute."].waitForExistence(timeout: 15))
@@ -590,8 +594,8 @@ final class HermesIOSUITests: XCTestCase {
         for identifier in ["message-actions", "switch-profile", "quick-history", "app-navigation", "voice-mode"] {
             let control = app.buttons[identifier]
             XCTAssertTrue(control.isHittable, "\(identifier) remains reachable at the largest text size")
-            XCTAssertGreaterThanOrEqual(control.frame.height, 44)
-            XCTAssertGreaterThanOrEqual(control.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44, "\(identifier) hit target height")
+            XCTAssertGreaterThanOrEqual(control.frame.width, 44, "\(identifier) hit target width")
         }
         capture("38-large-text-composer")
         composer.tap(); composer.typeText("Mon brouillon en grand texte")
@@ -629,6 +633,108 @@ final class HermesIOSUITests: XCTestCase {
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name; attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testNativeHandsFreeVoiceConversation() throws {
+        guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Requires isolated Hermes fixture on port 19149.") }
+        let app = XCUIApplication()
+        app.launchArguments = ["--integration-test", "--voice-fixture", "--voice-quiet-fixture"]
+        app.launch()
+        connectFixtureIfNeeded(app, address: "http://127.0.0.1:19149")
+        XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
+        app.buttons["Nouvelle conversation"].tap()
+        let composer = app.textFields["chat-composer"]
+        composer.tap(); composer.typeText("Mon brouillon reste privé")
+        app.buttons["voice-mode"].tap()
+        let listening = app.staticTexts["Je vous écoute."]
+        let speaking = app.staticTexts["Hermes vous répond."]
+        XCTAssertTrue(listening.waitForExistence(timeout: 20))
+        // Quiet fixture stays silent for 18 seconds: no old 15-second auto-pause.
+        Thread.sleep(forTimeInterval: 16)
+        XCTAssertTrue(listening.exists)
+        XCTAssertFalse(app.otherElements["voice-error"].exists)
+        capture("42-voice-listening")
+        XCTAssertTrue(speaking.waitForExistence(timeout: 60))
+        capture("43-voice-speaking")
+        XCTAssertTrue(listening.waitForExistence(timeout: 60))
+        // A second full turn starts and plays with no microphone/send gesture.
+        XCTAssertTrue(speaking.waitForExistence(timeout: 60))
+        XCTAssertTrue(listening.waitForExistence(timeout: 60))
+        let microphone = app.buttons["voice-listen"]
+        microphone.tap()
+        XCTAssertTrue(app.staticTexts["Microphone coupé."].waitForExistence(timeout: 5))
+        let toggle = app.buttons["voice-transcript-toggle"]
+        XCTAssertTrue(toggle.exists); toggle.tap()
+        XCTAssertTrue(app.staticTexts["Bonjour Hermes, résume mon projet."].waitForExistence(timeout: 5))
+        capture("44-voice-muted-transcript")
+        app.buttons["return-to-chat"].tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        XCTAssertEqual(composer.value as? String, "Mon brouillon reste privé")
+        XCTAssertFalse(app.staticTexts["Non envoyé · copiez pour réessayer"].exists)
+    }
+
+    func testVoiceAccessibilityAndDismissal() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        XCTAssertTrue(app.buttons["voice-mode"].waitForExistence(timeout: 10))
+        app.buttons["voice-mode"].tap()
+        let close = app.buttons["return-to-chat"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5)); XCTAssertTrue(close.isHittable)
+        XCTAssertGreaterThanOrEqual(close.frame.height, 44)
+        XCTAssertTrue(app.buttons["voice-listen"].exists)
+        capture("45-voice-accessibility")
+        close.tap()
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 5))
+    }
+
+    func testNativeVoiceBargeInAndNextTurn() throws {
+        guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Requires isolated Hermes fixture on port 19149.") }
+        let app = XCUIApplication()
+        app.launchArguments = ["--integration-test", "--voice-fixture", "--voice-barge-fixture"]
+        app.launch()
+        connectFixtureIfNeeded(app, address: "http://127.0.0.1:19149")
+        XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
+        app.buttons["Nouvelle conversation"].tap()
+        app.buttons["voice-mode"].tap()
+        let listening = app.staticTexts["Je vous écoute."]
+        let speaking = app.staticTexts["Hermes vous répond."]
+        XCTAssertTrue(listening.waitForExistence(timeout: 20))
+        XCTAssertTrue(speaking.waitForExistence(timeout: 45))
+        // The fixture produces microphone speech over the first PCM playback.
+        // Its normal multi-sentence playback lasts longer than this interruption window.
+        XCTAssertTrue(listening.waitForExistence(timeout: 8))
+        capture("46-voice-barge-in")
+        XCTAssertFalse(app.otherElements["voice-error"].exists)
+        XCTAssertTrue(speaking.waitForExistence(timeout: 45))
+        XCTAssertTrue(listening.waitForExistence(timeout: 60))
+        app.buttons["voice-listen"].tap()
+        XCTAssertTrue(app.staticTexts["Microphone coupé."].waitForExistence(timeout: 5))
+        app.buttons["return-to-chat"].tap()
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["Non envoyé · copiez pour réessayer"].exists)
+    }
+
+    func testNativeVoiceCanCloseAndReopenWithoutLateCapture() throws {
+        guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Requires isolated Hermes fixture on port 19149.") }
+        let app = XCUIApplication()
+        app.launchArguments = ["--integration-test", "--voice-fixture", "--voice-quiet-fixture"]
+        app.launch()
+        connectFixtureIfNeeded(app, address: "http://127.0.0.1:19149")
+        XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
+        app.buttons["Nouvelle conversation"].tap()
+        for _ in 0..<2 {
+            app.buttons["voice-mode"].tap()
+            XCTAssertTrue(app.staticTexts["Je vous écoute."].waitForExistence(timeout: 20))
+            app.buttons["return-to-chat"].tap()
+            XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 5))
+        }
+        Thread.sleep(forTimeInterval: 4)
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "user-message").firstMatch.exists)
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "assistant-message").firstMatch.exists)
+        app.textFields["chat-composer"].tap()
+        app.textFields["chat-composer"].typeText("Le chat reste disponible")
+        XCTAssertTrue(app.buttons["send-message"].isEnabled)
     }
 
     private func assertControlsInsideComposer(in app: XCUIApplication) {
