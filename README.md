@@ -15,12 +15,15 @@ Hermès iOS connects directly to [Hermes Agent](https://github.com/NousResearch/
 
 - Direct connection to the official `hermes serve` backend, including Tailscale IPs, MagicDNS, HTTPS and reverse-proxy path prefixes.
 - Native password authentication, session credentials in the iOS Keychain, fresh single-use WebSocket tickets, and the existing legacy session-token path.
-- Streaming chat, Markdown and code blocks, copy/share, tool activity, cancellation, approvals, clarification and secret input.
-- Thumb-first navigation: profile, chat history and tool shortcuts share a control row inside the floating composer, below a full-width text field. Switch profiles in two taps, open conversation history directly, and filter tools by Work or Agent. Global tool search stays available; chat and drafts remain in place.
+- Streaming chat, Markdown and code blocks, copy/share, expandable tool activity, cancellation, approvals, clarification and secret input. Send errors stay next to the composer; changing the conversation's workspace uses a brief confirmation banner.
+- Thumb-first navigation: send/stop sits beside the text, with attachments, profile, history, tools and voice in a second row inside the composer. The header names the conversation. No bottom tab bar.
+- A quick agent picker with pinned and recent profiles, gateway context and unread indicators. Tools has up to three persistent, editable shortcuts, Work/Agent filters and a searchable complete catalogue.
+- Compact conversation history with All, Unread and Archives filters. Local reading markers survive restarts and stay isolated by gateway and profile; opening a chat is distinct from an agent actually working or waiting for approval.
 - Cached conversations and per-chat drafts stay visible while reconnecting. Ordered replay deduplicates missing events. Uncertain sends are never automatically repeated.
 - Multiple saved gateways and isolated Hermes profiles.
 - Bot roster, existing canonical **Bot Chats**, profile creation/cloning, description and SOUL editing, and `@profile` suggestions.
-- Native routines: list, create, pause and resume, delivered to the owning Bot Chat.
+- Native routines: readable daily, weekday, weekly and hourly schedules, an advanced schedule field, next-run times and direct access to the native conversation for a completed run. Hermes owns scheduling and execution; new routines deliver to the owning Bot Chat.
+- Permissions explain when the agent asks for approval, identify the affected profile and keep detailed rules in advanced settings. Every option still comes from Hermes’ configuration schema.
 - Native hosted groups with 2–6 profiles on the same gateway, attributed messages, durable cursor replay, idempotent retry and stop.
 - Skills: browse installed skills, read their instructions, enable/disable per profile.
 - Models: browse configured providers and choose the default for new sessions, respecting Hermes’ native confirmation prompts.
@@ -32,7 +35,7 @@ Hermès iOS connects directly to [Hermes Agent](https://github.com/NousResearch/
 
 The first UI is in French. Contributions for localization are welcome.
 
-Current device build: approximately **6.3 MB**, unpacked and development-signed. [Validation results](docs/VALIDATION.md).
+Last measured installed device build: approximately **6.3 MB**, unpacked and development-signed. [Validation results](docs/VALIDATION.md).
 
 ## Run
 
@@ -70,6 +73,8 @@ This is an early **0.1.0** client. Build 15 adds profile permissions/configurati
 Voice uses Hermes’ native `/api/audio/speak-stream`: the server controls sentence splitting, Markdown cleanup, provider and voice. Audio can begin during generation; providers without native streaming fall back to the regular speech endpoint. Tap the microphone to interrupt and speak. GPT-Live profiles still require an explicit per-call switch to standard voice; server settings are never changed.
 
 OAuth/Nous Portal browser sign-in, GPT-Live/WebRTC, automatic voice barge-in, message editing/regeneration, rich tool-result panels, Bot avatars/mentions/sections, unified multi-server rosters and cross-gateway group administration remain outside this build. Advanced Kanban worker controls and current-session model/provider onboarding are not exposed as dedicated screens. Search is limited by the native endpoint to 100 matching results; ordinary history is paginated. Configuration fields depend on the server’s schema. Remote file edits check for concurrent changes before saving, but the native API does not provide an atomic compare-and-swap. The app preserves the server’s permission and validation boundaries. See the [feature matrix](docs/FEATURES.md).
+
+Unread markers describe activity observed by this iPhone; they are not server-synchronized read receipts. The initial history stays quiet, and message counts take precedence over preview text and refresh timestamps. The expandable tool summary keeps at most 40 steps from the live/replayed turn; it is not a persisted execution log or a rich tool-result viewer.
 
 iOS suspends network work in the background. The agent keeps working on the server; Hermès iOS reconnects on return. Hermes' replay ring is finite and its transcript snapshots do not carry an atomic event cursor. Normal reconnects replay exactly; after a ring overflow, Hermès iOS rebases from history/in-flight text, retaining the known partial answer when overlap cannot be proven until the authoritative final answer arrives. “Invisible sync” is a UX objective, not a promise that an offline phone receives live tokens. See [architecture](docs/ARCHITECTURE.md).
 

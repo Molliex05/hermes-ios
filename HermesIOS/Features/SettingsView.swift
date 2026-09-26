@@ -68,7 +68,8 @@ struct SettingsView: View {
                 .navigationTitle("Réglages").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
-                        Button("Terminé") { dismiss() }.accessibilityIdentifier("close-settings")
+                        Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                            .accessibilityLabel("Fermer les réglages").accessibilityIdentifier("close-settings")
                     }
                 }
                 .sheet(isPresented: $adding) { OnboardingView(model: model, adding: true) }

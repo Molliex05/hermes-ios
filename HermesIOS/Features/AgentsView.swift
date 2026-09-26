@@ -4,39 +4,33 @@ struct QuickProfilePicker: View {
     let model: AppModel
     var manage: () -> Void
     var close: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    private var sections: [(title: String, agents: [AgentProfile])] {
+        let bots = model.visibleBots
+        let pinned = bots.filter { $0.pinned == true }
+        let recent = bots.filter { $0.pinned != true && model.lastVisited(profile: $0.name) != nil }
+            .sorted { (model.lastVisited(profile: $0.name) ?? .distantPast) > (model.lastVisited(profile: $1.name) ?? .distantPast) }
+        let others = bots.filter { $0.pinned != true && model.lastVisited(profile: $0.name) == nil }
+        return [("Épinglés", pinned), ("Récents", recent), (pinned.isEmpty && recent.isEmpty ? "Vos agents" : "Autres agents", others)]
+            .filter { !$0.1.isEmpty }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 5) {
-                Text("À qui on parle ?").font(.system(size: 27, design: .serif)).tracking(-0.5)
-                Text("Retrouvez le fil de chaque agent.").font(.subheadline).foregroundStyle(.secondary)
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 26).padding(.top, 28).padding(.bottom, 18)
+                Text("Vos agents").font(.system(.title2, design: .serif)).tracking(-0.5)
+                Label(model.activeConnection?.name ?? (model.demo ? "Aperçu" : "Hermes"), systemImage: "server.rack")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+            }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 26).padding(.top, 25).padding(.bottom, 16)
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: 5) {
-                        ForEach(model.visibleBots) { agent in
-                            Button {
-                                close()
-                                if agent.name != model.profile { Task { await model.openBot(agent) } }
-                            } label: {
-                                HStack(spacing: 13) {
-                                    AgentAvatar(name: agent.name, size: 38)
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(agent.title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
-                                        Text(agent.detail.isEmpty ? "@\(agent.name)" : agent.detail)
-                                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                                    }
-                                    Spacer(minLength: 0)
-                                    if agent.name == model.profile {
-                                        Image(systemName: "checkmark.circle.fill").foregroundStyle(AppTheme.accent)
-                                    }
-                                }.padding(.horizontal, 14).padding(.vertical, 13)
-                                    .background(agent.name == model.profile ? AppTheme.surface : .clear, in: RoundedRectangle(cornerRadius: 19))
-                                    .contentShape(Rectangle())
-                            }.buttonStyle(.plain).disabled(model.opening || (!model.demo && model.state != .connected))
-                                .accessibilityIdentifier("quick-profile-\(agent.name)")
-                                .accessibilityAddTraits(agent.name == model.profile ? .isSelected : [])
-                                .id(agent.name)
+                    LazyVStack(alignment: .leading, spacing: 14) {
+                        ForEach(sections, id: \.title) { section in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(section.title).font(.caption.weight(.medium)).foregroundStyle(.secondary).padding(.horizontal, 14)
+                                ForEach(section.agents) { agent in profileRow(agent).id(agent.name) }
+                            }
                         }
                     }.padding(.horizontal, 18)
                 }.onAppear { proxy.scrollTo(model.profile, anchor: .center) }
@@ -51,11 +45,38 @@ struct QuickProfilePicker: View {
                 }.accessibilityIdentifier("manage-agents")
                 Spacer()
                 Button(action: close) {
-                    Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold))
+                    Image(systemName: "xmark").font(.system(size: 14, weight: .semibold))
                         .frame(width: 46, height: 46).background(AppTheme.surface, in: Circle())
                 }.accessibilityLabel("Revenir au chat").accessibilityIdentifier("return-to-chat")
             }.buttonStyle(.plain).padding(.horizontal, 26).padding(.top, 10).padding(.bottom, 12)
         }.background(AppTheme.background)
+    }
+
+    private func profileRow(_ agent: AgentProfile) -> some View {
+        let current = agent.name == model.profile
+        let unread = model.hasUnread(profile: agent.name)
+        let detail = agent.preview.isEmpty ? (agent.detail.isEmpty ? "@\(agent.name)" : agent.detail) : agent.preview
+        return Button {
+            close()
+            if !current { Task { await model.openBot(agent) } }
+        } label: {
+            HStack(spacing: 13) {
+                AgentAvatar(name: agent.name, size: 38)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(agent.title).font(.subheadline.weight(unread ? .semibold : .medium)).foregroundStyle(.primary)
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                    Text(detail.replacingOccurrences(of: "\n", with: " "))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(typeSize.isAccessibilitySize ? 2 : 1)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                if unread { Circle().fill(AppTheme.accent).frame(width: 7, height: 7).accessibilityHidden(true) }
+                if current { Image(systemName: "checkmark.circle.fill").foregroundStyle(AppTheme.accent).accessibilityHidden(true) }
+            }.padding(.horizontal, 14).padding(.vertical, 12)
+                .background(current ? AppTheme.surface : .clear, in: RoundedRectangle(cornerRadius: 18))
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain).disabled(model.opening || model.sending || model.voiceActive || (!model.demo && model.state != .connected))
+            .accessibilityIdentifier("quick-profile-\(agent.name)")
+            .accessibilityValue(unread ? "Conversation non lue" : current ? "Agent sélectionné" : "")
+            .accessibilityAddTraits(current ? .isSelected : [])
     }
 }
 
@@ -65,12 +86,13 @@ struct AgentsView: View {
     @State private var search = ""
     @State private var creating = false
     @State private var editing: AgentProfile?
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Vos agents.").font(.system(size: 32, design: .serif)).tracking(-0.8)
+                        Text("Vos agents.").font(.system(.largeTitle, design: .serif)).tracking(-0.8)
                         Text("Un talent. Un fil qui continue.").font(.subheadline).foregroundStyle(.secondary)
                     }.padding(.top, 14)
                     HStack(spacing: 10) {
@@ -86,6 +108,7 @@ struct AgentsView: View {
                                         VStack(alignment: .leading, spacing: 5) {
                                             HStack(spacing: 8) {
                                                 Text(agent.title).font(.body.weight(.medium)).foregroundStyle(.primary)
+                                                    .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                                                 if model.profile == agent.name { Circle().fill(AppTheme.accent).frame(width: 5, height: 5) }
                                             }
                                             Text(agent.detail.isEmpty ? "@\(agent.name)" : agent.detail)
@@ -93,7 +116,8 @@ struct AgentsView: View {
                                         }
                                         Spacer(minLength: 0)
                                     }.padding(.leading, 14).padding(.vertical, 17).contentShape(Rectangle())
-                                }.buttonStyle(.plain).disabled(model.opening).accessibilityIdentifier("agent-\(agent.name)")
+                                }.buttonStyle(.plain).disabled(model.opening || model.sending || model.voiceActive || (!model.demo && model.state != .connected))
+                                    .accessibilityIdentifier("agent-\(agent.name)")
                                 Button { editing = agent } label: {
                                     Image(systemName: "ellipsis").font(.system(size: 16, weight: .medium)).foregroundStyle(.secondary)
                                         .frame(width: 44, height: 52)
@@ -137,8 +161,24 @@ struct ProfilePicker: View {
                 }
             }.modernList()
                 .navigationTitle("Vos profils").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Terminé") { dismiss() } } }
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                            .accessibilityLabel("Fermer les profils")
+                    }
+                }
         }.presentationDetents([.medium, .large])
+    }
+}
+
+private enum ConversationFilter: String, CaseIterable {
+    case conversations, unread, archived
+    var title: String {
+        switch self {
+        case .conversations: "Toutes"
+        case .unread: "Non lues"
+        case .archived: "Archives"
+        }
     }
 }
 
@@ -148,7 +188,7 @@ struct SessionsView: View {
     @State private var remoteRows: [Conversation]?
     @State private var total = 0
     @State private var resultScope = ""
-    @State private var archived = false
+    @State private var filter: ConversationFilter = .conversations
     @State private var renaming: Conversation?
     @State private var renamedTitle = ""
     @State private var loading = false
@@ -158,15 +198,27 @@ struct SessionsView: View {
     @FocusState private var searching: Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.toolNavigation) private var navigation
+    @Environment(\.dynamicTypeSize) private var typeSize
 
+    private var archived: Bool { filter == .archived }
     private var queryScope: String { "\(model.attachmentContext)|\(search)|\(archived)" }
+    private var loadedRows: [Conversation] {
+        (resultScope == queryScope ? (remoteRows ?? []) : (archived ? [] : model.sessions)).filter { $0.profile == model.profile }
+    }
     private var conversations: [Conversation] {
-        (resultScope == queryScope ? (remoteRows ?? []) : (archived ? [] : model.sessions)).filter { $0.profile == model.profile }.sorted { $0.updated > $1.updated }
+        var rows = loadedRows
+        // The native roster exposes the hidden Bot Chat omitted from ordinary history.
+        if !archived, search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let botChat = model.botConversations[model.profile], !rows.contains(where: { $0.id == botChat.id }) {
+            rows.append(botChat)
+        }
+        return rows.sorted { $0.updated > $1.updated }
     }
     private var filtered: [Conversation] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
-        if resultScope == queryScope && remoteRows != nil && !query.isEmpty { return conversations }
-        return conversations.filter { query.isEmpty || "\($0.title) \($0.preview)".localizedStandardContains(query) }
+        let searched = resultScope == queryScope && remoteRows != nil && !query.isEmpty ? conversations
+            : conversations.filter { query.isEmpty || "\($0.title) \($0.preview)".localizedStandardContains(query) }
+        return filter == .unread ? searched.filter { model.isUnread($0) } : searched
     }
     private var sections: [(title: String, rows: [Conversation])] {
         let calendar = Calendar.current
@@ -188,16 +240,17 @@ struct SessionsView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(alignment: .center, spacing: 14) {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Retrouver le fil.").font(.system(size: 28, design: .serif)).tracking(-0.6).lineLimit(1).minimumScaleFactor(0.8)
+                            Text("Retrouver le fil.").font(.system(.title2, design: .serif)).tracking(-0.6).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                             Text("\(model.agent?.title ?? "Hermes") · \(conversations.count) conversation\(conversations.count == 1 ? "" : "s")")
                                 .font(.subheadline).foregroundStyle(.secondary)
                         }
                         Spacer(minLength: 0)
                         AgentAvatar(name: model.profile, size: 42)
                     }.padding(.top, 12).padding(.bottom, 2)
-                    Picker("Historique", selection: $archived) {
-                        Text("Conversations").tag(false); Text("Archives").tag(true)
+                    Picker("Historique", selection: $filter) {
+                        ForEach(ConversationFilter.allCases, id: \.self) { Text($0.title).tag($0) }
                     }.pickerStyle(.segmented)
+                        .accessibilityIdentifier("history-filter")
                     if !model.demo && model.state != .connected {
                         ConnectionIndicator(model: model)
                     }
@@ -211,21 +264,25 @@ struct SessionsView: View {
                     if (loading || (!model.demo && model.state == .connecting)) && conversations.isEmpty {
                         ProgressView("Chargement des conversations…").frame(maxWidth: .infinity).padding(.vertical, 45)
                     } else if conversations.isEmpty {
-                        ContentUnavailableView("Tout commence ici", systemImage: "bubble.left.and.bubble.right",
-                            description: Text("Vos échanges avec cet agent apparaîtront ici. Une idée suffit pour commencer."))
+                        ContentUnavailableView(archived ? "Aucune archive" : "Tout commence ici",
+                            systemImage: archived ? "archivebox" : "bubble.left.and.bubble.right",
+                            description: Text(archived ? "Les conversations archivées restent disponibles ici." : "Vos échanges avec cet agent apparaîtront ici. Une idée suffit pour commencer."))
+                    } else if filtered.isEmpty && filter == .unread && search.isEmpty {
+                        ContentUnavailableView("Vous êtes à jour", systemImage: "checkmark.bubble",
+                            description: Text("Les conversations avec une nouvelle activité apparaîtront ici."))
                     } else if filtered.isEmpty {
                         ContentUnavailableView.search(text: search)
                     } else {
                         ForEach(sections, id: \.title) { section in
                             VStack(alignment: .leading, spacing: 10) {
                                 Text(section.title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 4)
-                                LazyVStack(spacing: 10) {
+                                LazyVStack(spacing: 8) {
                                     ForEach(section.rows) { session in conversationRow(session) }
                                 }
                             }
                         }
                     }
-                    if !model.demo, resultScope == queryScope, search.isEmpty, conversations.count < total {
+                    if !model.demo, resultScope == queryScope, search.isEmpty, loadedRows.count < total {
                         Button(loading ? "Chargement…" : "Conversations plus anciennes") { Task { await loadPage(more: true) } }.disabled(loading).frame(minHeight: 44)
                     }
                 }.padding(.horizontal, 22).padding(.bottom, 24).frame(maxWidth: 680).frame(maxWidth: .infinity)
@@ -261,50 +318,66 @@ struct SessionsView: View {
 
     private func conversationRow(_ session: Conversation) -> some View {
         let current = model.selected?.storedID == session.id && model.selected?.profile == session.profile
+        let unread = model.isUnread(session)
+        let status = model.conversationStatus(session)
+        let isBotChat = model.botConversations[session.profile]?.id == session.id
         return Button {
             guard openingID == nil else { return }
             searching = false
-            if current { dismiss(); return }
+            if current && (model.demo || model.state != .connected || model.selected?.runtimeID.isEmpty == false) {
+                dismiss(); return
+            }
             openingID = session.id
             Task {
                 await model.openConversation(session)
                 openingID = nil
-                if model.selected?.storedID == session.id { dismiss() }
+                if model.selected?.storedID == session.id, model.selected?.profile == session.profile,
+                   model.demo || model.state != .connected || model.selected?.runtimeID.isEmpty == false { dismiss() }
             }
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: current ? "bubble.left.and.bubble.right.fill" : "bubble.left")
-                    .font(.system(size: 15)).foregroundStyle(current ? AppTheme.accent : .secondary)
+                Image(systemName: unread ? "bubble.left.fill" : current ? "bubble.left.and.bubble.right.fill" : "bubble.left")
+                    .font(.system(size: 15)).foregroundStyle(current || unread ? AppTheme.accent : .secondary)
                     .frame(width: 32, height: 32)
                     .background(current ? AppTheme.accent.opacity(0.08) : AppTheme.background, in: RoundedRectangle(cornerRadius: 11))
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(session.title).font(.system(.subheadline, design: .default, weight: .medium))
-                        .foregroundStyle(.primary).lineLimit(1).truncationMode(.tail)
+                    Text(session.title).font(.system(.subheadline, design: .default, weight: unread ? .semibold : .medium))
+                        .foregroundStyle(.primary).lineLimit(typeSize.isAccessibilitySize ? nil : 1).truncationMode(.tail)
                     if !session.preview.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(session.preview.replacingOccurrences(of: "\n", with: " "))
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(typeSize.isAccessibilitySize ? 2 : 1).truncationMode(.tail)
                     }
+                    if let status {
+                        Text(status).font(.caption2.weight(.medium)).foregroundStyle(AppTheme.accent)
+                    }
+                    if typeSize.isAccessibilitySize { conversationDate(session) }
                 }.frame(maxWidth: .infinity, alignment: .leading)
                 VStack(alignment: .trailing, spacing: 7) {
-                    Text(session.updated, format: Calendar.current.isDateInToday(session.updated) ? .dateTime.hour().minute() : .dateTime.day().month(.abbreviated))
-                        .font(.caption2).foregroundStyle(.tertiary).fixedSize()
+                    if !typeSize.isAccessibilitySize { conversationDate(session).fixedSize() }
                     if openingID == session.id { ProgressView().controlSize(.mini) }
-                    else if current { Text("En cours").font(.system(size: 10, weight: .medium)).foregroundStyle(AppTheme.accent).fixedSize() }
                     else { Image(systemName: "chevron.right").font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary) }
                 }
-            }.padding(.horizontal, 14).padding(.vertical, 13).frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+            }.padding(.horizontal, 14).padding(.vertical, 12).frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
                 .background(current ? AppTheme.accent.opacity(0.055) : AppTheme.surface, in: RoundedRectangle(cornerRadius: 18))
                 .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(current ? AppTheme.accent.opacity(0.2) : AppTheme.line.opacity(0.6)))
                 .contentShape(RoundedRectangle(cornerRadius: 18))
         }.buttonStyle(.plain).disabled(openingID != nil || model.sending || model.voiceActive)
             .contextMenu {
+                // The native canonical title is an identity; edit the bot's display name in Agents.
+                if !isBotChat {
                 Button("Renommer", systemImage: "pencil") { renamedTitle = session.title; renaming = session }
                 Button(archived ? "Restaurer" : "Archiver", systemImage: archived ? "tray.and.arrow.up" : "archivebox") {
                     Task { do { try await model.updateConversation(session, patch: ["archived": .bool(!archived)]); await loadPage(more: false) } catch { loadError = error.localizedDescription } }
                 }.disabled(current && model.transcript.running)
+                }
             }
             .accessibilityIdentifier("conversation-" + session.id)
             .accessibilityAddTraits(current ? .isSelected : [])
+    }
+
+    private func conversationDate(_ session: Conversation) -> some View {
+        Text(session.updated, format: Calendar.current.isDateInToday(session.updated) ? .dateTime.hour().minute() : .dateTime.day().month(.abbreviated))
+            .font(.caption2).foregroundStyle(.secondary)
     }
 
     private var controls: some View {

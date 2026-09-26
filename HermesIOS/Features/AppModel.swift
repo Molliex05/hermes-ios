@@ -10,6 +10,8 @@ struct CachedWorkspace: Codable, Sendable {
     var selected: String?
     var attachments: [String: [DraftAttachment]]?
     var imageCleanup: [String: [String]]?
+    var activity: ConversationActivity?
+    var botConversations: [String: Conversation]?
 }
 
 @MainActor @Observable
@@ -19,6 +21,7 @@ final class AppModel {
     var activeConnection: SavedConnection?
     var state: ConnectionState = .offline
     var profiles: [AgentProfile] = []
+    var botConversations: [String: Conversation] = [:]
     var sessions: [Conversation] = []
     var historyRevision = 0
     @ObservationIgnored private let historyRequests = HistoryRequests()
@@ -36,6 +39,10 @@ final class AppModel {
     @ObservationIgnored private var imageCleanup: [String: [String]] = [:]
     var navigationRevision = UUID()
     var notice: String?
+    var chatError: String?
+    var toast: String?
+    private var conversationActivity = ConversationActivity()
+    @ObservationIgnored private var chatVisible = true
     private var ownershipConflictContext: String?
     var canContinueInNewChat: Bool { notice == RPCFailure.ownershipMessage && ownershipConflictContext == attachmentContext && !sending && !voiceActive }
     var commandOutput: String?
@@ -64,6 +71,7 @@ final class AppModel {
     @ObservationIgnored private var buffering = false
     @ObservationIgnored private var streamEvents: [JSONValue] = []
     @ObservationIgnored private var selectionGeneration = UUID()
+    @ObservationIgnored private var hydratedSelection: UUID?
     @ObservationIgnored private var connectionGeneration = UUID()
     @ObservationIgnored private var foreground = true
 
@@ -146,15 +154,19 @@ final class AppModel {
         let restored = await cache.read(CachedWorkspace.self, key: connection.id.uuidString) ?? CachedWorkspace()
         guard generation == connectionGeneration else { return }
         workspace = restored
+        conversationActivity = restored.activity ?? ConversationActivity()
+        chatError = nil; toast = nil
         attachmentDrafts = restored.attachments ?? [:]
         imageCleanup = restored.imageCleanup ?? [:]
         profiles = workspace.profiles
+        botConversations = workspace.botConversations ?? [:]
         historyIndex = workspace.historyIndex ?? ConversationIndex(legacy: workspace.sessions)
         selected = workspace.selected.flatMap { workspace.chats[$0] }
         profile = selected?.profile ?? profiles.first?.name ?? "default"
         sessions = historyIndex[profile]
         transcript = Transcript(messages: selected?.messages ?? [], lastSequence: selected?.lastSequence ?? 0)
         draft = workspace.drafts[draftKey] ?? ""
+        conversationActivity.visit(profile: profile)
         http = HermesHTTP(connection)
         startReconnect()
     }
@@ -274,6 +286,13 @@ final class AppModel {
         guard generation == connectionGeneration, self.socket === socket else { return }
         guard case .array = result["profiles"] else { throw RPCFailure("Hermes a renvoyé une liste de profils invalide.") }
         profiles = result["profiles"].array.map(AgentProfile.init)
+        let canonical = result["profiles"].array.compactMap { row -> Conversation? in
+            let session = row["canonical_session"]
+            guard !session["id"].string.isEmpty else { return nil }
+            return Conversation(session, profile: row["name"].string)
+        }
+        botConversations = Dictionary(canonical.map { ($0.profile, $0) }, uniquingKeysWith: { _, latest in latest })
+        observeConversations(canonical, establishesBaseline: false)
         hasBotProtocol = result["bot_mode_protocol"].bool
         if selected == nil, !profiles.contains(where: { $0.name == profile }), let first = profiles.first { profile = first.name }
         scheduleSave()
@@ -291,7 +310,9 @@ final class AppModel {
         try Task.checkCancellation()
         guard generation == connectionGeneration, self.socket === socket, state == .connected else { throw CancellationError() }
         guard case .array = result["sessions"] else { throw RPCFailure("Hermes a renvoyé une liste de conversations invalide.") }
-        historyIndex.update(result["sessions"].array.map { Conversation($0, profile: owner) }, profile: owner)
+        let rows = result["sessions"].array.map { Conversation($0, profile: owner) }
+        observeConversations(rows, baselineProfile: owner)
+        historyIndex.update(rows, profile: owner)
         if profile == owner { sessions = historyIndex[owner]; historyRevision += 1 }
         scheduleSave()
     }
@@ -301,6 +322,7 @@ final class AppModel {
         saveCurrent()
         selectionGeneration = UUID(); buffering = false; held = ReplayBuffer(); opening = false
         selected = nil; transcript = Transcript(); profile = name
+        chatError = nil; conversationActivity.visit(profile: name)
         draft = workspace.drafts[draftKey] ?? ""
         do { try await refreshSessions() } catch { notice = error.localizedDescription }
     }
@@ -315,6 +337,7 @@ final class AppModel {
         let cached = bot.canonicalID.flatMap { workspace.chats[key(bot.name, $0)] }
         selected = cached ?? ChatSnapshot(storedID: bot.canonicalID ?? "", profile: bot.name, title: bot.title)
         profile = bot.name
+        chatError = nil; conversationActivity.visit(profile: bot.name)
         transcript = Transcript(messages: cached?.messages ?? [], lastSequence: cached?.lastSequence ?? 0)
         draft = workspace.drafts[draftKey] ?? ""
         defer { if generation == selectionGeneration { opening = false } }
@@ -354,13 +377,19 @@ final class AppModel {
         selected = cached ?? ChatSnapshot(storedID: conversation.id, profile: conversation.profile, title: title ?? conversation.title)
         if let title { selected?.title = title }
         profile = conversation.profile
+        chatError = nil; conversationActivity.visit(profile: conversation.profile)
         transcript = Transcript(messages: selected?.messages ?? [], lastSequence: selected?.lastSequence ?? 0)
         draft = workspace.drafts[draftKey] ?? ""
         opening = true
-        defer { if generation == selectionGeneration { opening = false } }
+        defer { if generation == selectionGeneration { opening = false; markCurrentConversationRead() } }
         guard !demo, state == .connected, let selected else { return }
         do { try await attach(selected, generation: generation) }
-        catch { if generation == selectionGeneration, foreground, !(error is CancellationError) { notice = error.localizedDescription } }
+        catch {
+            if generation == selectionGeneration {
+                self.selected?.runtimeID = ""; hydratedSelection = nil
+                if foreground, !(error is CancellationError) { notice = error.localizedDescription }
+            }
+        }
     }
 
     private func attach(_ chat: ChatSnapshot, generation: UUID) async throws {
@@ -401,6 +430,8 @@ final class AppModel {
             transcript.recover(full, events: events, latestSequence: max(fresh["latest_seq"].int, events.map { $0["seq"].int }.max() ?? 0))
         }
         syncServerRequests()
+        hydratedSelection = generation
+        markCurrentConversationRead()
         scheduleSave()
     }
 
@@ -408,6 +439,7 @@ final class AppModel {
         guard !sending, !voiceActive else { return }
         saveCurrent(); selectionGeneration = UUID(); opening = false; buffering = false; held = ReplayBuffer()
         selected = nil; transcript = Transcript(); draft = workspace.drafts[draftKey] ?? ""
+        chatError = nil
     }
 
     func continueInNewChat() async {
@@ -424,6 +456,7 @@ final class AppModel {
             saveCurrent()
             workspace.drafts[source] = ""; attachmentDrafts[source] = nil
             selected = ChatSnapshot(storedID: result["stored_session_id"].string, runtimeID: result["session_id"].string, profile: owner, title: "Nouvelle conversation", epoch: socket.epoch)
+            hydratedSelection = selectionGeneration
             transcript = Transcript(); draft = text; attachmentDrafts[draftKey] = files
             workspace.drafts[draftKey] = text; ownershipConflictContext = nil
             await persistNow()
@@ -452,10 +485,14 @@ final class AppModel {
 
     func send() async {
         guard canSend else { return }
+        chatError = nil
         if demo { await demoReply(); return }
         do { _ = try await submit(draft.trimmingCharacters(in: .whitespacesAndNewlines), consumeDraft: true) }
         catch is CancellationError { }
-        catch { notice = error.localizedDescription }
+        catch {
+            if (error as? RPCFailure)?.sessionOwnedElsewhere == true || error.localizedDescription == RPCFailure.ownershipMessage { notice = error.localizedDescription }
+            else { chatError = error.localizedDescription }
+        }
     }
 
     /// A spoken turn never consumes the user's typed draft or its attachments.
@@ -494,6 +531,7 @@ final class AppModel {
             let result = try await socket.call("session.create", ["close_on_disconnect": false, "profile": .string(profile)])
             try validate()
             selected = ChatSnapshot(storedID: result["stored_session_id"].string, runtimeID: result["session_id"].string, profile: profile, title: String(text.prefix(60)), epoch: socket.epoch)
+            hydratedSelection = selectionGeneration
             attachmentDrafts[draftKey] = attachmentDrafts.removeValue(forKey: originalDraftKey)
             workspace.drafts[draftKey] = draft
             workspace.drafts[originalDraftKey] = nil
@@ -572,7 +610,7 @@ final class AppModel {
             draft = ""; workspace.drafts[draftKey] = ""; workspace.drafts[originalDraftKey] = ""
             attachmentDrafts[draftKey] = nil
         }
-        transcript.running = true; transcript.activity = "Réfléchit…"; transcript.failure = nil
+        transcript.toolSteps = []; transcript.running = true; transcript.activity = "Réfléchit…"; transcript.failure = nil
         await persistNow()
         do {
             try validate()
@@ -621,7 +659,7 @@ final class AppModel {
     func interrupt() async {
         guard let selected, let socket else { return }
         do { _ = try await socket.call("session.interrupt", ["session_id": .string(selected.runtimeID)]) }
-        catch { notice = error.localizedDescription }
+        catch { chatError = error.localizedDescription }
     }
 
     private func syncServerRequests() {
@@ -754,6 +792,8 @@ final class AppModel {
         guard generation == connectionGeneration else { throw CancellationError() }
         if profile == name { await changeProfile("default") }
         workspace.chats = workspace.chats.filter { $0.value.profile != name }
+        conversationActivity.remove(profile: name)
+        botConversations[name] = nil
         historyIndex.update([], profile: name)
         try await refreshProfiles(); await persistNow()
     }
@@ -856,12 +896,53 @@ final class AppModel {
 
     func draftChanged() { workspace.drafts[draftKey] = draft; scheduleSave() }
 
+    func isUnread(_ conversation: Conversation) -> Bool {
+        conversationActivity.isUnread(profile: conversation.profile, id: conversation.id)
+    }
+
+    func hasUnread(profile: String) -> Bool { conversationActivity.hasUnread(profile: profile) }
+    func lastVisited(profile: String) -> Date? { conversationActivity.lastVisited(profile: profile) }
+
+    func markConversationRead(_ conversation: Conversation) {
+        conversationActivity.markRead(profile: conversation.profile, id: conversation.id)
+        scheduleSave()
+    }
+
+    func conversationStatus(_ conversation: Conversation) -> String? {
+        if selected?.storedID == conversation.id, selected?.profile == conversation.profile {
+            if transcript.approval != nil { return "Votre accord" }
+            if transcript.clarification != nil || transcript.credential != nil { return "Votre réponse" }
+            if transcript.running { return "En cours" }
+        }
+        return isUnread(conversation) ? "Non lue" : nil
+    }
+
+    func observeConversations(_ rows: [Conversation], establishesBaseline: Bool = true, baselineProfile: String? = nil) {
+        conversationActivity.observe(rows, establishesBaseline: establishesBaseline, emptyProfile: baselineProfile)
+        markCurrentConversationRead()
+        scheduleSave()
+    }
+
+    func setChatVisible(_ visible: Bool) {
+        chatVisible = visible
+        if visible { markCurrentConversationRead() }
+    }
+
+    private func markCurrentConversationRead() {
+        guard foreground, chatVisible, !opening, let selected,
+              demo || (hydratedSelection == selectionGeneration && !selected.runtimeID.isEmpty && state == .connected) else { return }
+        conversationActivity.markRead(profile: selected.profile, id: selected.storedID)
+        scheduleSave()
+    }
+
     private func key(_ profile: String, _ stored: String) -> String { "\(profile):\(stored)" }
 
     private func saveCurrent() {
         flushStream()
         workspace.imageCleanup = imageCleanup
         workspace.attachments = attachmentDrafts
+        workspace.activity = conversationActivity
+        workspace.botConversations = botConversations
         workspace.drafts[draftKey] = draft
         if var chat = selected, !chat.storedID.isEmpty {
             chat.messages = Array(transcript.messages.suffix(500))
@@ -906,6 +987,7 @@ final class AppModel {
             connectionGeneration = UUID(); selectionGeneration = UUID()
             activeConnection = nil; selected = nil; profiles = []; sessions = []; draft = ""
             transcript = Transcript(); workspace = CachedWorkspace(); historyIndex = ConversationIndex(); attachmentDrafts = [:]; state = .offline
+            conversationActivity = ConversationActivity(); botConversations = [:]; chatError = nil; toast = nil
         }
         Keychain.delete(connection.id.uuidString)
         connections.removeAll { $0.id == connection.id }
@@ -940,6 +1022,15 @@ final class AppModel {
                 if index > 0 { workspace.chats[key(agent.name, item.0)] = ChatSnapshot(storedID: item.0, profile: agent.name, title: item.1, messages: [.init(role: "assistant", text: item.2)]) }
             }
         }
+        for index in sessions.indices { sessions[index].messageCount = 2 }
+        conversationActivity.observe(sessions)
+        // A representative unread conversation uses the same local reading model as real history.
+        for index in sessions.indices where sessions[index].id.hasSuffix("-idea") {
+            sessions[index].messageCount = 3
+            sessions[index].preview = "Une nouvelle piste à explorer ensemble."
+        }
+        conversationActivity.observe(sessions)
+        conversationActivity.visit(profile: "default")
         if ProcessInfo.processInfo.arguments.contains("--demo-onboarding") { demo = false; connections = []; activeConnection = nil; selected = nil; profiles = []; state = .offline }
     }
 
@@ -948,6 +1039,8 @@ final class AppModel {
         let storedID = "demo-\(bot.name)"
         selected = workspace.chats[key(bot.name, storedID)] ?? ChatSnapshot(storedID: storedID, profile: bot.name, title: bot.title)
         profile = bot.name
+        chatError = nil; conversationActivity.visit(profile: bot.name)
+        conversationActivity.markRead(profile: bot.name, id: storedID)
         transcript = Transcript(messages: selected?.messages ?? [])
         draft = workspace.drafts[draftKey] ?? ""
         if transcript.messages.isEmpty {

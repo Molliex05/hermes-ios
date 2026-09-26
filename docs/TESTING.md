@@ -94,3 +94,20 @@ The app explicitly requests `close_on_disconnect: false` using native session cr
 See [NOTIFICATIONS.md](NOTIFICATIONS.md) for the server outbox unit tests and the real Hermes cron contract. `testNativeNotificationOpensCorrectConversationAfterColdLaunch` uses a fresh dedicated QA simulator, the fixture on port 19133, and `scripts/inject_notification_fixture.py --output <test-output-directory>` running alongside XCTest. The output directory must contain the successful cron contract's `cron-notification.apns` and the current test log named `ui.log`. The injector waits for the test checkpoint, reads only the simulator's fixture connection ID, and injects the actual cron target through `simctl push`. The test terminates the app, taps the iOS notification banner, and verifies the correct profile and native answer after cold launch.
 
 A DEBUG-only `--notification-fixture-permission` flag requests notification permission only for a loopback fixture. It does not bypass notification decoding/routing or enable a server registration. Simulator injection validates the iOS delegate and navigation; it does not validate APNs signing or physical delivery.
+
+## Conversation navigation and routine results (September 25)
+
+The offline UI suite additionally checks persistent tool favorites, the unread filter and read position after opening a chat, and navigation with accessibility text sizes. The attachment menu/voice test preserves a typed draft through both surfaces. These tests exercise demo data only.
+
+Core tests cover local unread baselines, late history responses, profile isolation, differing native previews with equal message counts, and old cache decoding. Tool activity tests cover replay, duplicate events, interrupted tools, idle snapshots and the bounded activity list. Routine tests cover human schedule round trips, native one-shot timestamps and explicit session routing.
+
+For the routine result contract, start a new disposable fixture with `--port 19139 --model-port 19240`, then run:
+
+```sh
+HERMES_TEST_BASE=http://127.0.0.1:19139 python scripts/check_routine_navigation_contract.py
+xcodebuild -scheme HermesIOSIntegration \
+  -destination 'platform=iOS Simulator,name=Hermes iOS UX QA' \
+  -only-testing:HermesIOSUITests/HermesIOSUITests/testNativeRoutineResultAndPermissionDiscovery test
+```
+
+The probe creates and triggers its own routine, follows the native run's exact profile/session, resumes the answer and deletes its routine afterward. The UI test uses a fresh dedicated simulator app container on the same fixture, creates a future one-shot routine, triggers it explicitly, opens its result and reads the native permission settings. Neither test uses production agents. Presence of a test in the suite is not a passing result; see VALIDATION.md for the runs actually completed.

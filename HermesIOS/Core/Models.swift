@@ -37,6 +37,8 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
     public var title: String
     public var preview: String
     public var updated: Date
+    public var messageCount: Int?
+    public var createdAt: Date?
     public init(_ v: JSONValue, profile: String) {
         id = v["resolved_id"].string.isEmpty ? v["id"].string : v["resolved_id"].string
         self.profile = profile
@@ -45,6 +47,8 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
         preview = v["preview"].string
         let timestamp = max(v["last_active"].double, v["last_activity_at"].double, v["started_at"].double)
         updated = Date(timeIntervalSince1970: timestamp)
+        messageCount = v["message_count"].isNull ? nil : v["message_count"].int
+        createdAt = v["started_at"].double > 0 ? Date(timeIntervalSince1970: v["started_at"].double) : nil
     }
 }
 
@@ -79,7 +83,11 @@ public struct Routine: Identifiable, Sendable {
     public var name: String
     public var prompt: String
     public var schedule: String
+    public var rawSchedule: String
+    public var nextRunAt: Date?
     public var paused: Bool
+    public var completed: Bool
+    public var scheduleSummary: String { RoutineSchedule(rawSchedule)?.summary ?? schedule }
     public init(_ v: JSONValue) {
         id = v["job_id"].string.isEmpty ? v["id"].string : v["job_id"].string
         name = v["name"].string.replacingOccurrences(of: #"^\[bot:[^\]]+\]\s*"#, with: "", options: .regularExpression)
@@ -87,6 +95,10 @@ public struct Routine: Identifiable, Sendable {
         schedule = v["schedule_display"].string
         if schedule.isEmpty { schedule = v["schedule"].string }
         if schedule.isEmpty { schedule = v["schedule"]["display"].string }
+        rawSchedule = RoutineSchedule.expression(from: v)
+        if schedule.isEmpty { schedule = rawSchedule }
+        nextRunAt = RoutineSchedule.nextRun(from: v)
         paused = v["paused"].bool || v["state"].string == "paused" || v["enabled"] == .bool(false)
+        completed = v["state"].string == "completed"
     }
 }

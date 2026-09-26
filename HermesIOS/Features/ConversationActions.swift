@@ -4,7 +4,7 @@ extension AppModel {
     func useWorkspace(_ path: String) async throws {
         guard let chat = selected, !transcript.running else { throw RPCFailure("Ouvrez une conversation au repos pour choisir son dossier.") }
         _ = try await toolRequest("session.cwd.set", body: ["session_id": .string(chat.runtimeID), "cwd": .string(path)], connectionID: activeConnection?.id, profile: profile, rpc: true)
-        notice = "Dossier de la conversation mis à jour."
+        toast = "Dossier de la conversation mis à jour."
     }
 
     func historyPage(query: String, offset: Int = 0, archived: Bool = false) async throws -> JSONValue {
@@ -12,11 +12,20 @@ extension AppModel {
         var items = [URLQueryItem(name: "limit", value: "100")]
         if searching { items.append(URLQueryItem(name: "q", value: query)) }
         else { items += [URLQueryItem(name: "offset", value: String(offset)), URLQueryItem(name: "order", value: "recent"), URLQueryItem(name: "archived", value: archived ? "only" : "exclude")] }
-        return try await toolRequest(searching ? "/api/sessions/search" : "/api/sessions", query: items, connectionID: activeConnection?.id, profile: profile)
+        let owner = profile
+        let result = try await toolRequest(searching ? "/api/sessions/search" : "/api/sessions", query: items, connectionID: activeConnection?.id, profile: owner)
+        if !archived {
+            observeConversations(result[searching ? "results" : "sessions"].array.filter { !$0["archived"].bool }.map { Conversation($0, profile: owner) }, establishesBaseline: !searching && offset == 0, baselineProfile: owner)
+        }
+        return result
     }
 
     func updateConversation(_ conversation: Conversation, patch: JSONValue) async throws {
         _ = try await toolRequest("/api/sessions/" + conversation.id, method: "PATCH", body: patch, connectionID: activeConnection?.id, profile: conversation.profile)
+        if selected?.storedID == conversation.id, selected?.profile == conversation.profile, !patch["title"].string.isEmpty {
+            selected?.title = patch["title"].string
+        }
+        if patch["archived"].bool { markConversationRead(conversation) }
         if selected?.storedID == conversation.id, patch["archived"].bool { newChat() }
         try await refreshSessions()
     }

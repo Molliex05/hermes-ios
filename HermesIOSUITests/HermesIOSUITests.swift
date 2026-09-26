@@ -40,7 +40,13 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertFalse(app.buttons["Dicter un message"].exists)
         capture("18-attachments-menu")
         app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 30, dy: 150)).tap()
-        app.buttons["voice-mode"].tap()
+        let menuClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["Ajouter une photo"])
+        XCTAssertEqual(XCTWaiter.wait(for: [menuClosed], timeout: 5), .completed)
+        let voice = app.buttons["voice-mode"]
+        let voiceReady = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: voice)
+        XCTAssertEqual(XCTWaiter.wait(for: [voiceReady], timeout: 5), .completed)
+        capture("18b-attachments-menu-closed")
+        voice.tap()
         XCTAssertTrue(app.buttons["voice-listen"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.buttons["voice-listen"].isEnabled)
         capture("19-voice")
@@ -211,7 +217,10 @@ final class HermesIOSUITests: XCTestCase {
         let composer = app.textFields["chat-composer"]
         composer.tap(); composer.typeText("HERMES_IOS_TOOL_BACKGROUND_TEST")
         app.buttons["send-message"].tap()
-        XCTAssertTrue(app.staticTexts["terminal"].waitForExistence(timeout: 30))
+        let activity = app.buttons["tool-activity"]
+        XCTAssertTrue(activity.waitForExistence(timeout: 30))
+        activity.tap()
+        XCTAssertTrue(app.staticTexts["Commande"].waitForExistence(timeout: 3))
         XCUIDevice.shared.press(.home)
         sleep(55)
         app.activate()
@@ -222,6 +231,95 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertEqual(sent.count, 1)
         XCTAssertFalse(app.staticTexts["Non envoyé · copiez pour réessayer"].exists)
         capture("28-tool-background-completed")
+    }
+
+    func testNativeRoutineResultAndPermissionDiscovery() throws {
+        guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else {
+            throw XCTSkip("Requires a fresh app install and isolated Hermes fixture on port 19139.")
+        }
+        let app = XCUIApplication()
+        app.launchArguments = ["--integration-test"]
+        app.launch()
+        connectFixtureIfNeeded(app, address: "http://127.0.0.1:19139")
+        XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
+        app.buttons["app-navigation"].tap()
+        let search = app.textFields["spaces-search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap(); search.typeText("cron")
+        app.buttons["space-routines"].tap()
+        XCTAssertTrue(app.buttons["routine.add"].waitForExistence(timeout: 10))
+        app.buttons["routine.add"].tap()
+
+        // The normal form exposes a rhythm and a wall-clock time. Technical
+        // syntax stays collapsed until the person explicitly opens Advanced.
+        XCTAssertTrue(app.buttons["routine.rhythm"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.datePickers["routine.time"].exists)
+        XCTAssertTrue(app.staticTexts["Tous les jours à 8 h"].exists)
+        XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "routine.rawSchedule").firstMatch.exists)
+        capture("33-routine-simple-schedule")
+        let name = "Routine UI " + String(UUID().uuidString.prefix(8))
+        let nameField = app.textFields["routine.name"]
+        nameField.tap(); nameField.typeText(name)
+        let prompt = app.descendants(matching: .any).matching(identifier: "routine.prompt").firstMatch
+        prompt.tap(); prompt.typeText("Réponds brièvement pour tester le résultat de cette routine.")
+        app.swipeUp()
+        let advanced = app.buttons["routine.advanced"]
+        XCTAssertTrue(advanced.waitForExistence(timeout: 5)); advanced.tap()
+        let raw = app.descendants(matching: .any).matching(identifier: "routine.rawSchedule").firstMatch
+        XCTAssertTrue(raw.waitForExistence(timeout: 3))
+        raw.tap()
+        raw.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: (raw.value as? String ?? "").count))
+        // This disposable one-shot cannot accidentally fire on the scheduler
+        // while the UI test is inspecting the form, regardless of time zone.
+        raw.typeText("2099-01-01T08:30:00Z")
+        app.buttons["routine.create"].tap()
+        XCTAssertTrue(app.navigationBars["Les routines"].waitForExistence(timeout: 20))
+        let routine = app.buttons.containing(.staticText, identifier: name).firstMatch
+        XCTAssertTrue(routine.waitForExistence(timeout: 15)); routine.tap()
+        let trigger = app.buttons["routine.trigger"]
+        for _ in 0..<4 where !trigger.isHittable { app.swipeUp() }
+        XCTAssertTrue(trigger.isHittable); trigger.tap()
+        let confirm = app.buttons["Exécuter"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5)); confirm.tap()
+        app.swipeUp()
+        let result = app.buttons["routine.result"].firstMatch
+        // The local fixture responds quickly, but the native endpoint waits for
+        // the completed execution before returning its stored SessionInfo.
+        XCTAssertTrue(result.waitForExistence(timeout: 45))
+        for _ in 0..<4 where !result.isHittable { app.swipeUp() }
+        XCTAssertTrue(result.isEnabled); XCTAssertTrue(result.isHittable)
+        capture("34-routine-native-result")
+        result.tap()
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 30))
+        XCTAssertFalse(app.navigationBars["Les routines"].exists)
+        // A completed response alone could be the Bot Chat destination. Requiring
+        // this unique run title checks that the tapped execution was selected.
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", name)).firstMatch.waitForExistence(timeout: 10))
+        let answer = app.descendants(matching: .any).matching(identifier: "assistant-message")
+            .matching(NSPredicate(format: "label CONTAINS %@", "le fil est retrouvé."))
+        XCTAssertTrue(answer.firstMatch.waitForExistence(timeout: 20))
+        capture("35-routine-opened-conversation")
+
+        app.buttons["app-navigation"].tap()
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        search.tap(); search.typeText("Permissions")
+        app.buttons["space-capabilities"].tap()
+        app.buttons["Permissions"].tap()
+        let policy = app.buttons["configuration-approvals.mode"]
+        XCTAssertTrue(policy.waitForExistence(timeout: 20)); policy.tap()
+        let manual = app.buttons["approval-mode-manual"]
+        XCTAssertTrue(manual.waitForExistence(timeout: 5))
+        XCTAssertTrue(manual.label.contains("Me demander"))
+        capture("36-permission-choices")
+        // Read the native options without changing or saving any permission.
+        app.navigationBars.buttons.element(boundBy: 0).tap()
+        let advancedPermissions = app.buttons["configuration-advanced"]
+        for _ in 0..<4 where !advancedPermissions.isHittable { app.swipeUp() }
+        XCTAssertTrue(advancedPermissions.isHittable); advancedPermissions.tap()
+        XCTAssertTrue(app.navigationBars["Réglages avancés"].waitForExistence(timeout: 5))
+        capture("37-permissions-advanced")
+        app.buttons["return-to-chat"].tap()
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 5))
     }
 
     func testNativeSendThenImmediatelyBackground() throws {
@@ -414,6 +512,111 @@ final class HermesIOSUITests: XCTestCase {
         capture("21-conversation-list")
         app.buttons["return-to-chat"].tap()
         XCTAssertEqual(composer.value as? String, "Une recherche pour Atlas")
+    }
+
+    func testToolFavoritesPersistAndOpenTheirDestination() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo"]
+        app.launch()
+        XCTAssertTrue(app.buttons["app-navigation"].waitForExistence(timeout: 10))
+        app.buttons["app-navigation"].tap()
+        app.buttons["edit-tool-favorites"].tap()
+        let options = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "favorite-option-"))
+        XCTAssertTrue(options.firstMatch.waitForExistence(timeout: 3))
+
+        // Adapt to persisted preferences; restore the removed favorite at the end.
+        let original = options.allElementsBoundByIndex.first { ($0.value as? String) == "Ajouté" && $0.isHittable }
+        let originalID = original?.identifier
+        original?.tap()
+        let candidate = try XCTUnwrap(options.allElementsBoundByIndex.first {
+            $0.identifier != originalID && ($0.value as? String) != "Ajouté" && $0.isEnabled && $0.isHittable
+        })
+        let selectedID = candidate.identifier
+        let shortcutID = selectedID.replacingOccurrences(of: "favorite-option-", with: "favorite-tool-")
+        candidate.tap()
+        XCTAssertEqual(candidate.value as? String, "Ajouté")
+        app.buttons["close-tool-favorites"].tap()
+        XCTAssertTrue(app.buttons[shortcutID].waitForExistence(timeout: 3))
+        capture("30-tool-favorites")
+
+        app.terminate(); app.launch()
+        XCTAssertTrue(app.buttons["app-navigation"].waitForExistence(timeout: 10))
+        app.buttons["app-navigation"].tap()
+        XCTAssertTrue(app.buttons[shortcutID].waitForExistence(timeout: 3))
+        app.buttons[shortcutID].tap()
+        XCTAssertTrue(app.buttons["back-to-spaces"].waitForExistence(timeout: 3))
+        app.buttons["back-to-spaces"].tap()
+        app.buttons["edit-tool-favorites"].tap()
+        XCTAssertTrue(app.buttons[selectedID].waitForExistence(timeout: 3))
+        app.buttons[selectedID].tap()
+        if let originalID { app.buttons[originalID].tap() }
+        app.buttons["close-tool-favorites"].tap()
+        app.buttons["return-to-chat"].tap()
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 3))
+    }
+
+    func testUnreadConversationFilterClearsAfterOpening() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo"]
+        app.launch()
+        XCTAssertTrue(app.buttons["quick-history"].waitForExistence(timeout: 10))
+        app.buttons["quick-history"].tap()
+        let filter = app.segmentedControls["history-filter"]
+        XCTAssertTrue(filter.waitForExistence(timeout: 3))
+        filter.buttons["Non lues"].tap()
+        let unread = app.buttons["conversation-demo-default-idea"]
+        XCTAssertTrue(unread.waitForExistence(timeout: 3))
+        capture("31-unread-conversations")
+        unread.tap()
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 3))
+        app.buttons["quick-history"].tap()
+        filter.buttons["Non lues"].tap()
+        XCTAssertTrue(app.staticTexts["Vous êtes à jour"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["conversation-demo-default-idea"].exists)
+        filter.buttons["Toutes"].tap()
+        XCTAssertTrue(app.buttons["conversation-demo-default-idea"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.staticTexts["En cours"].exists)
+        app.buttons["return-to-chat"].tap()
+    }
+
+    func testLargeTextThumbNavigation() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        let composer = app.textFields["chat-composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
+        assertControlsInsideComposer(in: app)
+        for identifier in ["message-actions", "switch-profile", "quick-history", "app-navigation", "voice-mode"] {
+            let control = app.buttons[identifier]
+            XCTAssertTrue(control.isHittable, "\(identifier) remains reachable at the largest text size")
+            XCTAssertGreaterThanOrEqual(control.frame.height, 44)
+            XCTAssertGreaterThanOrEqual(control.frame.width, 44)
+        }
+        capture("38-large-text-composer")
+        composer.tap(); composer.typeText("Mon brouillon en grand texte")
+        assertControlsInsideComposer(in: app)
+        capture("39-large-text-keyboard")
+        app.buttons["switch-profile"].tap()
+        let closeProfile = app.buttons["return-to-chat"]
+        XCTAssertTrue(closeProfile.waitForExistence(timeout: 5))
+        XCTAssertTrue(closeProfile.isHittable)
+        XCTAssertGreaterThanOrEqual(closeProfile.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(closeProfile.frame.height, 44)
+        capture("40-large-text-profiles")
+        closeProfile.tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        XCTAssertEqual(composer.value as? String, "Mon brouillon en grand texte")
+        app.buttons["app-navigation"].tap()
+        XCTAssertTrue(app.textFields["spaces-search"].waitForExistence(timeout: 5))
+        let closeTools = app.buttons["return-to-chat"]
+        XCTAssertTrue(closeTools.isHittable)
+        XCTAssertGreaterThanOrEqual(closeTools.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(closeTools.frame.height, 44)
+        capture("41-large-text-tools")
+        closeTools.tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
+        XCTAssertEqual(composer.value as? String, "Mon brouillon en grand texte")
     }
 
     private func capture(_ name: String) {

@@ -13,8 +13,10 @@ struct ChatView: View {
     @State private var pinnedToBottom = true
     @State private var draggingHistory = false
     @State private var bottomVisible = true
+    @State private var toolsExpanded = false
     @FocusState private var focused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var dynamicType
 
     var body: some View {
         NavigationStack {
@@ -28,6 +30,7 @@ struct ChatView: View {
             .toolbar(.hidden, for: .navigationBar)
             .sheet(item: $destination) { page in
                 SpacesView(model: model, initial: page == .spaces ? nil : page)
+                    .overlay(alignment: .top) { ToastBanner(model: model) }
                     .presentationDragIndicator(.visible)
                     .presentationCornerRadius(30)
             }
@@ -57,7 +60,7 @@ struct ChatView: View {
                             try await model.addAttachment(data: data, name: url.lastPathComponent, mimeType: UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream", context: context)
                         }
                     } catch is CancellationError { }
-                    catch { model.notice = error.localizedDescription }
+                    catch { model.chatError = error.localizedDescription }
                 }
             }
             .onChange(of: photos) { _, items in
@@ -73,29 +76,32 @@ struct ChatView: View {
                             try await model.addAttachment(data: jpeg, name: "Photo-\(UUID().uuidString.prefix(8)).jpg", mimeType: "image/jpeg", context: context)
                         }
                     } catch is CancellationError { }
-                    catch { model.notice = error.localizedDescription }
+                    catch { model.chatError = error.localizedDescription }
                 }
             }
             .onChange(of: model.draft) { _, _ in model.draftChanged() }
-            .onChange(of: model.selected?.storedID) { _, _ in pinnedToBottom = true }
+            .onChange(of: model.selected?.storedID) { _, _ in pinnedToBottom = true; toolsExpanded = false }
+            .onChange(of: destination) { _, value in model.setChatVisible(value == nil && bottomVisible) }
+            .onChange(of: bottomVisible) { _, visible in model.setChatVisible(destination == nil && visible) }
+            .onAppear { model.setChatVisible(destination == nil && bottomVisible) }
+            .onDisappear { model.setChatVisible(false) }
         }
     }
 
     private var header: some View {
         HStack(spacing: 12) {
-            Button { present(.profiles) } label: {
-                HStack(spacing: 11) {
-                    AgentAvatar(name: model.agent?.name ?? "default", size: 34)
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            Text(model.agent?.title ?? "Hermes").font(.headline)
-                            Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
-                        }
-                        ConnectionIndicator(model: model).lineLimit(1)
-                    }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(model.selected?.title ?? "Nouvelle conversation").font(.headline)
+                    .lineLimit(dynamicType.isAccessibilitySize ? 2 : 1).truncationMode(.tail)
+                if model.state != .connected && !model.demo {
+                    ConnectionIndicator(model: model).lineLimit(dynamicType.isAccessibilitySize ? 2 : 1)
+                } else {
+                    Text([model.agent?.title ?? "Hermes", model.activeConnection?.name ?? (model.demo ? "Aperçu interactif" : "")].filter { !$0.isEmpty }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        .accessibilityLabel(model.demo ? "Aperçu interactif" : "Connecté à Hermes")
+                        .accessibilityIdentifier("connection-status")
                 }
-            }.buttonStyle(.plain).accessibilityLabel("Choisir un agent").accessibilityIdentifier("quick-agents")
-            Spacer()
+            }.frame(maxWidth: .infinity, alignment: .leading)
             if model.selected != nil {
                 Menu {
                     Button("Créer une branche", systemImage: "arrow.triangle.branch") { Task { await model.branchConversation() } }
@@ -163,11 +169,12 @@ struct ChatView: View {
                                 TimelineView(.periodic(from: .now, by: 1)) { context in
                                     Text(model.sending ? "Transmission à Hermès…"
                                          : model.state == .connected && model.transcript.isWaitingForResponse(at: context.date)
-                                         ? "En attente de la réponse du modèle…" : activity)
+                                         ? "En attente de la réponse du modèle…" : activityTitle(activity))
                                         .lineLimit(2)
                                 }
                             }.font(.caption).foregroundStyle(.secondary).padding(.leading, 2)
                         }
+                        if !model.transcript.toolSteps.isEmpty { toolActivity }
                         if let failure = model.transcript.failure, !failure.isEmpty {
                             Label(failure, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(AppTheme.accent)
                         }
@@ -212,6 +219,36 @@ struct ChatView: View {
         }
     }
 
+    private func activityTitle(_ activity: String) -> String {
+        guard let step = model.transcript.toolSteps.last(where: { $0.name == activity }) else { return activity }
+        return step.title + "…"
+    }
+
+    private var toolActivity: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { toolsExpanded.toggle() } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "wrench.and.screwdriver")
+                    Text("\(model.transcript.toolSteps.count) outil\(model.transcript.toolSteps.count > 1 ? "s" : "") utilisé\(model.transcript.toolSteps.count > 1 ? "s" : "")")
+                    Image(systemName: toolsExpanded ? "chevron.up" : "chevron.down").font(.caption2)
+                }.font(.caption).foregroundStyle(.secondary).frame(minHeight: 44)
+            }.buttonStyle(.plain).accessibilityLabel("Activité des outils")
+                .accessibilityValue(toolsExpanded ? "Développée" : "Réduite").accessibilityIdentifier("tool-activity")
+            if toolsExpanded {
+                ForEach(model.transcript.toolSteps) { step in
+                    HStack(alignment: .firstTextBaseline, spacing: 9) {
+                        Image(systemName: step.state == .completed ? "checkmark" : step.state == .stopped ? "minus" : "ellipsis")
+                            .foregroundStyle(step.state == .running ? AppTheme.accent : .secondary)
+                        Text(step.title)
+                        Spacer(minLength: 8)
+                        Text(step.state == .completed ? "Terminé" : step.state == .stopped ? "Arrêté" : "En cours")
+                            .foregroundStyle(.secondary)
+                    }.font(.caption).padding(.vertical, 5)
+                }
+            }
+        }
+    }
+
     private var composer: some View {
         VStack(spacing: 0) {
             if model.draft.hasSuffix("@") {
@@ -243,24 +280,37 @@ struct ChatView: View {
                     }.padding(.horizontal, 4).accessibilityIdentifier("pending-attachments")
                 }
                 if model.importingAttachments { ProgressView("Ajout…").font(.caption).padding(8) }
-                TextField("Message…", text: $model.draft, axis: .vertical)
-                    .lineLimit(1...7).font(.body).focused($focused)
-                    .padding(.horizontal, 9).padding(.vertical, 8).frame(minHeight: 44)
-                    .accessibilityIdentifier("chat-composer")
-                HStack(spacing: 6) {
-                    ViewThatFits(in: .horizontal) {
-                        composerShortcuts(showToolTitle: true, compactProfile: false)
-                        composerShortcuts(showToolTitle: false, compactProfile: false)
-                        composerShortcuts(showToolTitle: false, compactProfile: true)
-                    }
-                    Spacer(minLength: 0)
+                if let error = model.chatError {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "exclamationmark.circle").padding(.top, 12)
+                        Text(error).font(.caption).padding(.vertical, 12).frame(maxWidth: .infinity, alignment: .leading)
+                        Button { model.chatError = nil } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                            .accessibilityLabel("Fermer le message")
+                    }.foregroundStyle(AppTheme.accent).padding(.leading, 8).accessibilityIdentifier("chat-error")
+                }
+                HStack(alignment: .bottom, spacing: 4) {
+                    TextField("Message…", text: $model.draft, axis: .vertical)
+                        .lineLimit(1...7).font(.body).focused($focused)
+                        .padding(.horizontal, 9).padding(.vertical, 8).frame(minHeight: 44)
+                        .accessibilityIdentifier("chat-composer")
+                    sendButton
+                }.padding(.bottom, 4)
+                HStack(spacing: 2) {
+                    messageActions
+                    profileShortcut
+                    Button { present(.history) } label: {
+                        Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 18)).frame(width: 44, height: 44)
+                            .overlay(alignment: .topTrailing) { if model.hasUnread(profile: model.profile) { Circle().fill(AppTheme.accent).frame(width: 6, height: 6).padding(6) } }
+                    }.accessibilityLabel("Conversations du profil actif").accessibilityIdentifier("quick-history")
+                    Button { present(.spaces) } label: {
+                        Image(systemName: "slider.horizontal.3").font(.system(size: 18)).frame(width: 44, height: 44)
+                    }.accessibilityLabel("Outils").accessibilityIdentifier("app-navigation")
                     Button { present(.voice) } label: {
-                        Image(systemName: "mic").font(.system(size: 20)).frame(width: 44, height: 44)
+                        Image(systemName: "waveform").font(.system(size: 20)).frame(width: 44, height: 44)
                             .foregroundStyle(AppTheme.accent)
                     }.buttonStyle(.plain).accessibilityLabel("Conversation vocale").accessibilityIdentifier("voice-mode")
                         .disabled(model.sending || model.opening || model.transcript.running || (!model.demo && model.state != .connected))
-                    sendButton
-                }
+                }.foregroundStyle(.secondary).buttonStyle(.plain)
             }.padding(10)
                 .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 28))
                 .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(AppTheme.line))
@@ -281,32 +331,23 @@ struct ChatView: View {
         }.disabled(model.sending || model.importingAttachments || model.attachments.count >= 4).accessibilityLabel("Ajouter une pièce jointe").accessibilityIdentifier("message-actions")
     }
 
-    private func composerShortcuts(showToolTitle: Bool, compactProfile: Bool) -> some View {
-        HStack(spacing: 2) {
-            messageActions
-            Button { present(.profiles) } label: {
+    private var profileShortcut: some View {
+        Button { present(.profiles) } label: {
+            ViewThatFits(in: .horizontal) {
                 HStack(spacing: 6) {
                     AgentAvatar(name: model.agent?.name ?? "default", size: 20)
-                    if !compactProfile {
-                        Text(model.agent?.title ?? "Hermes").lineLimit(1).frame(maxWidth: 85)
-                        Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary)
-                    }
-                }.padding(.horizontal, 8).frame(minWidth: 44, minHeight: 44)
-                    .background(AppTheme.background, in: Capsule())
-            }.accessibilityLabel("Changer de profil : \(model.agent?.title ?? "Hermes")")
-                .accessibilityIdentifier("switch-profile")
-            Button { present(.history) } label: {
-                Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 18))
-                    .frame(width: 44, height: 44)
-            }.accessibilityLabel("Conversations du profil actif").accessibilityIdentifier("quick-history")
-            Button { present(.spaces) } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "slider.horizontal.3").font(.system(size: 17))
-                    if showToolTitle { Text("Outils") }
-                }.padding(.horizontal, showToolTitle ? 8 : 0).frame(minWidth: 44, minHeight: 44)
-            }.accessibilityLabel("Outils").accessibilityIdentifier("app-navigation")
-        }.font(.caption.weight(.medium)).foregroundStyle(.secondary).buttonStyle(.plain)
-            .fixedSize(horizontal: true, vertical: false)
+                    Text(model.agent?.title ?? "Hermes").lineLimit(1).frame(maxWidth: 100)
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                }.padding(.horizontal, 9)
+                HStack(spacing: 4) {
+                    AgentAvatar(name: model.agent?.name ?? "default", size: 20)
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                }.padding(.horizontal, 6)
+            }.frame(minWidth: 44, maxWidth: .infinity, minHeight: 44)
+                .background(AppTheme.background, in: Capsule())
+        }.font(.caption.weight(.medium)).foregroundStyle(.primary)
+            .accessibilityLabel("Changer de profil : \(model.agent?.title ?? "Hermes")")
+            .accessibilityIdentifier("switch-profile")
     }
 
     private var sendButton: some View {
