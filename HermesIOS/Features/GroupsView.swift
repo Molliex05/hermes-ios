@@ -24,7 +24,7 @@ private final class GroupModel {
         do {
             let capabilities = try await call("groups.capabilities")
             supported = capabilities["driver"].bool && capabilities["methods"].array.contains("groups.send")
-            guard supported else { error = "Ce serveur n’expose pas encore les groupes natifs. Mettez Hermes à jour et relancez hermes serve."; return }
+            guard supported else { error = String(localized: "Ce serveur n’expose pas encore les groupes natifs. Mettez Hermes à jour et relancez hermes serve."); return }
             try await refreshRooms()
         } catch { self.error = error.localizedDescription }
     }
@@ -76,7 +76,7 @@ private final class GroupModel {
             _ = try await call("groups.send", pending)
             data.pending.removeValue(forKey: room); data.drafts[room] = ""
             await refresh(room)
-        } catch { self.error = "Envoi en attente. Réessayer utilise le même identifiant et ne crée pas de doublon. \(error.localizedDescription)" }
+        } catch { self.error = String(localized: "Envoi en attente. Réessayer utilise le même identifiant et ne crée pas de doublon. \(error.localizedDescription)") }
         await save()
     }
     func stop(_ room: String) async {
@@ -86,7 +86,7 @@ private final class GroupModel {
     func save() async {
         guard app.connections.contains(where: { $0.id == connectionID }) else { return }
         do { try await cache.save(data, key: connectionID.uuidString + "-groups") }
-        catch { self.error = "Le cache du groupe n’a pas pu être enregistré." }
+        catch { self.error = String(localized: "Le cache du groupe n’a pas pu être enregistré.") }
     }
 }
 
@@ -190,12 +190,14 @@ private struct GroupChatView: View {
             }.padding(24)
         }.defaultScrollAnchor(.bottom).scrollDismissesKeyboard(.interactively).background(AppTheme.background)
             .navigationTitle(room["name"].string).navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .primaryAction) { Button { Task { await model.stop(id) } } label: { Image(systemName: "stop.circle") }.accessibilityLabel("Arrêter les agents") } }
+            .toolbar { ToolbarItem(placement: .primaryAction) { Button { Task { await model.stop(id) } } label: { Image(systemName: "stop.circle") }.accessibilityLabel(Text("Arrêter les agents")) } }
             .safeAreaInset(edge: .bottom) {
                 HStack {
                     TextField("Une idée à partager…", text: Binding(get: { model.data.drafts[id] ?? "" }, set: { model.data.drafts[id] = $0 }), axis: .vertical).lineLimit(1...5)
-                    Button(model.data.pending[id] == nil ? "Envoyer" : "Réessayer") {
+                    Button {
                         Task { await model.send(id, text: model.data.drafts[id] ?? "") }
+                    } label: {
+                        model.data.pending[id] == nil ? Text("Envoyer") : Text("Réessayer")
                     }.disabled(model.busy || ((model.data.drafts[id] ?? "").isEmpty && model.data.pending[id] == nil))
                 }.padding(18).background(AppTheme.surface)
             }

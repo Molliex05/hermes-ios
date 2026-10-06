@@ -26,7 +26,7 @@ private final class PhoneAudio: NSObject, AVAudioPlayerDelegate {
         if fixture { fixtureSamples = 0; recording = true; return }
         #endif
         let attempt = UUID(); generation = attempt
-        guard await AVAudioApplication.requestRecordPermission() else { throw RPCFailure("Autorisez le microphone dans les réglages iOS pour parler avec Hermes.") }
+        guard await AVAudioApplication.requestRecordPermission() else { throw RPCFailure(String(localized: "Autorisez le microphone dans les réglages iOS pour parler avec Hermes.")) }
         guard attempt == generation else { throw CancellationError() }
         stopPlayback()
         let session = AVAudioSession.sharedInstance()
@@ -37,7 +37,7 @@ private final class PhoneAudio: NSObject, AVAudioPlayerDelegate {
         let recorder = try AVAudioRecorder(url: url, settings: [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 24000, AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 64000])
         recorder.isMeteringEnabled = true
         self.recorder = recorder
-        guard recorder.record(forDuration: 120) else { cleanup(); throw RPCFailure("Le microphone n’a pas pu démarrer.") }
+        guard recorder.record(forDuration: 120) else { cleanup(); throw RPCFailure(String(localized: "Le microphone n’a pas pu démarrer.")) }
         recording = true
     }
     func power() -> Double {
@@ -51,19 +51,19 @@ private final class PhoneAudio: NSObject, AVAudioPlayerDelegate {
         if fixture { recording = false; return Data(base64Encoded: "UklGRuQSAABXQVZFZm10IBAAAAABAAEAwF0AAIC7AAACABAAZGF0YcASAAA=")! + Data(repeating: 0, count: 4800) }
         #endif
         recorder?.stop(); recording = false
-        guard let file else { throw RPCFailure("Aucun enregistrement disponible.") }
+        guard let file else { throw RPCFailure(String(localized: "Aucun enregistrement disponible.")) }
         defer { cleanup() }
         return try Data(contentsOf: file)
     }
     func play(_ dataURL: String) throws {
-        guard let comma = dataURL.firstIndex(of: ","), let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])) else { throw RPCFailure("Hermes n’a pas renvoyé d’audio lisible.") }
+        guard let comma = dataURL.firstIndex(of: ","), let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...])) else { throw RPCFailure(String(localized: "Hermes n’a pas renvoyé d’audio lisible.")) }
         stopPlayback()
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.playback, mode: .spokenAudio)
         try session.setActive(true)
         let player = try AVAudioPlayer(data: data); self.player = player; player.delegate = self
         playing = player.play()
-        if !playing { throw RPCFailure("Impossible de lire cet audio.") }
+        if !playing { throw RPCFailure(String(localized: "Impossible de lire cet audio.")) }
     }
     func stopPlayback() {
         player?.stop(); player = nil; playing = false
@@ -103,12 +103,12 @@ private final class VoiceConversation {
     }
     var title: String {
         switch phase {
-        case .ready: "Parlons simplement."
-        case .listening: "Je vous écoute."
-        case .transcribing: "Je vous ai entendu."
-        case .thinking: "Hermes réfléchit."
-        case .speaking: "Hermes vous répond."
-        case .paused: "On reprend ?"
+        case .ready: String(localized: "Parlons simplement.")
+        case .listening: String(localized: "Je vous écoute.")
+        case .transcribing: String(localized: "Je vous ai entendu.")
+        case .thinking: String(localized: "Hermes réfléchit.")
+        case .speaking: String(localized: "Hermes vous répond.")
+        case .paused: String(localized: "On reprend ?")
         }
     }
     func start(standardMode: Bool = false) {
@@ -134,7 +134,7 @@ private final class VoiceConversation {
                 _ = try? await tools.request("/api/audio/tts-lease", method: "POST", body: ["lease": .string(leaseID), "active": true])
                 while true {
                     try validate(attempt)
-                    guard !tools.app.transcript.running else { throw RPCFailure("Attendez la fin de la réponse dans le chat.") }
+                    guard !tools.app.transcript.running else { throw RPCFailure(String(localized: "Attendez la fin de la réponse dans le chat.")) }
                     phase = .listening; finishUtterance = false
                     var activity = VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.silenceDuration)
                     try await audio.start()
@@ -142,10 +142,10 @@ private final class VoiceConversation {
                         try await Task.sleep(for: .milliseconds(50)); try validate(attempt)
                         let ended = activity.sample(decibels: audio.power(), interval: 0.05)
                         if ended || finishUtterance || activity.elapsed >= 120 { break }
-                        if activity.elapsed >= 15, !activity.hasSpeech { throw RPCFailure("L’écoute est en pause. Touchez le micro pour reprendre.") }
+                        if activity.elapsed >= 15, !activity.hasSpeech { throw RPCFailure(String(localized: "L’écoute est en pause. Touchez le micro pour reprendre.")) }
                     }
                     let recording = try audio.finish()
-                    guard activity.hasSpeech else { throw RPCFailure("Aucune parole détectée. Touchez le micro pour réessayer.") }
+                    guard activity.hasSpeech else { throw RPCFailure(String(localized: "Aucune parole détectée. Touchez le micro pour réessayer.")) }
                     phase = .transcribing
                     let transcription = try await voiceAPI.transcribe(recording, mimeType: audio.mimeType)
                     try validate(attempt)
@@ -161,16 +161,16 @@ private final class VoiceConversation {
                         try await Task.sleep(for: .milliseconds(100)); try validate(attempt)
                         let transcript = tools.app.transcript
                         if transcript.approval != nil || transcript.clarification != nil || transcript.credential != nil {
-                            throw RPCFailure("Hermes attend votre réponse dans le chat.")
+                            throw RPCFailure(String(localized: "Hermes attend votre réponse dans le chat."))
                         }
-                        guard Date() < deadline else { throw RPCFailure("Hermes travaille encore. Retrouvez sa réponse dans le chat.") }
+                        guard Date() < deadline else { throw RPCFailure(String(localized: "Hermes travaille encore. Retrouvez sa réponse dans le chat.")) }
                     }
                     try validate(attempt)
                     if let failure = tools.app.transcript.failure { throw RPCFailure(failure) }
                     let messages = tools.app.transcript.messages
-                    guard let index = messages.firstIndex(where: { $0.id == message }) else { throw RPCFailure("La conversation a changé. Retrouvez la réponse dans le chat.") }
+                    guard let index = messages.firstIndex(where: { $0.id == message }) else { throw RPCFailure(String(localized: "La conversation a changé. Retrouvez la réponse dans le chat.")) }
                     answer = messages.dropFirst(index + 1).filter { $0.role == "assistant" }.map(\.text).joined(separator: "\n\n")
-                    guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw RPCFailure("Hermes n’a pas renvoyé de réponse à lire.") }
+                    guard !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw RPCFailure(String(localized: "Hermes n’a pas renvoyé de réponse à lire.")) }
                     let speech = try await voiceAPI.speech(answer)
                     try validate(attempt)
                     phase = .speaking
@@ -253,16 +253,16 @@ struct VoiceView: View {
                 HStack(spacing: 24) {
                     Button { conversation.pause(); returnToChat() } label: {
                         Image(systemName: "xmark").font(.system(size: 20)).frame(width: 58, height: 58).background(AppTheme.surface, in: Circle())
-                    }.accessibilityLabel("Terminer et revenir au chat").accessibilityIdentifier("return-to-chat")
+                    }.accessibilityLabel(Text("Terminer et revenir au chat")).accessibilityIdentifier("return-to-chat")
                     Button { conversation.speakNow() } label: {
                         Image(systemName: conversation.phase == .speaking ? "waveform" : "mic.fill").font(.system(size: 25))
                             .frame(width: 76, height: 76).foregroundStyle(AppTheme.surface).background(AppTheme.accent, in: Circle())
-                    }.accessibilityLabel(conversation.phase == .speaking ? "Interrompre et parler" : conversation.phase == .listening ? "Envoyer ma parole" : "Reprendre l’écoute")
+                    }.accessibilityLabel(conversation.phase == .speaking ? Text("Interrompre et parler") : conversation.phase == .listening ? Text("Envoyer ma parole") : Text("Reprendre l’écoute"))
                         .accessibilityIdentifier("voice-listen")
                         .disabled(app.demo || [.thinking, .transcribing].contains(conversation.phase) || conversation.requiresStandardMode)
                     Button { conversation.pause() } label: {
                         Image(systemName: "pause.fill").font(.system(size: 20)).frame(width: 58, height: 58).background(AppTheme.surface, in: Circle())
-                    }.accessibilityLabel("Mettre l’écoute en pause").disabled(app.demo || conversation.phase == .paused)
+                    }.accessibilityLabel(Text("Mettre l’écoute en pause")).disabled(app.demo || conversation.phase == .paused)
                 }.buttonStyle(.plain).padding(.vertical, 22)
             }.background(AppTheme.background).navigationTitle("Voix").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -270,7 +270,7 @@ struct VoiceView: View {
                         ToolbarItem(placement: .topBarLeading) {
                             Button { conversation.pause(); navigation.showSpaces() } label: {
                                 Image(systemName: "circle.grid.2x2").frame(width: 44, height: 44)
-                            }.accessibilityLabel("Outils").accessibilityIdentifier("back-to-spaces")
+                            }.accessibilityLabel(Text("Outils")).accessibilityIdentifier("back-to-spaces")
                         }
                     }
                 }

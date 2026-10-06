@@ -11,9 +11,9 @@ enum Keychain {
             item[kSecValueData as String] = data
             item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             let result = SecItemAdd(item as CFDictionary, nil)
-            guard result == errSecSuccess else { throw RPCFailure("Le trousseau iOS n’a pas pu enregistrer la connexion.", code: Int(result)) }
+            guard result == errSecSuccess else { throw RPCFailure(String(localized: "Le trousseau iOS n’a pas pu enregistrer la connexion."), code: Int(result)) }
         } else if status != errSecSuccess {
-            throw RPCFailure("Le trousseau iOS n’est pas accessible.", code: Int(status))
+            throw RPCFailure(String(localized: "Le trousseau iOS n’est pas accessible."), code: Int(status))
         }
     }
 

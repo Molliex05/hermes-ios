@@ -79,14 +79,14 @@ final class AppModel {
             if connection.mode == "token" { try client.useToken(token) }
             else {
                 if status["auth_providers"].array.isEmpty && !status["auth_required"].bool {
-                    throw RPCFailure("Activez l’authentification native de Hermes, puis connectez Hermès iOS. Consultez le guide de connexion.")
+                    throw RPCFailure(String(localized: "Activez l’authentification native de Hermes, puis connectez Hermès iOS. Consultez le guide de connexion."))
                 }
                 try await client.signIn(username: username, password: password)
             }
             let probe = HermesSocket()
             try await probe.open(http: client)
             let result = try await probe.call("profiles.list")
-            guard !result["profiles"].array.isEmpty else { probe.close(); throw RPCFailure("Ce serveur ne renvoie aucun profil Hermes.") }
+            guard !result["profiles"].array.isEmpty else { probe.close(); throw RPCFailure(String(localized: "Ce serveur ne renvoie aucun profil Hermes.")) }
             probe.close(); client.invalidate()
             connections.removeAll { $0.id == connection.id }
             connections.insert(connection, at: 0)
@@ -238,7 +238,7 @@ final class AppModel {
         let result = try await socket.call("profiles.list", ["include_sessions": true])
         try Task.checkCancellation()
         guard generation == connectionGeneration, self.socket === socket else { return }
-        guard case .array = result["profiles"] else { throw RPCFailure("Hermes a renvoyé une liste de profils invalide.") }
+        guard case .array = result["profiles"] else { throw RPCFailure(String(localized: "Hermes a renvoyé une liste de profils invalide.")) }
         profiles = result["profiles"].array.map(AgentProfile.init)
         hasBotProtocol = result["bot_mode_protocol"].bool
         if selected == nil, !profiles.contains(where: { $0.name == profile }), let first = profiles.first { profile = first.name }
@@ -247,7 +247,7 @@ final class AppModel {
 
     func refreshSessions() async throws {
         guard !demo else { return }
-        guard state == .connected, let socket else { throw RPCFailure("Connexion à Hermes en cours…", code: -1) }
+        guard state == .connected, let socket else { throw RPCFailure(String(localized: "Connexion à Hermes en cours…"), code: -1) }
         let generation = connectionGeneration
         let owner = profile
         let scope = "\(ObjectIdentifier(socket))|\(owner)"
@@ -256,7 +256,7 @@ final class AppModel {
         }
         try Task.checkCancellation()
         guard generation == connectionGeneration, self.socket === socket, state == .connected else { throw CancellationError() }
-        guard case .array = result["sessions"] else { throw RPCFailure("Hermes a renvoyé une liste de conversations invalide.") }
+        guard case .array = result["sessions"] else { throw RPCFailure(String(localized: "Hermes a renvoyé une liste de conversations invalide.")) }
         historyIndex.update(result["sessions"].array.map { Conversation($0, profile: owner) }, profile: owner)
         if profile == owner { sessions = historyIndex[owner]; historyRevision += 1 }
         scheduleSave()
@@ -288,9 +288,9 @@ final class AppModel {
             // Exact canonical registry lookup, including hidden sessions. Failure is never absence.
             let result = try await socket.call("session.list", ["profile": .string(bot.name), "title": "Bot Chat", "include_hidden": true])
             var canonical = result["sessions"].array.first
-            if canonical == nil, bot.canonicalID != nil { throw RPCFailure("Le Bot Chat est temporairement indisponible. Réessayez dans un instant.") }
+            if canonical == nil, bot.canonicalID != nil { throw RPCFailure(String(localized: "Le Bot Chat est temporairement indisponible. Réessayez dans un instant.")) }
             if canonical == nil {
-                guard hasBotProtocol else { throw RPCFailure("Mettez Hermes à jour pour utiliser le Bot Mode natif.") }
+                guard hasBotProtocol else { throw RPCFailure(String(localized: "Mettez Hermes à jour pour utiliser le Bot Mode natif.")) }
                 let created = try await socket.call("session.create", ["profile": .string(bot.name), "title": "Bot Chat", "hidden": true, "follow_profile_config": true])
                 do {
                     _ = try await socket.call("session.title", ["session_id": created["session_id"], "title": "Bot Chat"])
@@ -342,7 +342,7 @@ final class AppModel {
         let response = try await socket.call("session.resume", ["profile": .string(chat.profile), "session_id": .string(chat.storedID), "omit_messages": .bool(canReplay)])
         try validate()
         let runtime = response["session_id"].string
-        guard !runtime.isEmpty else { throw RPCFailure("Hermes n’a pas retourné de session active.") }
+        guard !runtime.isEmpty else { throw RPCFailure(String(localized: "Hermes n’a pas retourné de session active.")) }
         selected?.runtimeID = runtime
         let stored = response["session_key"].string.isEmpty ? response["stored_session_id"].string : response["session_key"].string
         if !stored.isEmpty { selected?.storedID = stored }
@@ -376,9 +376,9 @@ final class AppModel {
     }
 
     func addAttachment(data: Data, name: String, mimeType: String, context: String) async throws {
-        guard context == attachmentContext, !sending else { throw RPCFailure("Revenez à la conversation choisie avant d’ajouter ce fichier.") }
-        guard data.count <= DraftAttachment.maximumBytes, !data.isEmpty else { throw RPCFailure("Choisissez un fichier de 10 Mo maximum, non vide.") }
-        guard attachments.count < DraftAttachment.maximumCount else { throw RPCFailure("Ajoutez jusqu’à quatre pièces jointes par message.") }
+        guard context == attachmentContext, !sending else { throw RPCFailure(String(localized: "Revenez à la conversation choisie avant d’ajouter ce fichier.")) }
+        guard data.count <= DraftAttachment.maximumBytes, !data.isEmpty else { throw RPCFailure(String(localized: "Choisissez un fichier de 10 Mo maximum, non vide.")) }
+        guard attachments.count < DraftAttachment.maximumCount else { throw RPCFailure(String(localized: "Ajoutez jusqu’à quatre pièces jointes par message.")) }
         let item = DraftAttachment(name: name, mimeType: mimeType, size: data.count)
         try await cache.saveAttachment(data, id: item.id)
         guard context == attachmentContext, !sending else { await cache.removeAttachment(item.id); throw CancellationError() }
@@ -405,18 +405,18 @@ final class AppModel {
 
     /// A spoken turn never consumes the user's typed draft or its attachments.
     func sendVoice(_ text: String) async throws -> String {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw RPCFailure("Aucune parole détectée.") }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw RPCFailure(String(localized: "Aucune parole détectée.")) }
         return try await submit(text, consumeDraft: false)
     }
 
     private func submit(_ input: String, consumeDraft: Bool) async throws -> String {
-        guard !sending, !opening, !transcript.running, state == .connected, let socket else { throw RPCFailure("Attendez que Hermes soit prêt avant de parler ou d’envoyer un message.") }
+        guard !sending, !opening, !transcript.running, state == .connected, let socket else { throw RPCFailure(String(localized: "Attendez que Hermes soit prêt avant de parler ou d’envoyer un message.")) }
         let originalDraftKey = draftKey
         let generation = selectionGeneration
         let connection = connectionGeneration
         let pending = consumeDraft ? attachments : []
         var text = input
-        if text.isEmpty { text = pending.allSatisfy(\.isImage) ? "Que vois-tu dans ces images ?" : "Examine ces fichiers." }
+        if text.isEmpty { text = pending.allSatisfy(\.isImage) ? String(localized: "Que vois-tu dans ces images ?") : String(localized: "Examine ces fichiers.") }
         sending = true
         let lease = BackgroundLease(name: "Send message to Hermès") { [weak self] in
             guard let self, connection == self.connectionGeneration, !self.foreground else { return }
@@ -443,7 +443,7 @@ final class AppModel {
             workspace.drafts[draftKey] = draft
             workspace.drafts[originalDraftKey] = nil
         }
-        guard let chat = selected, !chat.runtimeID.isEmpty else { throw RPCFailure("Rouvrez cette conversation pour envoyer un message.") }
+        guard let chat = selected, !chat.runtimeID.isEmpty else { throw RPCFailure(String(localized: "Rouvrez cette conversation pour envoyer un message.")) }
         let runtime = chat.runtimeID
         // A timed-out image attach has a known path: detach it before any new turn.
         for path in imageCleanup[runtime] ?? [] {
@@ -460,14 +460,14 @@ final class AppModel {
                     try validate()
                     let result = try await socket.call("file.attach", ["session_id": .string(runtime), "name": .string(item.name), "data_url": .string("data:\(item.mimeType);base64,\(data.base64EncodedString())")], timeout: 90)
                     try validate()
-                    guard result["attached"].bool, !result["path"].string.isEmpty else { throw RPCFailure("Hermes n’a pas accepté le fichier.") }
+                    guard result["attached"].bool, !result["path"].string.isEmpty else { throw RPCFailure(String(localized: "Hermes n’a pas accepté le fichier.")) }
                     item.remotePath = result["path"].string; item.remoteReference = result["ref_text"].string; item.runtimeID = runtime
                     if let index = attachmentDrafts[draftKey]?.firstIndex(where: { $0.id == item.id }) { attachmentDrafts[draftKey]?[index] = item }
                     scheduleSave()
                 }
                 if item.isImage { imagePaths.append(item.remotePath!) }
                 else if let ref = item.remoteReference, !ref.isEmpty { refs.append(ref) }
-                else { throw RPCFailure("Hermes n’a pas renvoyé de référence pour ce fichier.") }
+                else { throw RPCFailure(String(localized: "Hermes n’a pas renvoyé de référence pour ce fichier.")) }
             }
             for path in imagePaths {
                 imageCleanup[runtime, default: []].append(path)
@@ -490,7 +490,7 @@ final class AppModel {
             draft = ""; workspace.drafts[draftKey] = ""; workspace.drafts[originalDraftKey] = ""
             attachmentDrafts[draftKey] = nil
         }
-        transcript.running = true; transcript.activity = "Réfléchit…"; transcript.failure = nil
+        transcript.running = true; transcript.activity = String(localized: "Réfléchit…"); transcript.failure = nil
         await persistNow()
         try validate()
         do {
@@ -508,7 +508,7 @@ final class AppModel {
                 draft = input
             }
             await persistNow()
-            throw RPCFailure("Envoi à vérifier : \(error.localizedDescription) Le message ne sera pas renvoyé automatiquement.")
+            throw RPCFailure(String(localized: "Envoi à vérifier : \(error.localizedDescription) Le message ne sera pas renvoyé automatiquement."))
         }
         for item in pending { await cache.removeAttachment(item.id) }
         await persistNow()
@@ -526,7 +526,7 @@ final class AppModel {
         do {
             let result = try await socket.call("approval.respond", ["session_id": .string(selected.runtimeID), "request_id": approval["request_id"], "choice": .string(choice)])
             if result["resolved"].bool { transcript.approval = nil }
-            else { notice = "Cette demande n’est plus active. La conversation va se mettre à jour." }
+            else { notice = String(localized: "Cette demande n’est plus active. La conversation va se mettre à jour.") }
         } catch { notice = error.localizedDescription }
     }
 
@@ -555,7 +555,7 @@ final class AppModel {
         do {
             let result = try await socket.call("cron.manage", ["action": "list", "profile": .string(owner), "include_disabled": true])
             guard owner == (selected?.profile ?? profile) else { return }
-            guard result["scoped"].string == owner else { throw RPCFailure("Mettez Hermes à jour pour gérer les routines de ce profil.") }
+            guard result["scoped"].string == owner else { throw RPCFailure(String(localized: "Mettez Hermes à jour pour gérer les routines de ce profil.")) }
             routines = result["jobs"].array.map(Routine.init)
         } catch { notice = error.localizedDescription }
     }
@@ -570,7 +570,7 @@ final class AppModel {
     }
 
     func createRoutine(name: String, prompt: String, schedule: String) async throws {
-        guard let socket else { throw RPCFailure("Connectez Hermes pour créer une routine.") }
+        guard let socket else { throw RPCFailure(String(localized: "Connectez Hermes pour créer une routine.")) }
         let owner = selected?.profile ?? profile
         let result = try await socket.call("cron.manage", ["action": "add", "profile": .string(owner), "name": .string("[bot:\(owner)] \(name)"), "prompt": .string(prompt), "schedule": .string(schedule), "deliver": .string("bot-chat:\(owner)")])
         try checkResult(result)
@@ -578,7 +578,7 @@ final class AppModel {
     }
 
     func createBot(name: String, description: String, soul: String, clone: String) async throws {
-        guard let socket else { throw RPCFailure("Connectez Hermes pour créer un agent.") }
+        guard let socket else { throw RPCFailure(String(localized: "Connectez Hermes pour créer un agent.")) }
         var params: [String: JSONValue] = ["name": .string(name), "description": .string(description), "soul": .string(soul), "share_auth": true, "no_alias": true]
         if !clone.isEmpty { params["clone_from"] = .string(clone) }
         let result = try await socket.call("profiles.create", .object(params), timeout: 90)
@@ -590,17 +590,17 @@ final class AppModel {
         guard let socket else { return }
         let result = try await socket.call("profiles.configure", ["name": .string(name), "description": .string(description), "soul": .string(soul)])
         try checkResult(result)
-        guard result["applied"]["soul"].bool && result["applied"]["description"].bool else { throw RPCFailure("Hermes n’a pas confirmé toutes les modifications du profil.") }
+        guard result["applied"]["soul"].bool && result["applied"]["description"].bool else { throw RPCFailure(String(localized: "Hermes n’a pas confirmé toutes les modifications du profil.")) }
         try await refreshProfiles()
     }
 
     func describeBot(_ name: String) async throws -> JSONValue {
-        guard let socket else { throw RPCFailure("Connectez Hermes pour modifier ce profil.") }
+        guard let socket else { throw RPCFailure(String(localized: "Connectez Hermes pour modifier ce profil.")) }
         return try await socket.call("profiles.describe", ["name": .string(name)])
     }
 
     func groupRequest(_ method: String, params: JSONValue = [:], connectionID: UUID) async throws -> JSONValue {
-        guard activeConnection?.id == connectionID, state == .connected, let socket else { throw RPCFailure("Reconnectez le serveur de ce groupe.") }
+        guard activeConnection?.id == connectionID, state == .connected, let socket else { throw RPCFailure(String(localized: "Reconnectez le serveur de ce groupe.")) }
         let result = try await socket.call(method, params)
         guard activeConnection?.id == connectionID else { throw CancellationError() }
         return result
@@ -611,11 +611,11 @@ final class AppModel {
                      query: [URLQueryItem] = [], connectionID: UUID?, profile expectedProfile: String,
                      rpc: Bool = false) async throws -> JSONValue {
         guard activeConnection?.id == connectionID, profile == expectedProfile,
-              let http, state == .connected else { throw RPCFailure("Reconnectez cet agent pour accéder à ses outils.") }
+              let http, state == .connected else { throw RPCFailure(String(localized: "Reconnectez cet agent pour accéder à ses outils.")) }
         let generation = connectionGeneration
         let result: JSONValue
         if rpc {
-            guard let socket else { throw RPCFailure("Hermes est déconnecté.") }
+            guard let socket else { throw RPCFailure(String(localized: "Hermes est déconnecté.")) }
             var params = body?.object ?? [:]; params["profile"] = .string(expectedProfile)
             result = try await socket.call(path, .object(params))
         } else {
@@ -629,7 +629,7 @@ final class AppModel {
     }
 
     private func checkResult(_ result: JSONValue) throws {
-        if result["success"] == .bool(false) || !result["error"].isNull { throw RPCFailure(result["error"].string.isEmpty ? "Hermes n’a pas pu effectuer cette action." : result["error"].string) }
+        if result["success"] == .bool(false) || !result["error"].isNull { throw RPCFailure(result["error"].string.isEmpty ? String(localized: "Hermes n’a pas pu effectuer cette action.") : result["error"].string) }
     }
 
     private func receive(_ event: JSONValue) {
@@ -711,7 +711,7 @@ final class AppModel {
         saveCurrent()
         workspace.profiles = profiles; workspace.sessions = sessions; workspace.historyIndex = historyIndex
         do { try await cache.save(workspace, key: activeConnection.id.uuidString) }
-        catch { notice = "Le cache local n’a pas pu être enregistré. Votre historique reste chez Hermes." }
+        catch { notice = String(localized: "Le cache local n’a pas pu être enregistré. Votre historique reste chez Hermes.") }
     }
 
     func removeConnection(_ connection: SavedConnection) async {
@@ -731,23 +731,23 @@ final class AppModel {
     func loadDemo() {
         demo = true; state = .connected; hasBotProtocol = true
         profiles = [
-            ["name": "default", "display_name": "Hermes", "description": "Votre complice au quotidien.", "model": "Hermes 4", "skill_count": 12],
-            ["name": "research", "display_name": "Atlas", "description": "Curieux de tout. Précis sur l’essentiel.", "model": "Hermes 4", "skill_count": 8],
-            ["name": "studio", "display_name": "Studio", "description": "Des idées aux choses qui existent.", "model": "Hermes 4", "skill_count": 6]
+            ["name": "default", "display_name": "Hermes", "description": .string(String(localized: "Votre complice au quotidien.")), "model": "Hermes 4", "skill_count": 12],
+            ["name": "research", "display_name": "Atlas", "description": .string(String(localized: "Curieux de tout. Précis sur l’essentiel.")), "model": "Hermes 4", "skill_count": 8],
+            ["name": "studio", "display_name": "Studio", "description": .string(String(localized: "Des idées aux choses qui existent.")), "model": "Hermes 4", "skill_count": 6]
         ].map { AgentProfile(.object($0)) }
         selected = ChatSnapshot(storedID: "demo-default", profile: "default", title: "Hermes")
         transcript.messages = [
-            .init(role: "user", text: "J’aimerais une journée un peu plus légère."),
-            .init(role: "assistant", text: "On fait de la place.\n\nChoisis **une seule chose** qui rendrait ta journée satisfaisante. Le reste peut attendre.\n\nQu’est-ce qui compte le plus pour toi aujourd’hui ?")
+            .init(role: "user", text: String(localized: "J’aimerais une journée un peu plus légère.")),
+            .init(role: "assistant", text: String(localized: "On fait de la place.\n\nChoisis **une seule chose** qui rendrait ta journée satisfaisante. Le reste peut attendre.\n\nQu’est-ce qui compte le plus pour toi aujourd’hui ?"))
         ]
         sessions = []
         // Preview history uses the same rows and navigation as a connected profile.
         for agent in profiles {
             let examples = [
-                ("demo-\(agent.name)", "Une journée plus légère", "Choisir l’essentiel et laisser un peu de place au reste.", 0),
-                ("demo-\(agent.name)-idea", "Et si on lançait cette idée ?", "Les premières pistes pour transformer une intuition en projet.", 0),
-                ("demo-\(agent.name)-week", "Préparer la semaine", "Trois priorités, quelques rendez-vous et du temps pour soi.", 1),
-                ("demo-\(agent.name)-read", "Un peu de curiosité", "Lectures, inspirations et choses à explorer.", 4)
+                ("demo-\(agent.name)", String(localized: "Une journée plus légère"), String(localized: "Choisir l’essentiel et laisser un peu de place au reste."), 0),
+                ("demo-\(agent.name)-idea", String(localized: "Et si on lançait cette idée ?"), String(localized: "Les premières pistes pour transformer une intuition en projet."), 0),
+                ("demo-\(agent.name)-week", String(localized: "Préparer la semaine"), String(localized: "Trois priorités, quelques rendez-vous et du temps pour soi."), 1),
+                ("demo-\(agent.name)-read", String(localized: "Un peu de curiosité"), String(localized: "Lectures, inspirations et choses à explorer."), 4)
             ]
             for (index, item) in examples.enumerated() {
                 let date = Calendar.current.date(byAdding: .day, value: -item.3, to: Date())!.addingTimeInterval(Double(-index * 1200))
@@ -766,7 +766,7 @@ final class AppModel {
         transcript = Transcript(messages: selected?.messages ?? [])
         draft = workspace.drafts[draftKey] ?? ""
         if transcript.messages.isEmpty {
-            transcript.messages = [.init(role: "assistant", text: "Bonjour, je suis \(bot.title). \(bot.detail)\n\nQu’est-ce qu’on explore ensemble ?")]
+            transcript.messages = [.init(role: "assistant", text: String(localized: "Bonjour, je suis \(bot.title). \(bot.detail)\n\nQu’est-ce qu’on explore ensemble ?"))]
         }
     }
 
@@ -774,7 +774,8 @@ final class AppModel {
         let text = draft; draft = ""
         transcript.messages.append(.init(role: "user", text: text))
         transcript.running = true
-        for word in "Ceci est un aperçu d’Hermès iOS. Connectez votre agent Hermes pour retrouver vos conversations, vos profils et vos outils.".split(separator: " ") {
+        let reply = String(localized: "Ceci est un aperçu d’Hermès iOS. Connectez votre agent Hermes pour retrouver vos conversations, vos profils et vos outils.")
+        for word in reply.split(separator: " ") {
             try? await Task.sleep(for: .milliseconds(60))
             transcript.apply(["type": "message.delta", "payload": ["text": .string(String(word) + " ")]])
         }

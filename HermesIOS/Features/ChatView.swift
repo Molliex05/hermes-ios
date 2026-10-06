@@ -41,7 +41,7 @@ struct ChatView: View {
                             let access = url.startAccessingSecurityScopedResource()
                             defer { if access { url.stopAccessingSecurityScopedResource() } }
                             let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                            guard size <= DraftAttachment.maximumBytes else { throw RPCFailure("Choisissez un fichier de 10 Mo maximum.") }
+                            guard size <= DraftAttachment.maximumBytes else { throw RPCFailure(String(localized: "Choisissez un fichier de 10 Mo maximum.")) }
                             let data = try await Task.detached { try Data(contentsOf: url) }.value
                             try await model.addAttachment(data: data, name: url.lastPathComponent, mimeType: UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream", context: context)
                         }
@@ -57,7 +57,7 @@ struct ChatView: View {
                     defer { model.importingAttachments = false; photos = [] }
                     do {
                         for item in items {
-                            guard let data = try await item.loadTransferable(type: Data.self) else { throw RPCFailure("Cette photo n’est pas disponible.") }
+                            guard let data = try await item.loadTransferable(type: Data.self) else { throw RPCFailure(String(localized: "Cette photo n’est pas disponible.")) }
                             let jpeg = try await Task.detached { try PhotoAttachment.jpeg(data) }.value
                             try await model.addAttachment(data: jpeg, name: "Photo-\(UUID().uuidString.prefix(8)).jpg", mimeType: "image/jpeg", context: context)
                         }
@@ -83,7 +83,7 @@ struct ChatView: View {
                         ConnectionIndicator(model: model).lineLimit(1)
                     }
                 }
-            }.buttonStyle(.plain).accessibilityLabel("Choisir un agent").accessibilityIdentifier("quick-agents")
+            }.buttonStyle(.plain).accessibilityLabel(Text("Choisir un agent")).accessibilityIdentifier("quick-agents")
             Spacer()
             RoundButton(symbol: "square.and.pencil", label: "Nouvelle conversation") { model.newChat(); focused = true }
         }.padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 16)
@@ -103,9 +103,9 @@ struct ChatView: View {
                 Text("Une question, une envie, un projet.\nHermes reprend le fil avec vous.")
                     .foregroundStyle(.secondary).lineSpacing(4)
                 VStack(spacing: 10) {
-                    suggestion("Faire le point", subtitle: "Retrouver ce qui compte aujourd’hui", symbol: "sun.max", prompt: "Aide-moi à faire le point et à choisir mes priorités pour aujourd’hui.")
-                    suggestion("Explorer une idée", subtitle: "Laisser la curiosité faire son chemin", symbol: "sparkle", prompt: "J’ai une idée à explorer. Aide-moi à la préciser.")
-                    suggestion("Passer à l’action", subtitle: "Un premier pas, tout simplement", symbol: "arrow.up.right", prompt: "Aide-moi à transformer mon projet en un premier pas concret.")
+                    suggestion(String(localized: "Faire le point"), subtitle: String(localized: "Retrouver ce qui compte aujourd’hui"), symbol: "sun.max", prompt: String(localized: "Aide-moi à faire le point et à choisir mes priorités pour aujourd’hui."))
+                    suggestion(String(localized: "Explorer une idée"), subtitle: String(localized: "Laisser la curiosité faire son chemin"), symbol: "sparkle", prompt: String(localized: "J’ai une idée à explorer. Aide-moi à la préciser."))
+                    suggestion(String(localized: "Passer à l’action"), subtitle: String(localized: "Un premier pas, tout simplement"), symbol: "arrow.up.right", prompt: String(localized: "Aide-moi à transformer mon projet en un premier pas concret."))
                 }.padding(.top, 14)
             }.padding(28).frame(maxWidth: 640).frame(maxWidth: .infinity, alignment: .center)
         }.scrollDismissesKeyboard(.interactively)
@@ -142,10 +142,9 @@ struct ChatView: View {
                                     .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion)
                                     .accessibilityHidden(true)
                                 TimelineView(.periodic(from: .now, by: 1)) { context in
-                                    Text(model.sending ? "Transmission à Hermès…"
-                                         : model.state == .connected && model.transcript.isWaitingForResponse(at: context.date)
-                                         ? "En attente de la réponse du modèle…" : activity)
-                                        .lineLimit(2)
+                                    let waiting = model.state == .connected && model.transcript.isWaitingForResponse(at: context.date)
+                                    let status = model.sending ? String(localized: "Transmission à Hermès…") : waiting ? String(localized: "En attente de la réponse du modèle…") : activity
+                                    Text(status).lineLimit(2)
                                 }
                             }.font(.caption).foregroundStyle(.secondary).padding(.leading, 2)
                         }
@@ -217,7 +216,7 @@ struct ChatView: View {
                                     Text(item.name).lineLimit(1).frame(maxWidth: 140)
                                     Button { model.removeAttachment(item) } label: {
                                         Image(systemName: "xmark").frame(width: 32, height: 44)
-                                    }.disabled(model.sending).accessibilityLabel("Retirer \(item.name)")
+                                    }.disabled(model.sending).accessibilityLabel(Text("Retirer \(item.name)"))
                                 }.font(.caption).padding(.leading, 12).background(AppTheme.background, in: RoundedRectangle(cornerRadius: 14))
                             }
                         }
@@ -238,7 +237,7 @@ struct ChatView: View {
                     Button { present(.voice) } label: {
                         Image(systemName: "mic").font(.system(size: 20)).frame(width: 44, height: 44)
                             .foregroundStyle(AppTheme.accent)
-                    }.buttonStyle(.plain).accessibilityLabel("Conversation vocale").accessibilityIdentifier("voice-mode")
+                    }.buttonStyle(.plain).accessibilityLabel(Text("Conversation vocale")).accessibilityIdentifier("voice-mode")
                         .disabled(model.sending || model.opening || model.transcript.running || (!model.demo && model.state != .connected))
                     sendButton
                 }
@@ -259,7 +258,7 @@ struct ChatView: View {
         } label: {
             Image(systemName: "plus").font(.system(size: 20, weight: .regular))
                 .foregroundStyle(.secondary).frame(width: 44, height: 44)
-        }.disabled(model.sending || model.importingAttachments || model.attachments.count >= 4).accessibilityLabel("Ajouter une pièce jointe").accessibilityIdentifier("message-actions")
+        }.disabled(model.sending || model.importingAttachments || model.attachments.count >= 4).accessibilityLabel(Text("Ajouter une pièce jointe")).accessibilityIdentifier("message-actions")
     }
 
     private func composerShortcuts(showToolTitle: Bool, compactProfile: Bool) -> some View {
@@ -274,18 +273,18 @@ struct ChatView: View {
                     }
                 }.padding(.horizontal, 8).frame(minWidth: 44, minHeight: 44)
                     .background(AppTheme.background, in: Capsule())
-            }.accessibilityLabel("Changer de profil : \(model.agent?.title ?? "Hermes")")
+            }.accessibilityLabel(Text("Changer de profil : \(model.agent?.title ?? "Hermes")"))
                 .accessibilityIdentifier("switch-profile")
             Button { present(.history) } label: {
                 Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 18))
                     .frame(width: 44, height: 44)
-            }.accessibilityLabel("Conversations du profil actif").accessibilityIdentifier("quick-history")
+            }.accessibilityLabel(Text("Conversations du profil actif")).accessibilityIdentifier("quick-history")
             Button { present(.spaces) } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "slider.horizontal.3").font(.system(size: 17))
                     if showToolTitle { Text("Outils") }
                 }.padding(.horizontal, showToolTitle ? 8 : 0).frame(minWidth: 44, minHeight: 44)
-            }.accessibilityLabel("Outils").accessibilityIdentifier("app-navigation")
+            }.accessibilityLabel(Text("Outils")).accessibilityIdentifier("app-navigation")
         }.font(.caption.weight(.medium)).foregroundStyle(.secondary).buttonStyle(.plain)
             .fixedSize(horizontal: true, vertical: false)
     }
@@ -302,7 +301,7 @@ struct ChatView: View {
                 .foregroundStyle(.white).frame(width: 44, height: 44)
                 .background(model.canSend || model.transcript.running ? AppTheme.accent : Color.secondary.opacity(0.28), in: Circle())
         }.disabled(!model.canSend && !model.transcript.running)
-            .accessibilityLabel(model.transcript.running ? "Arrêter la réponse" : "Envoyer")
+            .accessibilityLabel(model.transcript.running ? Text("Arrêter la réponse") : Text("Envoyer"))
             .accessibilityIdentifier("send-message")
     }
 
@@ -315,7 +314,7 @@ struct CredentialCard: View {
     @State private var busy = false
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Label(payload["event_type"].string == "sudo.request" ? "Accès administrateur demandé" : "Hermes demande un secret", systemImage: "key").font(.subheadline.weight(.semibold))
+            Label(payload["event_type"].string == "sudo.request" ? String(localized: "Accès administrateur demandé") : String(localized: "Hermes demande un secret"), systemImage: "key").font(.subheadline.weight(.semibold))
             if !payload["prompt"].string.isEmpty { Text(payload["prompt"].string).font(.caption).foregroundStyle(.secondary) }
             SecureField("Valeur envoyée directement à Hermes", text: $value).textFieldStyle(.roundedBorder)
             HStack {
@@ -357,7 +356,7 @@ struct MessageView: View, Equatable {
                     .background(user ? AppTheme.surface : .clear, in: RoundedRectangle(cornerRadius: 21))
                     .overlay(RoundedRectangle(cornerRadius: 21).strokeBorder(user ? AppTheme.line : .clear))
                 if message.delivery != .confirmed {
-                    Text(message.delivery == .sending ? "Envoi…" : message.delivery == .uncertain ? "Réception à vérifier dans l’historique" : "Non envoyé · copiez pour réessayer")
+                    Text(message.delivery == .sending ? String(localized: "Envoi…") : message.delivery == .uncertain ? String(localized: "Réception à vérifier dans l’historique") : String(localized: "Non envoyé · copiez pour réessayer"))
                         .font(.caption2).foregroundStyle(message.delivery == .sending ? Color.secondary : AppTheme.accent)
                 }
             }

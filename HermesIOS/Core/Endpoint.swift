@@ -8,14 +8,14 @@ public struct Endpoint: Codable, Equatable, Sendable {
         guard var c = URLComponents(string: raw), ["http", "https"].contains(c.scheme?.lowercased() ?? ""),
               let host = c.host, !host.isEmpty, c.user == nil, c.password == nil,
               c.query == nil, c.fragment == nil else {
-            throw RPCFailure("Entrez une adresse complète, par exemple https://hermes.votre-tailnet.ts.net.")
+            throw RPCFailure(String(localized: "Entrez une adresse complète, par exemple https://hermes.votre-tailnet.ts.net."))
         }
         c.scheme = c.scheme?.lowercased()
         if c.scheme == "http", !Self.isPrivateHost(host) {
-            throw RPCFailure("Utilisez HTTPS pour une adresse publique, ou l’adresse privée Tailscale de votre agent.")
+            throw RPCFailure(String(localized: "Utilisez HTTPS pour une adresse publique, ou l’adresse privée Tailscale de votre agent."))
         }
         c.path = c.path.replacingOccurrences(of: #"/+$"#, with: "", options: .regularExpression)
-        guard let url = c.url else { throw RPCFailure("Adresse invalide.") }
+        guard let url = c.url else { throw RPCFailure(String(localized: "Adresse invalide.")) }
         baseURL = url
     }
 

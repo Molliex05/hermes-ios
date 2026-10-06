@@ -56,7 +56,7 @@ final class HermesSocket {
     }
 
     func call(_ method: String, _ params: JSONValue = [:], timeout: Double = 40) async throws -> JSONValue {
-        guard let socket else { throw RPCFailure("Connexion à Hermes en cours…", code: -1) }
+        guard let socket else { throw RPCFailure(String(localized: "Connexion à Hermes en cours…"), code: -1) }
         let id = UUID().uuidString
         let data = try JSONValue.object(["jsonrpc": "2.0", "id": .string(id), "method": .string(method), "params": params]).data()
         return try await withTaskCancellationHandler {
@@ -64,7 +64,7 @@ final class HermesSocket {
                 pending[id] = continuation
                 deadlines[id] = Task { [weak self] in
                     do { try await Task.sleep(for: .seconds(timeout)) } catch { return }
-                    self?.resolve(id, result: .failure(RPCFailure("Hermes met trop de temps à répondre.", code: -2)))
+                    self?.resolve(id, result: .failure(RPCFailure(String(localized: "Hermes met trop de temps à répondre."), code: -2)))
                 }
                 Task { [weak self] in
                     do { try await socket.send(.string(String(decoding: data, as: UTF8.self))) }
@@ -98,6 +98,6 @@ final class HermesSocket {
         reader?.cancel(); reader = nil
         heartbeat?.cancel(); heartbeat = nil
         socket?.cancel(with: .goingAway, reason: nil); socket = nil
-        for id in Array(pending.keys) { resolve(id, result: .failure(RPCFailure("La connexion a été interrompue.", code: -1))) }
+        for id in Array(pending.keys) { resolve(id, result: .failure(RPCFailure(String(localized: "La connexion a été interrompue."), code: -1))) }
     }
 }

@@ -14,7 +14,7 @@ public struct Transcript: Sendable {
 
     public func isWaitingForResponse(at date: Date) -> Bool {
         running && approval == nil && clarification == nil && credential == nil
-            && ["Réfléchit…", "En cours…"].contains(activity ?? "")
+            && [String(localized: "Réfléchit…"), String(localized: "En cours…")].contains(activity ?? "")
             && date.timeIntervalSince(lastActivityAt) >= 15
     }
 
@@ -32,7 +32,7 @@ public struct Transcript: Sendable {
         let p = event["payload"]
         switch event["type"].string {
         case "message.start":
-            running = true; failure = nil; activity = "Réfléchit…"
+            running = true; failure = nil; activity = String(localized: "Réfléchit…")
         case "message.delta":
             guard !p["text"].string.isEmpty else { return }
             running = true; activity = nil
@@ -57,9 +57,9 @@ public struct Transcript: Sendable {
             if p["status"].string == "error" { failure = p["error"].string }
             for i in messages.indices where messages[i].delivery == .sending { messages[i].delivery = .confirmed }
         case "thinking.delta", "reasoning.delta":
-            running = true; activity = "Réfléchit…"
+            running = true; activity = String(localized: "Réfléchit…")
         case "tool.start", "tool.progress", "tool.generating":
-            activity = p["name"].string.isEmpty ? "Utilise un outil…" : p["name"].string
+            activity = p["name"].string.isEmpty ? String(localized: "Utilise un outil…") : p["name"].string
         case "tool.complete": activity = nil
         case "status.update":
             if !p["text"].string.isEmpty { activity = p["text"].string }
@@ -129,7 +129,7 @@ public struct Transcript: Sendable {
         messages = projected
         approval = payload["pending_approval"].isNull ? nil : payload["pending_approval"]
         clarification = payload["pending_clarify"].isNull ? nil : payload["pending_clarify"]
-        activity = running ? "En cours…" : nil
+        activity = running ? String(localized: "En cours…") : nil
         if !inflight["error"].string.isEmpty { failure = inflight["error"].string }
     }
 

@@ -19,7 +19,7 @@ final class NativeToolSession {
 
     func request(_ path: String, method: String = "GET", body: JSONValue? = nil,
                  query: [URLQueryItem] = [], rpc: Bool = false) async throws -> JSONValue {
-        guard !app.demo else { throw RPCFailure("Connectez votre Hermes pour effectuer cette action.") }
+        guard !app.demo else { throw RPCFailure(String(localized: "Connectez votre Hermes pour effectuer cette action.")) }
         return try await app.toolRequest(path, method: method, body: body, query: query,
             connectionID: connectionID, profile: profile, rpc: rpc)
     }
@@ -40,7 +40,7 @@ final class NativeToolSession {
         catch {
             guard loadID == attempt else { return }
             if let failure = error as? RPCFailure, [404, 405, -32601].contains(failure.code) {
-                self.error = "Cet outil n’est pas disponible sur ce serveur Hermes. Vérifiez sa version et, pour Kanban, l’activation du plugin."
+                self.error = String(localized: "Cet outil n’est pas disponible sur ce serveur Hermes. Vérifiez sa version et, pour Kanban, l’activation du plugin.")
             } else { self.error = error.localizedDescription }
         }
     }
@@ -57,16 +57,16 @@ final class NativeToolSession {
     private static func preview(_ path: String) -> JSONValue {
         switch path {
         case "/api/skills": [
-            ["name": "web-research", "description": "Explorer, recouper et citer des sources fiables.", "enabled": true, "provenance": "bundled"],
-            ["name": "daily-briefing", "description": "Un point clair sur ce qui compte aujourd’hui.", "enabled": true, "provenance": "agent"],
-            ["name": "writing", "description": "Trouver le ton juste et affiner vos textes.", "enabled": false, "provenance": "bundled"]]
+            ["name": "web-research", "description": .string(String(localized: "Explorer, recouper et citer des sources fiables.")), "enabled": true, "provenance": "bundled"],
+            ["name": "daily-briefing", "description": .string(String(localized: "Un point clair sur ce qui compte aujourd’hui.")), "enabled": true, "provenance": "agent"],
+            ["name": "writing", "description": .string(String(localized: "Trouver le ton juste et affiner vos textes.")), "enabled": false, "provenance": "bundled"]]
         case "/api/model/options": ["model": "Hermes", "provider": "nous", "providers": [["slug": "nous", "name": "Nous Research", "models": ["Hermes"], "is_current": true]]]
-        case "projects.list": ["projects": [["id": "demo-project", "name": "Mon espace de travail", "description": "Les projets et dossiers de votre agent.", "primary_path": "~/Projects", "folders": [["path": "~/Projects", "label": "Projets"]]]]]
-        case "/api/plugins/kanban/boards": ["current": "default", "boards": [["slug": "default", "name": "Mes projets", "total": 3]]]
+        case "projects.list": ["projects": [["id": "demo-project", "name": .string(String(localized: "Mon espace de travail")), "description": .string(String(localized: "Les projets et dossiers de votre agent.")), "primary_path": "~/Projects", "folders": [["path": "~/Projects", "label": .string(String(localized: "Projets"))]]]]]
+        case "/api/plugins/kanban/boards": ["current": "default", "boards": [["slug": "default", "name": .string(String(localized: "Mes projets")), "total": 3]]]
         case "/api/plugins/kanban/board": ["columns": [
-            ["name": "todo", "tasks": [["id": "demo-1", "title": "Préparer la prochaine idée", "body": "Poser les premières pistes et choisir une direction.", "status": "todo"]]],
-            ["name": "running", "tasks": [["id": "demo-2", "title": "Explorer les possibilités", "assignee": "Atlas", "status": "running"]]],
-            ["name": "done", "tasks": [["id": "demo-3", "title": "Faire le point", "status": "done"]]]]]
+            ["name": "todo", "tasks": [["id": "demo-1", "title": .string(String(localized: "Préparer la prochaine idée")), "body": .string(String(localized: "Poser les premières pistes et choisir une direction.")), "status": "todo"]]],
+            ["name": "running", "tasks": [["id": "demo-2", "title": .string(String(localized: "Explorer les possibilités")), "assignee": "Atlas", "status": "running"]]],
+            ["name": "done", "tasks": [["id": "demo-3", "title": .string(String(localized: "Faire le point")), "status": "done"]]]]]
         default: [:]
         }
     }

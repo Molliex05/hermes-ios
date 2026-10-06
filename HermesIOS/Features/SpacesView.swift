@@ -6,34 +6,34 @@ enum AppDestination: String, Identifiable, CaseIterable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .spaces: "Outils"
-        case .profiles: "Profils"
-        case .history: "Conversations"
-        case .agents: "Agents"
-        case .groups: "Groupes"
-        case .routines: "Routines"
-        case .kanban: "Kanban"
-        case .workspace: "Workspace"
-        case .skills: "Skills"
-        case .models: "Modèles"
-        case .voice: "Voix"
-        case .settings: "Réglages"
+        case .spaces: String(localized: "Outils")
+        case .profiles: String(localized: "Profils")
+        case .history: String(localized: "Conversations")
+        case .agents: String(localized: "Agents")
+        case .groups: String(localized: "Groupes")
+        case .routines: String(localized: "Routines")
+        case .kanban: String(localized: "Kanban")
+        case .workspace: String(localized: "Workspace")
+        case .skills: String(localized: "Skills")
+        case .models: String(localized: "Modèles")
+        case .voice: String(localized: "Voix")
+        case .settings: String(localized: "Réglages")
         }
     }
     var detail: String {
         switch self {
-        case .spaces: "Tout votre Hermes"
-        case .profiles: "Changer d’agent"
-        case .history: "Retrouver le fil"
-        case .agents: "Profils et Bot Mode"
-        case .groups: "Faire équipe"
-        case .routines: "Planifier · cron jobs"
-        case .kanban: "Suivre les tâches"
-        case .workspace: "Projets et dossiers"
-        case .skills: "Ses compétences"
-        case .models: "Choisir son modèle"
-        case .voice: "Parler avec votre agent"
-        case .settings: "Connexions et préférences"
+        case .spaces: String(localized: "Tout votre Hermes")
+        case .profiles: String(localized: "Changer d’agent")
+        case .history: String(localized: "Retrouver le fil")
+        case .agents: String(localized: "Profils et Bot Mode")
+        case .groups: String(localized: "Faire équipe")
+        case .routines: String(localized: "Planifier · cron jobs")
+        case .kanban: String(localized: "Suivre les tâches")
+        case .workspace: String(localized: "Projets et dossiers")
+        case .skills: String(localized: "Ses compétences")
+        case .models: String(localized: "Choisir son modèle")
+        case .voice: String(localized: "Parler avec votre agent")
+        case .settings: String(localized: "Connexions et préférences")
         }
     }
     var symbol: String {
@@ -58,9 +58,9 @@ private enum ToolCategory: String, CaseIterable {
     case work, agent, all
     var title: String {
         switch self {
-        case .work: "Travail"
-        case .agent: "Agent"
-        case .all: "Tout"
+        case .work: String(localized: "Travail")
+        case .agent: String(localized: "Agent")
+        case .all: String(localized: "Tout")
         }
     }
     var destinations: [AppDestination] {
@@ -120,7 +120,7 @@ struct SpacesView: View {
                 Button { page = .settings } label: {
                     Image(systemName: "gearshape").font(.system(size: 18))
                         .frame(width: 44, height: 44).background(AppTheme.surface, in: Circle())
-                }.buttonStyle(.plain).accessibilityLabel("Réglages").accessibilityIdentifier("quick-settings")
+                }.buttonStyle(.plain).accessibilityLabel(Text("Réglages")).accessibilityIdentifier("quick-settings")
             }.padding(.horizontal, 24).padding(.top, 25).padding(.bottom, 16)
             HStack(spacing: 4) {
                 ForEach(ToolCategory.allCases, id: \.self) { item in
@@ -159,13 +159,13 @@ struct SpacesView: View {
                         .accessibilityIdentifier("spaces-search")
                     if !search.isEmpty {
                         Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
-                            .accessibilityLabel("Effacer la recherche")
+                            .accessibilityLabel(Text("Effacer la recherche"))
                     }
                 }.padding(.horizontal, 15).frame(height: 46).background(AppTheme.surface, in: Capsule())
                 Button { dismiss() } label: {
                     Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold))
                         .frame(width: 46, height: 46).background(AppTheme.surface, in: Circle())
-                }.buttonStyle(.plain).accessibilityLabel("Revenir au chat").accessibilityIdentifier("return-to-chat")
+                }.buttonStyle(.plain).accessibilityLabel(Text("Revenir au chat")).accessibilityIdentifier("return-to-chat")
             }.padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 12)
         }
     }
@@ -221,7 +221,7 @@ struct ToolDock<Actions: View>: View {
                 Button(action: navigation.showSpaces) {
                     Image(systemName: "circle.grid.2x2").font(.system(size: 19))
                         .frame(width: 44, height: 44).background(AppTheme.surface, in: Circle())
-                }.accessibilityLabel("Outils").accessibilityIdentifier("back-to-spaces")
+                }.accessibilityLabel(Text("Outils")).accessibilityIdentifier("back-to-spaces")
             }
             HStack { Spacer(minLength: 0); actions; Spacer(minLength: 0) }
                 .font(.subheadline.weight(.medium))
@@ -229,7 +229,7 @@ struct ToolDock<Actions: View>: View {
                 Button(action: navigation.showChat) {
                     Label("Chat", systemImage: "arrow.down.right").font(.subheadline.weight(.medium))
                         .padding(.horizontal, 16).frame(height: 44).background(AppTheme.surface, in: Capsule())
-                }.accessibilityLabel("Revenir au chat").accessibilityIdentifier("return-to-chat")
+                }.accessibilityLabel(Text("Revenir au chat")).accessibilityIdentifier("return-to-chat")
             }
         }.buttonStyle(.plain).foregroundStyle(.primary)
             .padding(.horizontal, 20).padding(.top, 8).padding(.bottom, 8)
