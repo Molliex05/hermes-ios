@@ -53,15 +53,15 @@ final class HermesHTTP {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         }
         let (data, response) = try await session.data(for: request)
-        guard let response = response as? HTTPURLResponse else { throw RPCFailure("Réponse Hermes invalide.") }
+        guard let response = response as? HTTPURLResponse else { throw RPCFailure(String(localized: "Réponse Hermes invalide.")) }
         if response.statusCode == 401 || response.statusCode == 403 {
-            throw RPCFailure(path == "/auth/password-login" ? "Identifiants Hermes incorrects." : "Votre connexion Hermes a expiré. Reconnectez-vous dans les réglages.", code: 401)
+            throw RPCFailure(path == "/auth/password-login" ? String(localized: "Identifiants Hermes incorrects.") : String(localized: "Votre connexion Hermes a expiré. Reconnectez-vous dans les réglages."), code: 401)
         }
         guard (200...299).contains(response.statusCode) else {
             let failure = try? JSONValue.decode(data)
             let detail = failure?["detail"].string ?? ""
-            let message = detail.isEmpty ? "Hermes a répondu HTTP \(response.statusCode)." : String(detail.prefix(600))
-            throw RPCFailure(response.statusCode == 429 ? "Trop de tentatives. Réessayez dans un instant." : message, code: response.statusCode)
+            let message = detail.isEmpty ? String(localized: "Hermes a répondu HTTP \(response.statusCode).") : String(detail.prefix(600))
+            throw RPCFailure(response.statusCode == 429 ? String(localized: "Trop de tentatives. Réessayez dans un instant.") : message, code: response.statusCode)
         }
         try persistCookies()
         return data.isEmpty ? .object([:]) : try JSONValue.decode(data)
@@ -72,7 +72,7 @@ final class HermesHTTP {
     }
 
     func useToken(_ value: String) throws {
-        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw RPCFailure("Entrez le jeton de session Hermes.") }
+        guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw RPCFailure(String(localized: "Entrez le jeton de session Hermes.")) }
         token = value.trimmingCharacters(in: .whitespacesAndNewlines)
         try Keychain.save(Data(token!.utf8), key: connection.id.uuidString)
     }
@@ -82,7 +82,7 @@ final class HermesHTTP {
         if let token { url = connection.endpoint.socket(token: token) }
         else {
             let response = try await request("/api/auth/ws-ticket", method: "POST", body: [:])
-            guard !response["ticket"].string.isEmpty else { throw RPCFailure("Hermes n’a pas fourni de ticket WebSocket.") }
+            guard !response["ticket"].string.isEmpty else { throw RPCFailure(String(localized: "Hermes n’a pas fourni de ticket WebSocket.")) }
             url = connection.endpoint.socket(ticket: response["ticket"].string)
         }
         var request = URLRequest(url: url)

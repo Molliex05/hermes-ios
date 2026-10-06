@@ -3,10 +3,16 @@ import XCTest
 @MainActor
 final class HermesIOSUITests: XCTestCase {
     override func setUp() { continueAfterFailure = false }
+
+    private func launch(_ app: XCUIApplication, _ extra: [String] = [], language: String = "fr") {
+        let locale = language == "en" ? "en_US" : "fr_FR"
+        app.launchArguments = ["-AppleLanguages", "(\(language))", "-AppleLocale", locale] + extra
+        app.launch()
+    }
+
     func testChatAndAgents() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--demo"]
-        app.launch()
+        launch(app, ["--demo"])
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.tabBars.firstMatch.exists)
         XCTAssertGreaterThan(app.buttons["app-navigation"].frame.minY, app.windows.firstMatch.frame.maxY - 130)
@@ -26,10 +32,21 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 3))
     }
 
+    func testEnglishDemoChrome() throws {
+        let app = XCUIApplication()
+        launch(app, ["--demo"], language: "en")
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Interactive preview"].waitForExistence(timeout: 3))
+        XCTAssertEqual(app.buttons["app-navigation"].label, "Tools")
+        app.buttons["switch-profile"].tap()
+        XCTAssertTrue(app.buttons["manage-agents"].waitForExistence(timeout: 3))
+        app.buttons["manage-agents"].tap()
+        XCTAssertTrue(app.staticTexts["Your agents."].waitForExistence(timeout: 3))
+    }
+
     func testAttachmentsMenuAndVoicePreserveDraft() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--demo"]
-        app.launch()
+        launch(app, ["--demo"])
         let composer = app.textFields["chat-composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
         composer.tap(); composer.typeText("Mon brouillon écrit")
@@ -51,8 +68,7 @@ final class HermesIOSUITests: XCTestCase {
 
     func testOnboarding() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--demo", "--demo-onboarding"]
-        app.launch()
+        launch(app, ["--demo", "--demo-onboarding"])
         XCTAssertTrue(app.buttons["Rencontrer mon Hermes"].waitForExistence(timeout: 10))
         capture("04-welcome")
         app.buttons["Rencontrer mon Hermes"].tap()
@@ -63,8 +79,7 @@ final class HermesIOSUITests: XCTestCase {
 
     func testDraftSurvivesThumbNavigation() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--demo"]
-        app.launch()
+        launch(app, ["--demo"])
         let composer = app.textFields["chat-composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
         composer.tap(); composer.typeText("Mon brouillon reste ici")
@@ -106,7 +121,7 @@ final class HermesIOSUITests: XCTestCase {
     func testNativeStreamingMarkdown() throws {
         guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Requires isolated Hermes fixture") }
         let app = XCUIApplication()
-        app.launch()
+        launch(app)
         connectFixtureIfNeeded(app)
         XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
         app.buttons["Nouvelle conversation"].tap()
@@ -132,8 +147,7 @@ final class HermesIOSUITests: XCTestCase {
     func testNativeSendThenImmediatelyBackground() throws {
         guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Requires isolated Hermes fixture") }
         let app = XCUIApplication()
-        app.launchArguments = ["--integration-test"]
-        app.launch()
+        launch(app, ["--integration-test"])
         connectFixtureIfNeeded(app)
         XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
         app.buttons["Nouvelle conversation"].tap()
@@ -159,8 +173,7 @@ final class HermesIOSUITests: XCTestCase {
     func testNativeHermesConnectionAndResume() throws {
         guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Start the isolated Hermes integration server and set HERMES_IOS_INTEGRATION=1.") }
         let app = XCUIApplication()
-        app.launchArguments = ["--integration-test", "--voice-fixture"]
-        app.launch()
+        launch(app, ["--integration-test", "--voice-fixture"])
         connectFixtureIfNeeded(app)
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 40))
         XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
@@ -230,8 +243,7 @@ final class HermesIOSUITests: XCTestCase {
 
     func testSpacesDiscoveryAndTools() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--demo"]
-        app.launch()
+        launch(app, ["--demo"])
         XCTAssertTrue(app.buttons["app-navigation"].waitForExistence(timeout: 10))
         app.buttons["app-navigation"].tap()
         XCTAssertTrue(app.textFields["spaces-search"].waitForExistence(timeout: 3))
@@ -290,8 +302,7 @@ final class HermesIOSUITests: XCTestCase {
 
     func testQuickProfileSwitchKeepsSeparateDrafts() throws {
         let app = XCUIApplication()
-        app.launchArguments = ["--demo"]
-        app.launch()
+        launch(app, ["--demo"])
         let composer = app.textFields["chat-composer"]
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
         composer.tap(); composer.typeText("Une idee pour Hermes")

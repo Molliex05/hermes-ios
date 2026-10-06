@@ -30,7 +30,7 @@ Hermès iOS connects directly to [Hermes Agent](https://github.com/NousResearch/
 - Voice conversations: speak on iPhone, submit the transcription directly to the active agent, hear its reply with the profile’s configured TTS voice/provider, then automatically listen again. Written drafts and attachments remain separate.
 - Light/dark appearance, native controls, VoiceOver labels and an offline interactive preview.
 
-The first UI is in French. Contributions for localization are welcome.
+The interface follows the iPhone language. French and English are included.
 
 Current device build: approximately **6.3 MB**, unpacked and development-signed. [Validation results](docs/VALIDATION.md).
 
@@ -40,7 +40,7 @@ Requirements: macOS, Xcode 16 or later with a matching iOS simulator runtime, an
 
 1. Clone this repository and open `HermesIOS.xcodeproj`.
 2. Select the **HermesIOS** scheme and an iPhone simulator. Run.
-3. Choose **Découvrir l’interface** for the offline preview, or connect your Hermes server using the [connection guide](docs/CONNECTING.md).
+3. Choose **Découvrir l’interface** (English: **Explore the interface**) for the offline preview, or connect your Hermes server using the [connection guide](docs/CONNECTING.md).
 
 For an actual iPhone, select your development team in Signing & Capabilities and use your own bundle identifier. There is no App Store or TestFlight release yet.
 

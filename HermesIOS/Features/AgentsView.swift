@@ -53,7 +53,7 @@ struct QuickProfilePicker: View {
                 Button(action: close) {
                     Image(systemName: "chevron.down").font(.system(size: 14, weight: .semibold))
                         .frame(width: 46, height: 46).background(AppTheme.surface, in: Circle())
-                }.accessibilityLabel("Revenir au chat").accessibilityIdentifier("return-to-chat")
+                }.accessibilityLabel(Text("Revenir au chat")).accessibilityIdentifier("return-to-chat")
             }.buttonStyle(.plain).padding(.horizontal, 26).padding(.top, 10).padding(.bottom, 12)
         }.background(AppTheme.background)
     }
@@ -97,7 +97,7 @@ struct AgentsView: View {
                                 Button { editing = agent } label: {
                                     Image(systemName: "ellipsis").font(.system(size: 16, weight: .medium)).foregroundStyle(.secondary)
                                         .frame(width: 44, height: 52)
-                                }.buttonStyle(.plain).accessibilityLabel("Modifier \(agent.title)")
+                                }.buttonStyle(.plain).accessibilityLabel(Text("Modifier \(agent.title)"))
                             }.background(agent.name == model.profile ? AppTheme.surface : Color.clear, in: RoundedRectangle(cornerRadius: 20))
                         }
                     }
@@ -168,7 +168,8 @@ struct SessionsView: View {
             if calendar.isDateInYesterday(item.updated) { return 1 }
             return item.updated >= week ? 2 : 3
         }
-        return ["Aujourd’hui", "Hier", "Les 7 derniers jours", "Plus tôt"].enumerated().compactMap { index, title in
+        let titles = [String(localized: "Aujourd’hui"), String(localized: "Hier"), String(localized: "Les 7 derniers jours"), String(localized: "Plus tôt")]
+        return titles.enumerated().compactMap { index, title in
             guard let rows = grouped[index], !rows.isEmpty else { return nil }
             return (title, rows)
         }
@@ -223,7 +224,7 @@ struct SessionsView: View {
                     ToolbarItem(placement: .confirmationAction) {
                         Button { dismiss() } label: {
                             Image(systemName: "xmark").font(.system(size: 16, weight: .medium)).frame(width: 44, height: 44)
-                        }.foregroundStyle(.primary).accessibilityLabel("Fermer les conversations").accessibilityIdentifier("return-to-chat")
+                        }.foregroundStyle(.primary).accessibilityLabel(Text("Fermer les conversations")).accessibilityIdentifier("return-to-chat")
                     }
                 }
                 .task(id: "\(model.activeConnection?.id.uuidString ?? "demo")|\(model.profile)|\(model.state == .connected)") {
@@ -281,22 +282,22 @@ struct SessionsView: View {
             if let navigation {
                 Button { searching = false; navigation.showSpaces() } label: {
                     Image(systemName: "circle.grid.2x2").font(.system(size: 18)).frame(width: 44, height: 48)
-                }.foregroundStyle(.secondary).accessibilityLabel("Outils").accessibilityIdentifier("back-to-spaces")
+                }.foregroundStyle(.secondary).accessibilityLabel(Text("Outils")).accessibilityIdentifier("back-to-spaces")
             }
             HStack(spacing: 9) {
                 Image(systemName: "magnifyingglass").font(.system(size: 15)).foregroundStyle(.secondary)
                 TextField("Rechercher", text: $search).font(.subheadline).focused($searching).submitLabel(.search)
-                    .onSubmit { searching = false }.accessibilityLabel("Rechercher une conversation").accessibilityIdentifier("history-search")
+                    .onSubmit { searching = false }.accessibilityLabel(Text("Rechercher une conversation")).accessibilityIdentifier("history-search")
                 if !search.isEmpty {
                     Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary).frame(width: 28, height: 44) }
-                        .accessibilityLabel("Effacer la recherche")
+                        .accessibilityLabel(Text("Effacer la recherche"))
                 }
             }.padding(.horizontal, 14).frame(minHeight: 50).background(AppTheme.surface, in: Capsule())
                 .overlay(Capsule().strokeBorder(AppTheme.line))
             Button { model.newChat(); dismiss() } label: {
                 Image(systemName: "square.and.pencil").font(.system(size: 20, weight: .medium))
                     .frame(width: 50, height: 50).foregroundStyle(.white).background(AppTheme.accent, in: Circle())
-            }.disabled(model.sending || model.voiceActive).accessibilityLabel("Nouvelle conversation")
+            }.disabled(model.sending || model.voiceActive).accessibilityLabel(Text("Nouvelle conversation"))
         }.buttonStyle(.plain).padding(.horizontal, 18).padding(.vertical, 12).frame(maxWidth: 720).frame(maxWidth: .infinity)
             .background(AppTheme.background)
     }
@@ -348,11 +349,11 @@ struct BotEditor: View {
                 Section { TextEditor(text: $soul).frame(minHeight: 150) } header: { Text("Personnalité · SOUL.md") } footer: { Text("Sa façon de penser, son ton et ses instructions permanentes.") }
                 if let error { Section { Text(error).foregroundStyle(AppTheme.accent) } }
             }.modernList()
-                .navigationTitle(bot == nil ? "Un nouvel agent" : "Modifier \(bot!.title)").navigationBarTitleDisplayMode(.inline)
+                .navigationTitle(bot == nil ? Text("Un nouvel agent") : Text("Modifier \(bot!.title)")).navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }
                     ToolbarItem(placement: .confirmationAction) {
-                        Button(busy ? "En cours…" : "Enregistrer") { save() }.disabled(busy || name.isEmpty || (bot != nil && !loaded) || model.demo)
+                        Button { save() } label: { busy ? Text("En cours…") : Text("Enregistrer") }.disabled(busy || name.isEmpty || (bot != nil && !loaded) || model.demo)
                     }
                 }
                 .task {

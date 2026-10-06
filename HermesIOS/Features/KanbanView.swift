@@ -26,12 +26,13 @@ struct KanbanView: View {
                                 Button(row["name"].string.isEmpty ? row["slug"].string : row["name"].string) { slug = row["slug"].string }
                             }
                         } label: {
+                            let boardName = boards.data["boards"].array.first(where: { $0["slug"].string == slug })?["name"].string
                             HStack(spacing: 8) {
-                                Text(boards.data["boards"].array.first(where: { $0["slug"].string == slug })?["name"].string ?? "Tableaux")
+                                Text(boardName ?? String(localized: "Tableaux"))
                                     .font(.system(size: 26, design: .serif)).tracking(-0.5)
                                 Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
                             }.frame(minHeight: 44)
-                        }.buttonStyle(.plain).disabled(boards.data.isNull).accessibilityLabel("Choisir un tableau")
+                        }.buttonStyle(.plain).disabled(boards.data.isNull).accessibilityLabel(Text("Choisir un tableau"))
                         Spacer()
                         Text("\(columns.reduce(0) { $0 + $1["tasks"].array.count }) tâches")
                             .font(.caption).foregroundStyle(.secondary)
@@ -78,9 +79,9 @@ struct KanbanView: View {
                                 Button(statusName(column["name"].string)) { filter = column["name"].string }
                             }
                         } label: { Image(systemName: "line.3.horizontal.decrease").frame(width: 44, height: 44) }
-                            .accessibilityLabel("Filtrer les tâches")
+                            .accessibilityLabel(Text("Filtrer les tâches"))
                         Button { creating = true } label: { Image(systemName: "plus").frame(width: 44, height: 44) }
-                            .disabled(slug.isEmpty || board.data.isNull || board.app.demo).accessibilityLabel("Nouvelle tâche")
+                            .disabled(slug.isEmpty || board.data.isNull || board.app.demo).accessibilityLabel(Text("Nouvelle tâche"))
                     }
                 }
                 .refreshable { await refresh() }
@@ -117,9 +118,9 @@ struct KanbanView: View {
                 .safeAreaInset(edge: .bottom) {
                     Button { Task { await board.perform {
                         let result = try await board.request("/api/plugins/kanban/tasks", method: "POST", body: ["title": .string(title), "body": .string(bodyText), "triage": true, "idempotency_key": .string(creationID)], query: query)
-                        guard !result["task"]["id"].string.isEmpty else { throw RPCFailure("Hermes n’a pas confirmé la création. Vérifiez le tableau avant de réessayer.") }
+                        guard !result["task"]["id"].string.isEmpty else { throw RPCFailure(String(localized: "Hermes n’a pas confirmé la création. Vérifiez le tableau avant de réessayer.")) }
                         creating = false; title = ""; bodyText = ""; creationID = UUID().uuidString; await refresh()
-                    } } } label: { Text(board.busy ? "Ajout…" : "Ajouter au tableau").frame(maxWidth: .infinity, minHeight: 48) }
+                    } } } label: { (board.busy ? Text("Ajout…") : Text("Ajouter au tableau")).frame(maxWidth: .infinity, minHeight: 48) }
                         .buttonStyle(.borderedProminent).disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || board.busy).padding(20)
                 }
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Annuler") { creating = false } } }
@@ -163,5 +164,16 @@ private struct KanbanDetailView: View {
 }
 
 private func statusName(_ status: String) -> String {
-    ["triage": "À préciser", "todo": "À faire", "ready": "Prêt", "running": "En cours", "blocked": "Bloqué", "review": "À valider", "done": "Terminé", "failed": "En échec", "archived": "Archivé"][status] ?? status.capitalized
+    switch status {
+    case "triage": String(localized: "À préciser")
+    case "todo": String(localized: "À faire")
+    case "ready": String(localized: "Prêt")
+    case "running": String(localized: "kanban.status.running", defaultValue: "En cours")
+    case "blocked": String(localized: "Bloqué")
+    case "review": String(localized: "À valider")
+    case "done": String(localized: "Terminé")
+    case "failed": String(localized: "En échec")
+    case "archived": String(localized: "Archivé")
+    default: status.capitalized
+    }
 }

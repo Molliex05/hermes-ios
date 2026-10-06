@@ -45,7 +45,7 @@ struct AgentAvatar: View {
 
 struct RoundButton: View {
     var symbol: String
-    var label: String
+    var label: LocalizedStringKey
     var action: () -> Void
     var body: some View {
         Button(action: action) {
@@ -57,7 +57,7 @@ struct RoundButton: View {
 }
 
 struct PrimaryButton: View {
-    var title: String
+    var title: LocalizedStringKey
     var symbol: String = "arrow.right"
     var busy = false
     var action: () -> Void
@@ -79,9 +79,18 @@ struct ConnectionIndicator: View {
     var body: some View {
         HStack(spacing: 6) {
             Circle().fill(model.state == .connected ? Color.green.opacity(0.8) : Color.orange).frame(width: 5, height: 5)
-            Text(model.demo ? "Aperçu interactif" : model.state == .connected ? "Connecté à Hermes" : model.state == .signInRequired ? "Connexion expirée" : model.state == .connecting ? "Reconnexion…" : "Hors ligne · brouillon conservé")
-                .font(.caption).foregroundStyle(.secondary)
+            Text(statusTitle).font(.caption).foregroundStyle(.secondary)
         }.accessibilityElement(children: .combine)
+    }
+
+    private var statusTitle: LocalizedStringKey {
+        if model.demo { return "Aperçu interactif" }
+        switch model.state {
+        case .connected: return "Connecté à Hermes"
+        case .signInRequired: return "Connexion expirée"
+        case .connecting: return "Reconnexion…"
+        case .offline: return "Hors ligne · brouillon conservé"
+        }
     }
 }
 

@@ -1,0 +1,40 @@
+{
+  "sourceLanguage": "fr",
+  "strings": {
+    "NSMicrophoneUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parlez avec votre agent depuis l’iPhone. Votre serveur Hermes transcrit votre parole et prépare ses réponses vocales."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speak with your agent from iPhone. Your Hermes server transcribes your speech and prepares its spoken replies."
+          }
+        }
+      }
+    },
+    "NSLocalNetworkUsageDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermès iOS se connecte à votre agent Hermes sur votre réseau privé ou Tailscale."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hermès iOS connects to your Hermes agent on your private network or Tailscale."
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

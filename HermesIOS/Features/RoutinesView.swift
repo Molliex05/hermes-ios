@@ -20,10 +20,10 @@ struct RoutinesView: View {
                             Spacer()
                             Button { Task { await model.toggleRoutine(routine) } } label: {
                                 Image(systemName: routine.paused ? "play.circle" : "pause.circle").font(.title2)
-                            }.buttonStyle(.borderless).accessibilityLabel(routine.paused ? "Reprendre" : "Mettre en pause")
+                            }.buttonStyle(.borderless).accessibilityLabel(routine.paused ? Text("Reprendre") : Text("Mettre en pause"))
                         }
                         Text(routine.prompt).font(.subheadline).foregroundStyle(.secondary).lineLimit(3)
-                        Label(routine.paused ? "En pause" : routine.schedule, systemImage: "clock").font(.caption).foregroundStyle(.secondary)
+                        Label(routine.paused ? String(localized: "En pause") : routine.schedule, systemImage: "clock").font(.caption).foregroundStyle(.secondary)
                     }.padding(.vertical, 10)
                 }
             }.listRowBackground(Color.clear)
@@ -34,7 +34,7 @@ struct RoutinesView: View {
 
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
-                    ToolDock { Button { creating = true } label: { Label("Ajouter", systemImage: "plus").frame(minHeight: 44) }.disabled(model.demo).accessibilityLabel("Nouvelle routine") }
+                    ToolDock { Button { creating = true } label: { Label("Ajouter", systemImage: "plus").frame(minHeight: 44) }.disabled(model.demo).accessibilityLabel(Text("Nouvelle routine")) }
                 }.task { await model.loadRoutines() }
                 .sheet(isPresented: $creating) { RoutineEditor(model: model) }
         }
@@ -69,7 +69,7 @@ struct RoutineEditor: View {
                 .navigationTitle("Nouvelle routine").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) { Button(busy ? "Création…" : "Créer") { create() }.disabled(name.isEmpty || prompt.isEmpty || busy) }
+                    ToolbarItem(placement: .confirmationAction) { Button { create() } label: { busy ? Text("Création…") : Text("Créer") }.disabled(name.isEmpty || prompt.isEmpty || busy) }
                 }
         }
     }

@@ -36,7 +36,7 @@ struct SkillsView: View {
                             }
                             Spacer(minLength: 4)
                             Circle().fill(skill["enabled"] == false ? Color.secondary.opacity(0.3) : AppTheme.accent).frame(width: 7, height: 7)
-                                .accessibilityLabel(skill["enabled"] == false ? "Désactivé" : "Activé")
+                                .accessibilityLabel(skill["enabled"] == false ? Text("Désactivé") : Text("Activé"))
                         }.padding(.vertical, 9)
                     }
                 }
@@ -64,7 +64,7 @@ private struct SkillDetailView: View {
                 Toggle("Disponible pour l’agent", isOn: Binding(get: { enabled }, set: { value in
                     Task { await tools.perform {
                         let result = try await tools.request("/api/skills/toggle", method: "PUT", body: ["name": skill["name"], "enabled": .bool(value)])
-                        guard result["ok"].bool else { throw RPCFailure("Le skill n’a pas été modifié.") }
+                        guard result["ok"].bool else { throw RPCFailure(String(localized: "Le skill n’a pas été modifié.")) }
                         enabled = result["enabled"].bool
                         await tools.load("/api/skills")
                     } }
@@ -73,7 +73,7 @@ private struct SkillDetailView: View {
             ToolFeedback(tools: tools)
             Section("Instructions") {
                 if reading { ProgressView() }
-                else { Text(content.isEmpty ? "Aucune instruction disponible." : content).font(.system(.subheadline, design: .monospaced)).textSelection(.enabled) }
+                else { Text(content.isEmpty ? String(localized: "Aucune instruction disponible.") : content).font(.system(.subheadline, design: .monospaced)).textSelection(.enabled) }
             }
         }.listRowBackground(Color.clear)
 }.modernList()
@@ -102,7 +102,7 @@ struct ModelsView: View {
             List { Group {
                 Section {
                     VStack(alignment: .leading, spacing: 8) {
-                        Label(tools.data["model"].string.isEmpty ? "Modèle de l’agent" : tools.data["model"].string, systemImage: "cpu").font(.headline)
+                        Label(tools.data["model"].string.isEmpty ? String(localized: "Modèle de l’agent") : tools.data["model"].string, systemImage: "cpu").font(.headline)
                         Text("Ce choix s’applique aux nouvelles sessions de \(tools.profile). La conversation en cours conserve son modèle.").font(.subheadline).foregroundStyle(.secondary)
                     }.padding(.vertical, 7)
                 }
@@ -158,7 +158,7 @@ struct ModelsView: View {
             if result["confirm_required"].bool {
                 selection = body; confirmation = result["confirm_message"].string; return
             }
-            guard result["ok"].bool else { throw RPCFailure("Hermes n’a pas confirmé le changement de modèle.") }
+            guard result["ok"].bool else { throw RPCFailure(String(localized: "Hermes n’a pas confirmé le changement de modèle.")) }
             selection = nil; confirmation = nil; saved = true
             await load()
         }

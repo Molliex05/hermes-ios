@@ -29,7 +29,7 @@ private struct MarkdownBlockView: View, Equatable {
             HStack(alignment: .firstTextBaseline, spacing: 9) {
                 if let checked {
                     Image(systemName: checked ? "checkmark.circle.fill" : "circle").foregroundStyle(AppTheme.accent)
-                        .accessibilityLabel(checked ? "Terminé" : "À faire")
+                        .accessibilityLabel(checked ? Text("Terminé") : Text("À faire"))
                 } else { Text(marker).foregroundStyle(.secondary).monospacedDigit() }
                 inline(text).lineSpacing(4).frame(maxWidth: .infinity, alignment: .leading)
             }.padding(.leading, CGFloat(depth) * 14)
@@ -73,14 +73,14 @@ private struct CodeBlock: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(language.isEmpty ? "Code" : language).font(.caption.weight(.medium)).lineLimit(1)
+                Text(language.isEmpty ? String(localized: "Code") : language).font(.caption.weight(.medium)).lineLimit(1)
                 Spacer(minLength: 12)
                 Button {
                     UIPasteboard.general.string = text; copied = true
                 } label: {
-                    Label(copied ? "Copié" : "Copier", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    Label(copied ? String(localized: "Copié") : String(localized: "Copier"), systemImage: copied ? "checkmark" : "doc.on.doc")
                         .font(.caption).frame(minHeight: 44)
-                }.buttonStyle(.plain).accessibilityLabel("Copier le code")
+                }.buttonStyle(.plain).accessibilityLabel(Text("Copier le code"))
             }.foregroundStyle(.secondary).padding(.horizontal, 14)
             Divider()
             ScrollView(.horizontal) {

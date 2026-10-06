@@ -24,7 +24,7 @@ struct OnboardingView: View {
                         HStack {
                             HStack(spacing: 10) { AgentMark(size: 28); Text("Hermès iOS").font(.system(size: 26, weight: .semibold, design: .rounded)) }
                             Spacer()
-                            Text(step == 0 ? "BONJOUR" : "CONNEXION").font(.caption2.weight(.semibold)).tracking(2).foregroundStyle(.secondary)
+                            (step == 0 ? Text("BONJOUR") : Text("CONNEXION")).font(.caption2.weight(.semibold)).tracking(2).foregroundStyle(.secondary)
                         }.padding(.top, 14)
                         if step == 0 && !adding {
                             Spacer(minLength: 20)
@@ -113,7 +113,7 @@ struct OnboardingView: View {
         }.frame(maxWidth: .infinity).frame(height: 260).accessibilityHidden(true)
     }
 
-    private func field(_ label: String, text: Binding<String>, placeholder: String, url: Bool = false) -> some View {
+    private func field(_ label: LocalizedStringKey, text: Binding<String>, placeholder: LocalizedStringKey, url: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(label).font(.caption.weight(.medium)).foregroundStyle(.secondary)
             TextField(placeholder, text: text).textInputAutocapitalization(.never).autocorrectionDisabled()
@@ -160,7 +160,7 @@ struct ConnectionGuide: View {
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Terminé") { dismiss() } } }
         }
     }
-    private func instruction(_ n: String, _ title: String, _ detail: String) -> some View {
+    private func instruction(_ n: String, _ title: LocalizedStringKey, _ detail: LocalizedStringKey) -> some View {
         HStack(alignment: .top, spacing: 14) {
             Text(n).font(.subheadline.weight(.semibold)).frame(width: 30, height: 30).background(AppTheme.accent.opacity(0.1), in: Circle()).foregroundStyle(AppTheme.accent)
             VStack(alignment: .leading, spacing: 6) { Text(title).font(.headline); Text(detail).font(.subheadline).foregroundStyle(.secondary).lineSpacing(3) }

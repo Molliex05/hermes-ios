@@ -3,6 +3,11 @@ options:
   bundleIdPrefix: org.hermesios
   deploymentTarget:
     iOS: "17.0"
+  developmentLanguage: fr
+  knownRegions:
+    - fr
+    - en
+    - Base
 settings:
   base:
     SWIFT_VERSION: "6.0"

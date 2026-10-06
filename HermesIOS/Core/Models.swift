@@ -38,7 +38,7 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
         id = v["resolved_id"].string.isEmpty ? v["id"].string : v["resolved_id"].string
         self.profile = profile
         title = v["title"].string
-        if title.isEmpty { title = "Nouvelle conversation" }
+        if title.isEmpty { title = String(localized: "Nouvelle conversation") }
         preview = v["preview"].string
         let timestamp = max(v["last_active"].double, v["last_activity_at"].double, v["started_at"].double)
         updated = Date(timeIntervalSince1970: timestamp)
