@@ -21,3 +21,13 @@ Tools: `gmail_chercher`, `gmail_lire`, `gmail_brouillon`, `gmail_dossiers`, `gma
 - **Untrusted content**: mail and event text is returned with a warning and must never be treated as instructions. The tools are blocked on the `api_server` platform.
 - **Credentials** are `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REFRESH_TOKEN` in the profile's `.env`, never in the repository. `oauth_setup.py url|exchange|check` runs the consent flow with PKCE. Scopes are `gmail.modify`, `calendar.events` and `calendar.calendarlist.readonly`; the OAuth client must be published ("In production") or its refresh token expires after 7 days, which `check` reports.
 - Tests: `python3 -m unittest discover -s tests` in the plugin folder (fake Google, offline).
+
+### Email watcher (Jarvis)
+
+`scripts/jarvis_courriels.py` is a cron *monitor script*: it prints one stable line per message received in the last 3 days (`id | sender | subject`), so Hermes wakes the agent only when the text changes, that is when mail arrives. Archiving or labelling never changes it, and a quiet mailbox costs nothing. Install it in `<profile>/scripts/` and create the job paused, then resume it:
+
+```bash
+hermes -p personnel cron create --name "Courriels de Maxime" --monitor-script jarvis_courriels.py --deliver local --paused "every 5m" "<prompt>"
+```
+
+The prompt tells the agent to read each new message (untrusted content), file it, create calendar events for confirmed appointments (checking the work calendar for conflicts), and call `ios_notify` only when Maxime should know now. Its final answer is a one-line-per-message journal shown in Routines. Maxime's feedback is saved as `Courriels : …` rules in the agent's memory (see its `SOUL.md`). Unattended runs cannot edit or delete calendar events (`CRON_BLOCKED`), and the profile's cron toolsets are reduced to memory, Google, push, weather and MCP tools (`hermes tools disable … --platform cron`), so no terminal or browser reads attacker-controlled mail.

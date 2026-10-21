@@ -162,6 +162,30 @@ class Triage(Base):
         self.assertEqual(self.call("gmail_dossiers")["dossiers"], ["Factures"])
 
 
+class Watcher(Base):
+    def setUp(self):
+        super().setUp()
+        spec = importlib.util.spec_from_file_location("jarvis_courriels", ROOT / "scripts" / "jarvis_courriels.py")
+        self.script = importlib.util.module_from_spec(spec); spec.loader.exec_module(self.script)
+        import tempfile; self.seen = Path(tempfile.mkdtemp()) / "seen.json"
+    def test_output_is_stable_and_has_no_content(self):
+        first = self.script.render(api, self.seen)
+        self.assertEqual(first, "m1abcdef | A <a@x.org> | Salut")
+        calls = len(self.fake.api_calls())
+        self.assertEqual(self.script.render(api, self.seen), first)            # unchanged → Hermes skips the agent
+        self.assertEqual(len(self.fake.api_calls()) - calls, 1)                # only the listing; metadata is cached
+    def test_failure_is_loud(self):
+        api._env = lambda name: ""
+        with self.assertRaises(RuntimeError): self.script.render(api, self.seen)
+    def test_edits_and_deletes_are_blocked_in_unattended_runs(self):
+        plugin._in_cron = lambda: True
+        for tool in ("agenda_modifier", "agenda_supprimer"):
+            self.assertIn("automatique", self.call(tool, id="e1", titre="x")["error"])
+        self.assertTrue(self.call("agenda_creer", titre="Café", debut="2026-10-22T09:30")["ok"])
+        self.assertTrue(self.call("gmail_trier", ids=["m1abcdef"], dossiers=["Factures"])["ok"])
+        self.assertEqual([c for c in self.fake.api_calls() if c[0] in ("PATCH", "DELETE")], [])
+
+
 class Calendar(Base):
     def test_list(self):
         r = self.call("agenda_lister", debut="2026-10-21", fin="2026-10-21")

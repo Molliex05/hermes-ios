@@ -89,6 +89,18 @@ def _env_platform() -> str:
         return ""
 
 
+# Unattended runs (the email watcher) read untrusted mail: they may file, create events and notify, but never edit or delete.
+CRON_BLOCKED = {"agenda_modifier", "agenda_supprimer"}
+
+
+def _in_cron() -> bool:
+    try:
+        from gateway.session_context import get_session_env
+        return bool(get_session_env("HERMES_CRON_SESSION", ""))
+    except Exception:
+        return False
+
+
 def _budget(kind: str, limit: int) -> bool:
     now, window = time.time(), _recent[kind]
     while window and now - window[0] > 3600:
@@ -120,6 +132,8 @@ def _bound(value: str, tz: ZoneInfo, *, end: bool) -> str:
 def _run(name: str, args: Dict[str, Any]) -> str:
     if _env_platform() in BLOCKED_PLATFORMS:
         return _json({"error": "Cet outil n'est pas disponible sur cette plateforme."})
+    if name in CRON_BLOCKED and _in_cron():
+        return _json({"error": "Non disponible dans une tâche automatique : signale-le à Maxime plutôt."})
     if not api.configured():
         return _json({"error": "Google n'est pas encore configuré pour ce profil. Dis à Maxime de terminer l'autorisation Google."})
     if name == "gmail_chercher":
