@@ -6,6 +6,6 @@ let package = Package(
     products: [.library(name: "HermesIOSCore", targets: ["HermesIOSCore"])],
     targets: [
         .target(name: "HermesIOSCore", path: "HermesIOS/Core"),
-        .testTarget(name: "HermesIOSCoreTests", dependencies: ["HermesIOSCore"], path: "HermesIOSTests")
+        .testTarget(name: "HermesIOSCoreTests", dependencies: ["HermesIOSCore"], path: "HermesIOSTests", exclude: ["Fixtures"])
     ]
 )

@@ -1,0 +1,8 @@
+{
+ "key_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=",
+ "nonce_b64": "oKGio6Slpqeoqaqr",
+ "event_id": "11111111-2222-3333-4444-555555555555",
+ "plaintext_json": "{\"agent\":\"Hermès\",\"conversation\":\"Rapport SEO\",\"preview\":\"Le rapport est prêt.\"}",
+ "enc_b64": "oKGio6SlpqeoqaqrnTodSiCldp1YR8+2dRcDdgOOdTLx2Cwa+XxV5wvCGm/wTGWtzlIjUi3oJJtMNaHVZWs0LRS5fwljZCkSwVD30cTM6h1EhYGTgMKPakxkuJTvdpZwQ0nrcXmUQBO+oM6QQAE=",
+ "layout": "enc = base64(nonce[12] || ciphertext || tag[16]); AES-256-GCM; AAD = UTF-8 bytes of event_id; plaintext = compact UTF-8 JSON"
+}

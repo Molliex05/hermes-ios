@@ -23,7 +23,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat
 
 ROOT = Path(__file__).resolve().parents[1]
 PLUGIN = Path(os.environ.get('PLUGIN_DIR') or ROOT / 'server/hermes-ios-push').resolve()
-VECTOR = json.loads((ROOT / 'outputs/notif-v2-2026-10-14/vector.json').read_text())
+VECTOR = json.loads((ROOT / 'HermesIOSTests/Fixtures/notification-vector.json').read_text())
 spec = importlib.util.spec_from_file_location('push', PLUGIN / 'push_service.py')
 push = importlib.util.module_from_spec(spec); spec.loader.exec_module(push)
 KEY = bytes(range(32))

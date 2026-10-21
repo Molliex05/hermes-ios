@@ -8,7 +8,7 @@ final class NotificationCryptoTests: XCTestCase {
 
     private func vector() throws -> Vector {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("outputs/notif-v2-2026-10-14/vector.json")
+            .appendingPathComponent("HermesIOSTests/Fixtures/notification-vector.json")
         let json = try JSONValue.decode(Data(contentsOf: url))
         return Vector(key: Data(base64Encoded: json["key_b64"].string)!, nonce: Data(base64Encoded: json["nonce_b64"].string)!,
                       eventID: json["event_id"].string, plaintext: Data(json["plaintext_json"].string.utf8), enc: json["enc_b64"].string)
