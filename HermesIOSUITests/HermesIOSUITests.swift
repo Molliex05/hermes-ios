@@ -570,7 +570,7 @@ final class HermesIOSUITests: XCTestCase {
         app.buttons["switch-profile"].tap()
         app.buttons["quick-profile-research"].tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Bonjour, je suis Atlas")).firstMatch.waitForExistence(timeout: 3))
-        XCTAssertEqual(composer.value as? String, "Message…")
+        XCTAssertEqual(composer.value as? String, "Demander à Atlas")
         composer.tap(); composer.typeText("Une recherche pour Atlas")
         app.buttons["switch-profile"].tap()
         app.buttons["quick-profile-default"].tap()
@@ -580,7 +580,12 @@ final class HermesIOSUITests: XCTestCase {
         app.buttons["quick-profile-research"].tap()
         XCTAssertTrue(composer.waitForExistence(timeout: 3))
         XCTAssertEqual(composer.value as? String, "Une recherche pour Atlas")
-        app.buttons["quick-history"].tap()
+        // In a conversation the list lives in the « … » menu; the quick button only exists on an empty chat.
+        if app.buttons["quick-history"].exists { app.buttons["quick-history"].tap() }
+        else {
+            app.buttons["Actions de la conversation"].tap()
+            app.buttons["Conversations"].firstMatch.tap()
+        }
         XCTAssertTrue(app.navigationBars["Conversations"].waitForExistence(timeout: 3))
         capture("21-conversation-list")
         app.buttons["return-to-chat"].tap()
