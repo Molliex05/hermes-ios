@@ -29,3 +29,18 @@ Each pass first builds the day's plan itself from the calendars (`Police` is the
 
 A meal or a supplement is logged by telling Jarvis (a creatine intake is logged as a nutrition entry « Créatine »), which is how
 the heartbeat knows it was taken. `hermes -p personnel cron run <id>` triggers one pass for testing.
+
+During a work shift the heartbeat stays silent, with one exception per shift: a single reminder near the middle of the shift to
+log what was eaten so far. Reminders for creatine and upcoming meals wait until after the shift.
+
+## Daily summary
+
+```bash
+hermes -p personnel cron create --name "Résumé de la journée" --deliver bot-chat:personnel --continuity \
+  "0 8,15 * * *" "$(cat resume-journee.prompt.fr.txt)"
+# then, with the job API: enabled_toolsets = ["memory", "noryv", "google_perso", "meteo"]
+```
+
+Read-only. It runs at 8 h, and again at 15 h only when a night shift ended after 6 h (the 8 h run stays silent while Maxime
+sleeps), and gathers the schedule, the weather, the training plan and the nutrition against his targets into one short message
+delivered in the agent's Bot Chat. The agent's rules (`SOUL.md`) relay it nearly as is instead of cutting it to three sentences.
