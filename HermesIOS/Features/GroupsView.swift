@@ -17,6 +17,7 @@ private final class GroupModel {
     var supported = false
     var error: String?
     var busy = false
+    var states: [String: JSONValue] = [:]
     @ObservationIgnored private let cache = LocalCache()
     init(app: AppModel, connectionID: UUID) { self.app = app; self.connectionID = connectionID }
     func boot() async {
@@ -51,17 +52,21 @@ private final class GroupModel {
     }
     func refresh(_ room: String) async {
         do {
+            states[room] = try await call("groups.state", ["room_id": .string(room)])
             var pages = 0
+            var changed = false
             repeat {
                 let result = try await call("groups.log", ["room_id": .string(room), "since_seq": .number(Double(data.cursors[room] ?? 0)), "limit": 100])
                 var known = Set((data.events[room] ?? []).map { $0["event_id"].string })
                 let incoming = result["events"].array.filter { known.insert($0["event_id"].string).inserted }
                 data.events[room, default: []].append(contentsOf: incoming)
+                if !incoming.isEmpty || data.cursors[room] != result["cursor"].int { changed = true }
                 data.cursors[room] = result["cursor"].int
                 pages += 1
                 if !result["has_more"].bool { break }
             } while pages < 20
-            await save()
+            // The room is polled every couple of seconds: write the cache only when something arrived.
+            if changed { await save() }
         } catch { self.error = error.localizedDescription }
     }
     func send(_ room: String, text: String) async {
@@ -83,6 +88,19 @@ private final class GroupModel {
         do { _ = try await call("groups.stop", ["room_id": .string(room), "cancel_id": .string(UUID().uuidString)]) }
         catch { self.error = error.localizedDescription }
     }
+    func action(_ method: String, room: String, params: JSONValue = [:]) async -> Bool {
+        guard !busy else { return false }; busy = true; error = nil
+        defer { busy = false }
+        do {
+            var body = params.object; body["room_id"] = .string(room)
+            _ = try await call(method, .object(body))
+            if method == "groups.disband" {
+                data.events.removeValue(forKey: room); data.cursors.removeValue(forKey: room)
+                data.drafts.removeValue(forKey: room); data.pending.removeValue(forKey: room); states.removeValue(forKey: room)
+            } else { await refresh(room) }
+            try await refreshRooms(); return true
+        } catch { self.error = error.localizedDescription; return false }
+    }
     func save() async {
         guard app.connections.contains(where: { $0.id == connectionID }) else { return }
         do { try await cache.save(data, key: connectionID.uuidString + "-groups") }
@@ -95,38 +113,34 @@ struct GroupsView: View {
     let connectionID: UUID
     @State private var model: GroupModel?
     @State private var creating = false
-    @Environment(\.dismiss) private var dismiss
+    @State private var booting = true
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Text("Plusieurs regards, une seule conversation. Hermes orchestre les agents sur votre serveur.").font(.subheadline).foregroundStyle(.secondary)
-                }
-                if let model {
-                    ForEach(model.data.rooms, id: \.["room_id"].string) { room in
-                        NavigationLink { GroupChatView(model: model, room: room) } label: {
-                            HStack(spacing: 14) {
-                                Image(systemName: "person.2.bubble").foregroundStyle(AppTheme.accent)
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text(room["name"].string)
-                                    Text("\(room["members"].array.count) agents").font(.caption).foregroundStyle(.secondary)
-                                }
-                            }.padding(.vertical, 9)
-                        }
+        List {
+            AppIntro("Plusieurs regards, une seule conversation. Hermes orchestre les agents sur votre serveur.")
+            if booting && (model?.data.rooms.isEmpty ?? true) { SkeletonRows(count: 3) }
+            if let model {
+                ForEach(model.data.rooms, id: \.["room_id"].string) { room in
+                    NavigationLink { GroupChatView(model: model, room: room) } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "person.2.bubble").foregroundStyle(AppTheme.accent)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(room["name"].string)
+                                Text("\(room["members"].array.count) agents").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }.padding(.vertical, 9)
                     }
-                    if model.data.rooms.isEmpty {
-                        ContentUnavailableView("Croiser les idées", systemImage: "person.2", description: Text("Invitez de deux à six agents de ce serveur dans un groupe."))
-                    }
-                    if let error = model.error { Text(error).font(.caption).foregroundStyle(AppTheme.accent) }
                 }
-            }.scrollContentBackground(.hidden).background(AppTheme.background).navigationTitle("Ensemble")
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } }
-                    ToolbarItem(placement: .primaryAction) { Button { creating = true } label: { Image(systemName: "plus") }.disabled(model?.supported != true) }
+                if model.data.rooms.isEmpty && !booting {
+                    ContentUnavailableView("Croiser les idées", systemImage: "person.2", description: Text("Invitez de deux à six agents de ce serveur dans un groupe."))
                 }
-                .task { if model == nil { let m = GroupModel(app: app, connectionID: connectionID); model = m; await m.boot() } }
-                .sheet(isPresented: $creating) { if let model { GroupEditor(model: model) } }
-        }
+                if let error = model.error { Text(error).font(.caption).foregroundStyle(AppTheme.accent) }
+            }
+        }.modernList().navigationTitle("Groupes").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                AppToolbarItem(placement: .primaryAction) { Button("Nouveau groupe", systemImage: "plus") { creating = true }.disabled(model?.supported != true) }
+            }
+            .task { if model == nil { let m = GroupModel(app: app, connectionID: connectionID); model = m; await m.boot() }; booting = false }
+            .sheet(isPresented: $creating) { if let model { GroupEditor(model: model) } }
     }
 }
 
@@ -150,10 +164,10 @@ private struct GroupEditor: View {
                     }
                 }
                 if let error { Text(error).foregroundStyle(AppTheme.accent) }
-            }.navigationTitle("Nouveau groupe").navigationBarTitleDisplayMode(.inline)
+            }.modernList().navigationTitle("Nouveau groupe").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) {
+                    AppToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }
+                    AppToolbarItem(placement: .confirmationAction) {
                         Button("Créer") {
                             busy = true
                             Task {
@@ -164,7 +178,7 @@ private struct GroupEditor: View {
                         }.disabled(busy || name.isEmpty || !(2...6).contains(members.count))
                     }
                 }
-        }
+        }.presentationBackground(AppTheme.background)
     }
 }
 
@@ -172,6 +186,12 @@ private struct GroupChatView: View {
     @Bindable var model: GroupModel
     let room: JSONValue
     @Environment(\.scenePhase) private var phase
+    @Environment(\.dismiss) private var dismiss
+    @State private var renaming = false
+    @State private var title = ""
+    @State private var disbanding = false
+    @State private var retry: JSONValue?
+    private var currentRoom: JSONValue { model.states[id]?["room"] ?? room }
     private var id: String { room["room_id"].string }
     var body: some View {
         ScrollView {
@@ -186,18 +206,53 @@ private struct GroupChatView: View {
                         Text(event["payload"]["status"].string).font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                ForEach(Array((model.states[id]?["driver_status"]["pending_actions"].array ?? []).enumerated()), id: \.offset) { _, action in
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(action["member_id"].string.isEmpty ? "Une action attend votre réponse" : action["member_id"].string).font(.subheadline.weight(.medium))
+                        if action["kind"].string == "approval" {
+                            Text(action["approval"]["description"].string.isEmpty ? action["approval"]["command"].string : action["approval"]["description"].string).font(.subheadline).textSelection(.enabled)
+                            HStack {
+                                Button("Refuser") { approve(action, choice: "deny") }.buttonStyle(AppBorderedButtonStyle())
+                                Spacer()
+                                Button("Autoriser une fois") { approve(action, choice: "once") }.buttonStyle(AppProminentButtonStyle())
+                            }
+                        } else if action["kind"].string == "retry" {
+                            Button("Réessayer cette tâche") { retry = action }
+                        } else { Text("Cette demande nécessite une autre interface Hermes.").font(.caption).foregroundStyle(.secondary) }
+                    }.hermesCard().disabled(model.busy)
+                }
                 if let error = model.error { Text(error).font(.caption).foregroundStyle(AppTheme.accent) }
-            }.padding(24)
-        }.defaultScrollAnchor(.bottom).scrollDismissesKeyboard(.interactively).background(AppTheme.background)
-            .navigationTitle(room["name"].string).navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .primaryAction) { Button { Task { await model.stop(id) } } label: { Image(systemName: "stop.circle") }.accessibilityLabel("Arrêter les agents") } }
+            }.padding(.horizontal, 16).padding(.vertical, 20)
+        }.defaultScrollAnchor(.bottom).scrollDismissesKeyboard(.interactively).background(AppTheme.background).appNavigationBar()
+            .navigationTitle(currentRoom["name"].string).navigationBarTitleDisplayMode(.inline)
+            .toolbar { AppToolbarItem(placement: .primaryAction) {
+                AppMenu {
+                    AppMenuButton("Arrêter les agents", systemImage: "stop.circle") { Task { await model.stop(id) } }
+                    AppMenuButton("Renommer", systemImage: "pencil") { title = currentRoom["name"].string; renaming = true }
+                    AppMenuButton("Dissoudre le groupe", systemImage: "trash", role: .destructive) { disbanding = true }
+                } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.disabled(model.busy)
+            } }
+            .appAlert("Renommer le groupe", isPresented: $renaming) {
+                TextField("Nom", text: $title)
+                Button("Enregistrer") { Task { _ = await model.action("groups.rename", room: id, params: ["name": .string(title), "event_id": .string(UUID().uuidString)]) } }
+                Button("Annuler", role: .cancel) { }
+            }
+            .appConfirm("Dissoudre ce groupe définitivement ?", isPresented: $disbanding) {
+                Button("Dissoudre", role: .destructive) { Task { if await model.action("groups.disband", room: id, params: ["cancel_id": .string(UUID().uuidString)]) { dismiss() } } }
+            } message: { Text("Hermes arrêtera les agents et fermera ce groupe pour tous ses membres.") }
+            .appConfirm("Réessayer cette tâche ?", isPresented: Binding(get: { retry != nil }, set: { if !$0 { retry = nil } })) {
+                Button("Réessayer") { guard let action = retry else { return }; retry = nil; Task { _ = await model.action("groups.retry", room: id, params: ["task_id": action["task_id"]]) } }
+            } message: { Text("Le résultat de l’exécution précédente est incertain. Une nouvelle tentative peut répéter ses actions.") }
             .safeAreaInset(edge: .bottom) {
                 HStack {
                     TextField("Une idée à partager…", text: Binding(get: { model.data.drafts[id] ?? "" }, set: { model.data.drafts[id] = $0 }), axis: .vertical).lineLimit(1...5)
                     Button(model.data.pending[id] == nil ? "Envoyer" : "Réessayer") {
                         Task { await model.send(id, text: model.data.drafts[id] ?? "") }
                     }.disabled(model.busy || ((model.data.drafts[id] ?? "").isEmpty && model.data.pending[id] == nil))
-                }.padding(18).background(AppTheme.surface)
+                }.padding(.horizontal, 16).padding(.vertical, 8)
+                    .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 22))
+                    .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(AppTheme.line))
+                    .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 8).background(AppTheme.background)
             }
             .task(id: phase) {
                 guard phase == .active else { await model.save(); return }
@@ -210,4 +265,9 @@ private struct GroupChatView: View {
             }
             .onDisappear { Task { await model.save() } }
     }
+    private func approve(_ action: JSONValue, choice: String) {
+        let requestID = action["approval"]["request_id"].isNull ? action["request_id"] : action["approval"]["request_id"]
+        Task { _ = await model.action("groups.approve", room: id, params: ["member_id": action["member_id"], "task_id": action["task_id"], "execution_generation": action["execution_generation"], "request_id": requestID, "choice": .string(choice)]) }
+    }
+
 }

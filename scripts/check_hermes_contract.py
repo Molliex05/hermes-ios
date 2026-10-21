@@ -2,21 +2,28 @@
 """Exercise HermesIOS's wire contract against scripts/integration_server.py, without real model use."""
 import asyncio
 import json
+import os
 import uuid
 import httpx
 import websockets
 
-BASE = "http://127.0.0.1:19119"
+BASE = os.environ.get("HERMES_TEST_BASE", "http://127.0.0.1:19119")
+assert BASE.startswith("http://127.0.0.1:"), "Tests must target the isolated localhost fixture"
 
 
 class Client:
     def __init__(self, http):
         self.http = http
         self.events = []
+        self.requests = []
 
     async def connect(self):
         ticket = (await self.http.post(BASE + "/api/auth/ws-ticket")).json()["ticket"]
-        self.ws = await websockets.connect("ws://127.0.0.1:19119/api/ws?ticket=" + ticket, max_size=16 * 1024 * 1024)
+        self.ws = await websockets.connect(BASE.replace("http://", "ws://", 1) + "/api/ws?ticket=" + ticket, max_size=16 * 1024 * 1024)
+        # Like the app: without this per-connection declaration Hermes 0.21.7 withdraws approvals
+        # and never sends clarify/sudo/secret requests to the client.
+        capabilities = await self.rpc("client.capabilities", {"server_requests": True})
+        assert "approval" in capabilities["server_requests"] and "clarify" in capabilities["server_requests"], capabilities
 
     async def rpc(self, method, params=None):
         rid = str(uuid.uuid4())
@@ -31,6 +38,7 @@ class Client:
         raw = await asyncio.wait_for(self.ws.recv(), timeout=90)
         frames = [json.loads(line) for line in raw.splitlines() if line.strip()]
         self.events += [f["params"] for f in frames if f.get("method") == "event"]
+        self.requests += [f for f in frames if f.get("id") and f.get("method")]
         return frames
 
 

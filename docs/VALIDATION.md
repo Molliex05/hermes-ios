@@ -14,9 +14,9 @@ The integration backend is the official, unmodified Hermes Agent **0.21.2**, com
 
 Earlier UI tests used a dedicated iPhone 17 Pro simulator on iOS 27 with Xcode 27 (`27A5218g`). Build 14 uses a fresh iPhone 18 Pro simulator on iOS 27 with Xcode 27 (`27A266a`). The application targets iOS 17; older OS versions have not been exercised. The physical iPhone 16 Plus also runs iOS 27. Installation preserves existing app data. The user confirmed the native private-HTTP/Tailscale connection after the ATS correction in the earlier build.
 
-The app occupies approximately **7 MiB**, unpacked and development-signed, with no third-party runtime packages. This is not an App Store download-size measurement.
+The signed build 18 occupies approximately **11 MiB**, unpacked and development-signed, with no third-party runtime packages. This is not an App Store download-size measurement.
 
-The media contract probe passes image staging/attach/detach retry, encoded paths and file references. The chained voice probe passes transcription → native agent → speech playback data for two profiles; the fixture confirms their distinct configured voices (`nova` and `echo`). Real microphone capture and speech-provider quality still require a manual device check. Chained conversations are supported; GPT-Live/WebRTC and automatic barge-in remain outside this release.
+The media contract probe passes image staging/attach/detach retry, encoded paths and file references. The chained voice probe passes transcription → native agent → speech playback data for two profiles; the fixture confirms their distinct configured voices (`nova` and `echo`). Real microphone capture and speech-provider quality still require a manual device check. Chained conversations are supported; GPT-Live/WebRTC remains unsupported. Automatic barge-in was added and validated with synthetic microphone input in build 18, as detailed below.
 
 Xcode 27 beta sometimes stalls while finalizing an xcresult after all test cases finish. The test runner also saves screenshots to its disposable temporary directory so visual inspection does not depend on that finalization. Native voice assertions passed in the iOS runner. The audio fixture is DEBUG-only and restricted to loopback; Release uses the physical microphone.
 
@@ -41,3 +41,83 @@ The final build 13 Release was installed on the physical iPhone. Automatic launc
 The separate focused UI test also passed for profile switching, isolated drafts, conversation history and X dismissal. Both focused UI runs completed; the broad animation-stalled run remains excluded.
 
 Build 14 adds immediate first-fragment rendering, structured native Markdown, verbatim user messages and improved scroll following. The 40 core tests pass. The native streaming UI test verifies that the beginning is visible before completion, the keyboard closes after Send, a single final reply, and the code-copy control; screenshots were inspected. The final Release revision was installed and launched on the physical iPhone 16 Plus. The build uses Xcode 27 (`27A266a`) at `Xcode.app` after the workspace move to external storage. Fresh build caches avoid stale paths from the prior toolchain. No third-party runtime dependencies were added.
+
+
+## 2026-09-19 — build 15 background recovery
+
+- Core: 54 tests passed, including delivery-state races and native resume classification.
+- Native backend contract: a real terminal tool ran for 35 seconds after admission, the client disconnected for 55 seconds, and native resume returned one completed answer and exactly one user message. This used the installed Hermes source with an isolated home and deterministic model; production configuration was unchanged.
+- Release iPhone build succeeded with Xcode 27. Build 15 was installed and launched successfully on the paired physical iPhone 16 Plus.
+- `testNativeToolContinuesWhileBackgrounded` passed on the dedicated QA simulator (80.4 seconds): tool observed before backgrounding, 55 seconds away, exactly one final answer and one user bubble, no false unsent label. The physical device received the build; the automated background scenario ran on the simulator.
+- Earlier build-15 management, bidirectional clarification and streaming-speech contract checks passed on 2026-09-16. No claim of complete Hermes feature parity; see FEATURES.md.
+
+
+## 2026-09-20 — optional Apple notifications
+
+- 55 Swift core tests passed; notification targets reject URLs, paths and malformed connection IDs.
+- Six Python outbox/APNs tests passed: callback deduplication, private payload, token rotation/revocation, retries, connection separation, ES256 headers and sandbox/production selection. HTTP transport is mocked; no Apple request was made.
+- Real Hermes integration passed: authenticated plugin API, actual completion hook in a named profile, cron with the phone disconnected, exactly one outbox event for the destination Bot Chat, and native resume of its answer. No Hermes source modifications.
+- `testNativeNotificationOpensCorrectConversationAfterColdLaunch` passed using an actual iOS simulator notification injected from the cron's payload. The test force-terminates the app, taps the banner in SpringBoard, checks the Research profile and its final native answer, and confirms the old draft is not placed in the new conversation. A subsequent simulator-cache assertion verified that the original default-profile draft was preserved. The initial test attempt failed only on an incorrect expected placeholder string; the corrected test passed.
+- Debug simulator build and unsigned Release iPhone compilation passed. **A signed build 16 was blocked:** Xcode has no developer account available, and the existing wildcard profile lacks Push Notifications / `aps-environment`.
+- **Not activated or installed on the physical iPhone.** No APNs key is configured, no real push has been sent, and no production Hermes plugin/configuration was changed. Existing build 15 remains the installed version. The server Python environment received the HTTP/2 dependencies h2, hpack and hyperframe required by the extension.
+
+## 2026-09-25 — conversation navigation and routine results
+
+- Core: **76 tests passed**, including local unread baselines and stale history, native schedule round trips, exact routine session routing and tool activity replay/interruptions.
+- Native routine contract: passed against the official Hermes fixture on loopback port 19139. A routine in the Research profile executed, exposed its exact stored session and resumed with its completed answer. After deleting its own routine, the probe verified a 404 for the job while its run remained available. Production agents were unchanged.
+- The simulator build succeeded during development, and the composer/attachment-menu captures were inspected with the keyboard open. The final UI suite is **not validated**: the attachment/voice run failed after repeated 60-second iOS event-loop waits; subsequent attempts stalled, including a fresh simulator stuck in initial OS migration. They were interrupted and are not counted as passing tests. The attachment test now explicitly waits for menu dismissal and a hittable voice button; that revision still needs a completed UI run.
+- Added targeted UI coverage for tool favorites across relaunch, unread filtering, accessibility text sizes and native routine-result/permission navigation. These new tests are not claimed as passing without a completed run.
+- No third-party runtime dependency or production Hermes configuration change was added. Apple push delivery remains unactivated pending the Apple account, provisioning and server key described above.
+- Final signed Release build 17: **not completed or installed**. The default build was blocked by the existing profile's missing APNs capability. A local build with explicit empty entitlements passed provisioning, but was interrupted during compilation under severe host memory pressure (over 14 GiB of swap in use); an incremental single-job retry was also interrupted. No release success is claimed. `devicectl` confirmed that the physical iPhone still has build **15**. The app's committed entitlements still retain APNs for correctly provisioned builds.
+
+Run logs and screenshots are in the ignored `outputs/ui-ux-2026-09-25/` directory. Resume the final Release build and focused UI tests on an available host before installation.
+
+## 2026-09-26 — hands-free voice, build 18
+
+- **101 core tests passed**, including preference sanitization, noise rejection, quiet listening, pre-roll handoff, bounded ambient calibration and interruption detection/grace.
+- Native speech protocol passed for Research and Studio: authenticated native tickets, correct profile voice, PCM before text completion and end-of-stream. The official Hermes backend was unmodified; model/STT/TTS providers ran on the isolated loopback fixture (port 19149).
+- `testNativeHandsFreeVoiceConversation` passed (86.8 s): 18 seconds initially quiet, two complete automatic exchanges, mute, transcript expansion and preserved draft. No push-to-talk/send gesture was used.
+- `testNativeVoiceBargeInAndNextTurn` passed (40.6 s): synthetic microphone activity interrupted actual iOS PCM playback, interrupted the native agent turn and led to the next completed response. The fixture database confirmed exactly two user messages: the first answer was partial (83 characters), the second complete (203). The uninterrupted loop separately stored exactly two full exchanges, without duplicates.
+- `testNativeVoiceCanCloseAndReopenWithoutLateCapture` passed (25.1 s). Closing/reopening did not submit a late utterance or leave the chat disabled.
+- Six focused navigation/accessibility cases passed: attachments → voice with a draft, draft preservation through navigation, persistent favorites, unread filtering, largest-text composer navigation and largest-text voice dismissal. The first accessibility run exposed a 26-point accessibility hit area on the history icon; explicit 44-point content shapes fixed it, and the focused rerun passed. The initial failure is retained in `navigation.log`.
+- Voice screenshots were inspected in light/dark appearance and at standard/largest accessibility sizes. The attachment/voice case also passed in dark mode. The visual clock is isolated to the orb, limited to 24 fps and paused with Reduce Motion/backgrounding. Session/engine setup, sample conversion, audio files, base64 and large JSON encoding/decoding run outside MainActor. No third-party runtime dependency was added.
+- Xcode completed the passing runs and their result bundles. It emitted a nonfatal simulator-diagnostics collection warning about its `simctl` lookup after tests; this did not change the XCTest results.
+- Development-signed Release build **18** succeeded. The build uses explicit empty entitlements for the existing local provisioning profile; committed APNs entitlements remain unchanged. Actual Apple push delivery is still unconfigured.
+- The final interruption/next-turn and close/reopen cases passed again after the ambient-calibration and lease-cleanup changes (41.0 s and 30.3 s). The final signed build passed `codesign` verification and was installed on the physical iPhone 16 Plus without erasing app data; `devicectl` confirmed installed bundle version **18**. Automatic launch was blocked solely by the device lock screen. This installation also includes the preceding navigation improvements.
+
+Microphone input is synthetic in automated tests. Physical speaker echo rejection, Bluetooth routing and microphone sensitivity require a real speaking/listening check on the iPhone. The app uses Apple's voice-processing I/O; no claim of perfect echo rejection or a measured zero-freeze guarantee is made. The native server can end a partially produced TTS stream without an error event, so that upstream condition cannot always be distinguished from a complete stream.
+
+Evidence: ignored `outputs/voice-2026-09-26/` (core, native protocol, UI result bundles/screenshots, stored turns and signed build logs).
+
+
+## GPT-Live integration — 2026-09-27
+
+- Foundation suite: **105 tests passed**, using Xcode 27's Swift toolchain. The older Command Line Tools compiler fails on existing voice-window memberwise initializers; it is not the validation toolchain for this run.
+- Simulator and unsigned iPhone builds succeeded with WebRTC M153 pinned. The added native transport increases the unsigned Debug device bundle to approximately 28 MB; this is not an App Store download-size measurement.
+- `check_voice_live_contract.py` passed against unmodified Hermes commit `7d7fe0043e` with an isolated aiortc provider: research and studio profiles, auth gates, partial Stone configuration, SDP CRLF, real WebRTC transcript/delegation events, native prompt submission and returned commentary. No production account or real provider key was used.
+- UI automation initially timed out querying accessibility before voice opened. A separate native transport test negotiated SDP but the simulator's virtual audio device timed out during initialization. Silent, loopback-only DEBUG test support was then added; those revised native/UI tests have not yet been validated. This is not a passing hardware-audio test.
+- Release build 19 was successfully signed after the user repaired Xcode account/provisioning configuration, and installed on the paired iPhone 16 Plus.
+- The user chose to perform the final live conversation test directly on the iPhone. Real OpenAI access, Stone pronunciation, end-to-end latency, acoustic interruption and Bluetooth routes remain to be checked there.
+
+Run artifacts are in `outputs/gpt-live-2026-09-27/` (ignored by Git). No signing identity or provider credential is stored in source.
+
+## GPT-Live spoken progress — 2026-09-28
+
+- **109 core tests passed**, including four new deterministic progress-policy scenarios: slow turns, existing live acknowledgements/user speech, bounded known-tool announcements, and suppression once a reply or completion arrives.
+- Spoken announcements now use commentary events in the existing scoped relay loop. They stop with that loop on close, superseding delegation, profile/session change, failure or a pending user decision. Existing partial-answer streaming remains in place.
+- Release build **20** succeeded, passed strict code-signature verification and was installed on the paired physical iPhone without clearing app data. Automatic launch was blocked by the phone's lock screen; the user can open the installed app directly.
+- No production Hermes configuration, model or provider key was changed. This change addresses silent waiting, not backend reasoning latency. Provider timing, actual speech and acoustic interruption remain for the user's direct iPhone test; no new simulator UI/audio pass is claimed.
+
+Evidence: `outputs/voice-progress-2026-09-28/` (core tests, Release build, installation and device checks; ignored by Git).
+
+## GPT-Live reliability — 2026-10-02
+
+- **113 core tests passed**. Added overlapping speech/late transcript, FIFO delegation isolation and receipt/error regression cases.
+- Native WebRTC integration passed with real SDP/data-channel exchange and delayed matching commentary receipts. The isolated official Hermes contract passed for research and studio profiles.
+- `testNativeGPTLiveDelegationAndReopen` passed (final `ui-verified.xcresult`): delegated answer, duplicate suppression, mute, draft preservation and close/reopen. Initial failures were retained: expired fixture authentication, microphone permission after reinstall, a draft left by a previous attempt, and an assertion counting the conversation title as a second message. The final assertion scopes message counting to the scroll view. The isolated database independently contained one user message per completed voice test conversation.
+- A real GPT-Live/Stone WebSocket probe received matching commentary acknowledgement, output transcript and PCM audio for a synthetic test result. First audio arrived 0.859 s after the result was sent (3.740 s including fresh connection setup).
+- A separate real Mac mini Hermes default-profile arithmetic request was admitted in 0.038 s, produced its first text 4.389 s after submission, and completed in 4.818 s. Its actual answer was then submitted to a fresh GPT-Live/Stone session: first audio 0.765 s after submission, with the expected spoken answer and correlated receipt. These separate probes are not an end-to-end iPhone benchmark or evidence that arbitrary 30-second tasks are fixed.
+- Signed Release **21** built, passed strict signature verification and was installed on the physical iPhone; `devicectl` confirmed bundle version 21. Automatic launch was blocked by the lock screen.
+- The backend model/configuration remains unchanged. Timing instrumentation will distinguish provider delivery from Hermes work on subsequent slow cases. Native test hardware audio is silent; physical playback, acoustic interruption and Bluetooth remain user-device checks.
+
+Evidence: ignored `outputs/voice-reliability-2026-10-02/` (tests, protocol probes, synthetic real-service probes, timestamps, build and installation). No real conversation or credential is committed.

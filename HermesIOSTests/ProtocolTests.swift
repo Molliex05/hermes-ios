@@ -213,7 +213,7 @@ final class ProtocolTests: XCTestCase {
         XCTAssertTrue(restored.isSecure)
     }
     func testCoalescedUnicodeFrames() throws {
-        let frames = try Wire.frames("{\"method\":\"event\",\"params\":{\"payload\":{\"text\":\"Salut 👋\\nété\"}}}\n{\"id\":\"2\",\"result\":true}\n")
+        let frames = Wire.frames("{\"method\":\"event\",\"params\":{\"payload\":{\"text\":\"Salut 👋\\nété\"}}}\n{\"id\":\"2\",\"result\":true}\n")
         XCTAssertEqual(frames.count, 2)
         XCTAssertEqual(frames[0]["params"]["payload"]["text"].string, "Salut 👋\nété")
         XCTAssertEqual(frames[1]["result"], true)
@@ -373,4 +373,172 @@ final class ProtocolTests: XCTestCase {
     private func event(_ seq: Int, _ type: String, text: String = "") -> JSONValue {
         ["session_id": "runtime", "seq": .number(Double(seq)), "type": .string(type), "payload": ["text": .string(text)]]
     }
+}
+
+extension ProtocolTests {
+    func testModernRequestsAreSessionScopedAndCanceledSnapshotCannotResurrect() {
+        var inbox = ServerRequests()
+        let request: JSONValue = ["id": "srq-a", "method": "approval", "params": ["session_id": "a", "choices": ["once", "deny"]]]
+        XCTAssertTrue(inbox.insert(request))
+        XCTAssertTrue(inbox.insert(request)); XCTAssertEqual(inbox.frames.count, 1)
+        XCTAssertNil(inbox.payload(session: "b", methods: ["approval"]))
+        XCTAssertEqual(inbox.payload(session: "a", methods: ["approval"])?["rpc_id"], "srq-a")
+        inbox.retire("srq-a")
+        XCTAssertFalse(inbox.insert(request)); XCTAssertTrue(inbox.frames.isEmpty)
+        XCTAssertFalse(inbox.insert(["id": "unknown", "method": "preview.act"]))
+    }
+
+    func testLockedBatchAnswerSurvivesStaleSnapshot() {
+        var inbox = ServerRequests()
+        let request: JSONValue = ["id": "srq-q", "method": "clarify", "params": ["session_id": "a", "questions": [["qid": "one", "question": "A?"]]]]
+        inbox.insert(request); inbox.lock("srq-q", question: "one", answer: "Yes")
+        inbox.insert(request)
+        XCTAssertEqual(inbox.payload(session: "a", methods: ["clarify"])?["answers"]["one"], "Yes")
+    }
+
+    func testCancelledApprovalQueueEntryIsCleared() {
+        var transcript = Transcript()
+        transcript.hydrate(["messages": [], "running": true, "pending_approval": ["request_id": "old", "choices": ["once", "deny"]]])
+        XCTAssertEqual(transcript.approval?["request_id"], "old")
+        transcript.apply(["seq": 1, "type": "approval.cancelled", "payload": ["request_ids": ["other"]]])
+        XCTAssertEqual(transcript.approval?["request_id"], "old")
+        transcript.apply(["seq": 2, "type": "approval.cancelled", "payload": ["request_ids": ["old"]]])
+        XCTAssertNil(transcript.approval)
+    }
+
+    func testHistoryRefreshKeepsLiveStateAndCards() {
+        var transcript = Transcript()
+        transcript.hydrate(["messages": [], "running": true, "pending_approval": ["request_id": "a"]])
+        // `session.history` carries only messages: it must not mark the turn idle or drop the card.
+        transcript.hydrate(["count": 1, "messages": [["role": "user", "text": "Bonjour"]]])
+        XCTAssertTrue(transcript.running)
+        XCTAssertEqual(transcript.approval?["request_id"], "a")
+        XCTAssertEqual(transcript.messages.map(\.text), ["Bonjour"])
+    }
+
+    func testMalformedFrameIsSkipped() {
+        let frames = Wire.frames("{\"id\":\"1\",\"result\":{\"ok\":true}}\n{broken\n{\"id\":\"2\",\"result\":7}")
+        XCTAssertEqual(frames.map { $0["id"].string }, ["1", "2"])
+        XCTAssertEqual(frames[0]["result"]["ok"], true)
+        XCTAssertEqual(frames[1]["result"], .number(7))
+    }
+
+    func testCompletionClearsSensitivePrompt() {
+        var transcript = Transcript()
+        transcript.credential = ["rpc_id": "srq-1", "rpc_method": "secret", "env_var": "TOKEN"]
+        transcript.apply(["type": "message.complete", "payload": ["text": "Finished"]])
+        XCTAssertNil(transcript.credential)
+    }
+    func testVoiceCursorNeverReplaysOnFinalSnapshot() {
+        var cursor = VoiceTextCursor()
+        XCTAssertEqual(cursor.delta("Bonjour 👋. "), "Bonjour 👋. ")
+        XCTAssertEqual(cursor.delta("Bonjour 👋. Suite. "), "Suite. ")
+        XCTAssertEqual(cursor.delta("Bonjour 👋. Suite."), "")
+        XCTAssertEqual(cursor.delta("Une autre réponse."), "", "A rewritten final is never replayed nor fatal")
+    }
+    func testVoiceSocketKeepsProfileAndProxyPrefix() throws {
+        let endpoint = try Endpoint("https://agent.ts.net/hermes")
+        let url = endpoint.socket(ticket: "a&b", path: "/api/audio/speak-stream", query: [.init(name: "profile", value: "research")])
+        XCTAssertEqual(url.path, "/hermes/api/audio/speak-stream")
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)!.queryItems!
+        XCTAssertEqual(query.first { $0.name == "profile" }?.value, "research")
+        XCTAssertEqual(query.first { $0.name == "ticket" }?.value, "a&b")
+    }
+    func testConfigurationPatchAndBotPresentation() {
+        let patch = JSONValue.patch("approvals.mode", value: "manual")
+        XCTAssertEqual(patch.at("approvals.mode"), "manual")
+        XCTAssertTrue(patch.at("approvals.other").isNull)
+        let bot = AgentProfile(["name": "research", "display_name": "Old", "ui_meta": ["hermes-bots": ["title": "Recherche", "pinned": true, "hidden": true]]])
+        XCTAssertEqual(bot.title, "Recherche"); XCTAssertEqual(bot.pinned, true); XCTAssertEqual(bot.hidden, true)
+    }
+
+    func testSlashParsingPreservesArgumentsAndIgnoresFilePaths() {
+        XCTAssertEqual(SlashInput("/compact  garder les décisions")?.name, "compact")
+        XCTAssertEqual(SlashInput("/compact  garder les décisions")?.argument, "garder les décisions")
+        XCTAssertNil(SlashInput("/Users/maxime/fichier.md"))
+        XCTAssertNil(SlashInput("Un texte /compact"))
+    }
+    func testCompletedSessionRetiresOnlyItsOpenRequests() {
+        var store = ServerRequests()
+        let frame: JSONValue = ["id": "srq-1", "method": "secret", "params": ["session_id": "one"]]
+        store.insert(frame)
+        store.insert(["id": "srq-2", "method": "approval", "params": ["session_id": "two"]])
+        store.retire(session: "one")
+        XCTAssertFalse(store.insert(frame))
+        XCTAssertEqual(store.frames.count, 1)
+        XCTAssertEqual(store.frames[0]["id"], "srq-2")
+    }
+
+    func testOwnershipRefusalKeepsMachineReadableReason() {
+        let failure = RPCFailure(responseError: ["code": 4090, "message": "Localized server text", "data": ["reason": "SESSION_NOT_OWNED"]])
+        XCTAssertTrue(failure.sessionOwnedElsewhere)
+        XCTAssertEqual(failure.reason, "SESSION_NOT_OWNED")
+        XCTAssertTrue(RPCFailure("Session abc already has a live owner (desktop)", code: 4090).sessionOwnedElsewhere)
+        XCTAssertFalse(RPCFailure("Session limit", code: 4090, reason: "MAX_CONCURRENT_SESSIONS").sessionOwnedElsewhere)
+        XCTAssertFalse(RPCFailure("already has a live owner", code: 4090, reason: "SESSION_COORDINATION_UNAVAILABLE").sessionOwnedElsewhere)
+        XCTAssertFalse(RPCFailure("Network timeout", code: -2).sessionOwnedElsewhere)
+    }
+
+    func testAcceptedTurnCannotBecomeUnsentAfterLateFailure() {
+        for error in [RPCFailure("connection lost", code: -1), RPCFailure("late server error", code: 5000), RPCFailure("late refusal", code: 4090)] {
+            var transcript = Transcript(messages: [.init(id: "sent", role: "user", text: "Work", delivery: .confirmed)])
+            transcript.running = true
+            XCTAssertEqual(transcript.submissionFailed(id: "sent", error: error), .confirmed)
+            XCTAssertTrue(transcript.running)
+        }
+    }
+
+    func testLostAcknowledgementPreservesTurnUntilNativeResume() {
+        for error in [RPCFailure("timeout", code: -2), RPCFailure("internal", code: 5000), CancellationError()] as [Error] {
+            var transcript = Transcript(messages: [.init(id: "sent", role: "user", text: "Work", delivery: .sending)])
+            transcript.running = true
+            XCTAssertEqual(transcript.submissionFailed(id: "sent", error: error), .uncertain)
+            XCTAssertTrue(transcript.running)
+            transcript.hydrate(["running": false, "messages": [["role": "user", "text": "Work"], ["role": "assistant", "text": "Done"]]])
+            XCTAssertEqual(transcript.messages.count, 2)
+            XCTAssertEqual(transcript.messages.first?.id, "sent")
+            XCTAssertEqual(transcript.messages.first?.delivery, .confirmed)
+            XCTAssertFalse(transcript.running)
+        }
+    }
+
+    func testNativeRefusalRemainsDistinctFromConnectionLoss() {
+        var transcript = Transcript(messages: [.init(id: "sent", role: "user", text: "Work", delivery: .sending)])
+        transcript.running = true
+        XCTAssertEqual(transcript.submissionFailed(id: "sent", error: RPCFailure("owned", code: 4090)), .failed)
+        XCTAssertFalse(transcript.running)
+        XCTAssertTrue(RPCFailure("settling", code: 4009).retryableSessionResume)
+        XCTAssertTrue(RPCFailure("retry resume", code: 4007).retryableSessionResume)
+        XCTAssertFalse(RPCFailure("owned", code: 4090).retryableSessionResume)
+    }
+
+    func testToolEventsRestoreExecutionWithoutAcknowledgingUnrelatedPrompt() {
+        var transcript = Transcript(messages: [.init(id: "pending", role: "user", text: "Work", delivery: .uncertain)])
+        transcript.apply(["seq": 1, "type": "tool.start", "payload": ["name": "terminal"]])
+        XCTAssertTrue(transcript.running)
+        XCTAssertEqual(transcript.messages.first?.delivery, .uncertain)
+        transcript.apply(["seq": 2, "type": "message.complete", "payload": ["text": "Done"]])
+        XCTAssertFalse(transcript.running)
+        XCTAssertEqual(transcript.messages.first?.delivery, .uncertain)
+    }
+
+    func testNotificationSelectsOnlyAnExplicitNativeConversation() {
+        let connection = UUID()
+        let payload: JSONValue = ["aps": ["alert": "Message"], "hermes": [
+            "version": 1, "event_id": "event-42", "connection_id": .string(connection.uuidString),
+            "profile": "research", "session_id": "20260920_bot_123"]]
+        let target = NotificationTarget(payload)
+        XCTAssertEqual(target?.connectionID, connection)
+        XCTAssertEqual(target?.profile, "research")
+        XCTAssertEqual(target?.sessionID, "20260920_bot_123")
+        var fields = payload["hermes"].object
+        fields["session_id"] = "../../private"
+        XCTAssertNil(NotificationTarget(["hermes": .object(fields)]))
+        fields["session_id"] = "https://attacker.example"
+        XCTAssertNil(NotificationTarget(["hermes": .object(fields)]))
+        fields["session_id"] = "valid"; fields["connection_id"] = "unknown"
+        XCTAssertNil(NotificationTarget(["hermes": .object(fields)]))
+        XCTAssertNil(NotificationTarget(["url": "https://attacker.example", "session_id": "valid"]))
+    }
+
 }

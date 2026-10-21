@@ -1,0 +1,9 @@
+{
+  "name": "hermes-widgets",
+  "label": "Hermès iOS Widgets",
+  "description": "Read-only Noriven snapshot for the native iOS widgets",
+  "version": "0.1.0",
+  "tab": {"hidden": true},
+  "entry": "index.js",
+  "api": "plugin_api.py"
+}

@@ -2,33 +2,80 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 
+/// What the chat presents over itself. Each is one sheet; anything deeper is pushed inside it.
+enum ChatSheet: String, Identifiable {
+    case menu, agents, history, voice
+    var id: String { rawValue }
+}
+
+/// Owns presentation state only. It reads no transcript property, so streamed tokens never
+/// re-evaluate it: the header, transcript and composer each observe what they display and hand
+/// plain values to Equatable views (see Features/Chat).
 struct ChatView: View {
     @Bindable var model: AppModel
     @State private var showPhotos = false
+    @State private var compressing = false
     @State private var showFiles = false
+    @State private var showCamera = false
+    @State private var attachOpen = false
     @State private var photos: [PhotosPickerItem] = []
     @State private var attachmentContext = ""
-    @State private var destination: AppDestination?
+    @State private var sheet: ChatSheet?
     @State private var pinnedToBottom = true
-    @State private var draggingHistory = false
     @State private var bottomVisible = true
+    @State private var toolsExpanded = false
     @FocusState private var focused: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                header
-                if model.transcript.messages.isEmpty { emptyChat }
-                else { messages }
+                ChatHeaderContainer(model: model, compress: { compressing = true }, newChat: { model.newChat(); focused = true },
+                                    switchAgent: { present(.agents) }, history: { present(.history) }, menu: { present(.menu) })
+                ChatTranscriptView(model: model, pinnedToBottom: $pinnedToBottom, bottomVisible: $bottomVisible,
+                                   toolsExpanded: $toolsExpanded, suggest: { model.draft = $0; focused = true })
             }
-            .background(AppTheme.background)
-            .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+            .background { ChatBackdrop(model: model) }
+            // Tapping the chat closes the « + » panel; the composer below stays live.
+            .overlay {
+                if attachOpen {
+                    Color.black.opacity(0.10).ignoresSafeArea().onTapGesture { attachOpen = false }.transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: attachOpen)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                ChatComposerContainer(
+                    model: model, focused: $focused, attachOpen: $attachOpen, present: present,
+                    attach: chooseAttachment,
+                    willSend: { pinnedToBottom = true; focused = false; attachOpen = false })
+            }
             .toolbar(.hidden, for: .navigationBar)
-            .sheet(item: $destination) { page in
-                SpacesView(model: model, initial: page == .spaces ? nil : page)
-                    .presentationDragIndicator(.visible)
-                    .presentationCornerRadius(30)
+            .sheet(item: $sheet) { page in
+                Group {
+                    switch page {
+                    case .menu: MenuView(model: model).presentationDetents([.large])
+                    case .agents: QuickProfilePicker(model: model)
+                    case .history: NavigationStack { SessionsView(model: model) }.presentationBackground(AppTheme.background).presentationDetents([.large])
+                    case .voice: VoiceView(app: model, returnToChat: { sheet = nil }).presentationDetents([.large])
+                    }
+                }
+                .environment(\.returnToChat, ReturnToChat { sheet = nil })
+                .overlay(alignment: .top) { ToastBanner(model: model) }
+                .overlay { NoticeDialog(model: model) }
+                .sheetChrome()
+            }
+            .appConfirm("Résumer le contexte de cette conversation ?", isPresented: $compressing) {
+                Button("Résumer avec Hermes") { Task { await model.compactConversation() } }
+            } message: { Text("Hermes conserve l’historique et réduit le contexte utilisé pour les prochaines réponses.") }
+            .sheet(isPresented: Binding(get: { model.commandOutput != nil }, set: { if !$0 { model.commandOutput = nil } })) {
+                NavigationStack {
+                    ScrollView { MarkdownText(text: model.commandOutput ?? "").textSelection(.enabled).padding(24).frame(maxWidth: .infinity, alignment: .leading) }
+                        .background(AppTheme.background).navigationTitle("Réponse de Hermes").navigationBarTitleDisplayMode(.inline)
+                        .toolbar { AppToolbarItem(placement: .confirmationAction) { AppCloseButton { model.commandOutput = nil } } }
+                }.presentationBackground(AppTheme.background).presentationCornerRadius(30).presentationDragIndicator(.visible)
+            }
+            .fullScreenCover(isPresented: $showCamera) {
+                CameraPicker { data in importImage(data, name: "Photo-\(UUID().uuidString.prefix(8)).jpg") }.ignoresSafeArea()
             }
             .photosPicker(isPresented: $showPhotos, selection: $photos, maxSelectionCount: max(1, 4 - model.attachments.count), matching: .images)
             .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
@@ -46,7 +93,7 @@ struct ChatView: View {
                             try await model.addAttachment(data: data, name: url.lastPathComponent, mimeType: UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream", context: context)
                         }
                     } catch is CancellationError { }
-                    catch { model.notice = error.localizedDescription }
+                    catch { model.chatError = error.localizedDescription }
                 }
             }
             .onChange(of: photos) { _, items in
@@ -62,367 +109,53 @@ struct ChatView: View {
                             try await model.addAttachment(data: jpeg, name: "Photo-\(UUID().uuidString.prefix(8)).jpg", mimeType: "image/jpeg", context: context)
                         }
                     } catch is CancellationError { }
-                    catch { model.notice = error.localizedDescription }
+                    catch { model.chatError = error.localizedDescription }
                 }
             }
-            .onChange(of: model.draft) { _, _ in model.draftChanged() }
-            .onChange(of: model.selected?.storedID) { _, _ in pinnedToBottom = true }
+            .onChange(of: model.selected?.storedID) { _, _ in pinnedToBottom = true; toolsExpanded = false }
+            .task(id: model.pendingVoiceLaunch) {
+                guard model.pendingVoiceLaunch else { return }
+                model.pendingVoiceLaunch = false
+                if sheet != .voice { present(.voice) }
+            }
+            .onChange(of: sheet) { _, value in model.setChatVisible(value == nil && bottomVisible) }
+            .onChange(of: bottomVisible) { _, visible in model.setChatVisible(sheet == nil && visible) }
+            .onAppear { model.setChatVisible(sheet == nil && bottomVisible) }
+            .onDisappear { model.setChatVisible(false) }
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            Button { present(.profiles) } label: {
-                HStack(spacing: 11) {
-                    AgentAvatar(name: model.agent?.name ?? "default", size: 34)
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            Text(model.agent?.title ?? "Hermes").font(.headline)
-                            Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
-                        }
-                        ConnectionIndicator(model: model).lineLimit(1)
-                    }
-                }
-            }.buttonStyle(.plain).accessibilityLabel("Choisir un agent").accessibilityIdentifier("quick-agents")
-            Spacer()
-            RoundButton(symbol: "square.and.pencil", label: "Nouvelle conversation") { model.newChat(); focused = true }
-        }.padding(.horizontal, 24).padding(.top, 10).padding(.bottom, 16)
-    }
-
-    private func present(_ page: AppDestination) {
+    private func chooseAttachment(_ choice: AttachChoice) {
+        attachOpen = false
         focused = false
-        destination = page
-    }
-
-    private var emptyChat: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                Spacer(minLength: 70)
-                AgentMark(size: 48)
-                Text("Un peu de place\npour vos idées.").font(.system(size: 37, weight: .regular, design: .serif)).tracking(-1.1)
-                Text("Une question, une envie, un projet.\nHermes reprend le fil avec vous.")
-                    .foregroundStyle(.secondary).lineSpacing(4)
-                VStack(spacing: 10) {
-                    suggestion("Faire le point", subtitle: "Retrouver ce qui compte aujourd’hui", symbol: "sun.max", prompt: "Aide-moi à faire le point et à choisir mes priorités pour aujourd’hui.")
-                    suggestion("Explorer une idée", subtitle: "Laisser la curiosité faire son chemin", symbol: "sparkle", prompt: "J’ai une idée à explorer. Aide-moi à la préciser.")
-                    suggestion("Passer à l’action", subtitle: "Un premier pas, tout simplement", symbol: "arrow.up.right", prompt: "Aide-moi à transformer mon projet en un premier pas concret.")
-                }.padding(.top, 14)
-            }.padding(28).frame(maxWidth: 640).frame(maxWidth: .infinity, alignment: .center)
-        }.scrollDismissesKeyboard(.interactively)
-    }
-
-    private func suggestion(_ title: String, subtitle: String, symbol: String, prompt: String) -> some View {
-        Button { model.draft = prompt; focused = true } label: {
-            HStack(spacing: 14) {
-                Image(systemName: symbol).font(.system(size: 19)).foregroundStyle(AppTheme.accent).frame(width: 26)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "arrow.up.left").font(.caption).foregroundStyle(.tertiary)
-            }.padding(17).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 19))
-                .overlay(RoundedRectangle(cornerRadius: 19).strokeBorder(AppTheme.line))
-        }.buttonStyle(.plain)
-    }
-
-    private var messages: some View {
-        GeometryReader { geo in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 27) {
-                        ForEach(model.transcript.messages) { message in
-                            MessageView(message: message, agent: model.agent?.title ?? "Hermes")
-                                .equatable().id(message.id)
-                        }
-                        if let activity = model.transcript.activity, model.transcript.running {
-                            HStack(spacing: 9) {
-                                Image(systemName: "sparkle")
-                                    .foregroundStyle(AppTheme.accent)
-                                    .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion)
-                                    .accessibilityHidden(true)
-                                TimelineView(.periodic(from: .now, by: 1)) { context in
-                                    Text(model.sending ? "Transmission à Hermès…"
-                                         : model.state == .connected && model.transcript.isWaitingForResponse(at: context.date)
-                                         ? "En attente de la réponse du modèle…" : activity)
-                                        .lineLimit(2)
-                                }
-                            }.font(.caption).foregroundStyle(.secondary).padding(.leading, 2)
-                        }
-                        if let failure = model.transcript.failure, !failure.isEmpty {
-                            Label(failure, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(AppTheme.accent)
-                        }
-                        if let approval = model.transcript.approval { ApprovalCard(payload: approval, model: model) }
-                        if let clarification = model.transcript.clarification { ClarificationCard(payload: clarification, model: model) }
-                        if let credential = model.transcript.credential { CredentialCard(payload: credential, model: model) }
-                        Color.clear.frame(height: 1).id("bottom").background(GeometryReader { marker in
-                            Color.clear.preference(key: BottomPreference.self, value: marker.frame(in: .named("chat-scroll")).maxY)
-                        })
-                    }.padding(.horizontal, 26).padding(.top, 14).padding(.bottom, 20).frame(maxWidth: 720).frame(maxWidth: .infinity)
-                }
-                .coordinateSpace(name: "chat-scroll")
-                .scrollDismissesKeyboard(.interactively)
-                .chatScrollAnchors()
-                .simultaneousGesture(DragGesture(minimumDistance: 5)
-                    .onChanged { value in
-                        guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                        draggingHistory = true
-                        if value.translation.height > 5 { pinnedToBottom = false }
-                    }
-                    .onEnded { _ in draggingHistory = false; if bottomVisible { pinnedToBottom = true } })
-                .onPreferenceChange(BottomPreference.self) { y in
-                    bottomVisible = y <= geo.size.height + 55
-                    if !draggingHistory, bottomVisible { pinnedToBottom = true }
-                    if pinnedToBottom, !draggingHistory, y > geo.size.height + 1 { proxy.scrollTo("bottom", anchor: .bottom) }
-                }
-                .onChange(of: model.transcript.messages.last?.text) { _, _ in
-                    if pinnedToBottom, !draggingHistory { proxy.scrollTo("bottom", anchor: .bottom) }
-                }
-                .onChange(of: model.transcript.messages.count) { _, _ in
-                    if pinnedToBottom { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo("bottom", anchor: .bottom) } }
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    if !pinnedToBottom {
-                        RoundButton(symbol: "arrow.down", label: "Dernier message") {
-                            pinnedToBottom = true
-                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
-                        }.padding(18)
-                    }
-                }
+        attachmentContext = model.attachmentContext
+        // Let the panel fold away before the system surface opens.
+        Task {
+            try? await Task.sleep(for: .milliseconds(220))
+            switch choice {
+            case .camera: showCamera = true
+            case .photos: showPhotos = true
+            case .files: showFiles = true
             }
         }
     }
 
-    private var composer: some View {
-        VStack(spacing: 0) {
-            if model.draft.hasSuffix("@") {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(model.profiles) { agent in
-                            Button { model.draft += agent.name + " " } label: {
-                                HStack(spacing: 7) { AgentAvatar(name: agent.name, size: 24); Text(agent.title).font(.caption) }
-                                    .padding(8).background(AppTheme.surface, in: Capsule())
-                            }
-                        }
-                    }
-                }
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                if !model.attachments.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(model.attachments) { item in
-                                HStack(spacing: 7) {
-                                    Image(systemName: item.isImage ? "photo" : "doc")
-                                    Text(item.name).lineLimit(1).frame(maxWidth: 140)
-                                    Button { model.removeAttachment(item) } label: {
-                                        Image(systemName: "xmark").frame(width: 32, height: 44)
-                                    }.disabled(model.sending).accessibilityLabel("Retirer \(item.name)")
-                                }.font(.caption).padding(.leading, 12).background(AppTheme.background, in: RoundedRectangle(cornerRadius: 14))
-                            }
-                        }
-                    }.padding(.horizontal, 4).accessibilityIdentifier("pending-attachments")
-                }
-                if model.importingAttachments { ProgressView("Ajout…").font(.caption).padding(8) }
-                TextField("Message…", text: $model.draft, axis: .vertical)
-                    .lineLimit(1...7).font(.body).focused($focused)
-                    .padding(.horizontal, 9).padding(.vertical, 8).frame(minHeight: 44)
-                    .accessibilityIdentifier("chat-composer")
-                HStack(spacing: 6) {
-                    ViewThatFits(in: .horizontal) {
-                        composerShortcuts(showToolTitle: true, compactProfile: false)
-                        composerShortcuts(showToolTitle: false, compactProfile: false)
-                        composerShortcuts(showToolTitle: false, compactProfile: true)
-                    }
-                    Spacer(minLength: 0)
-                    Button { present(.voice) } label: {
-                        Image(systemName: "mic").font(.system(size: 20)).frame(width: 44, height: 44)
-                            .foregroundStyle(AppTheme.accent)
-                    }.buttonStyle(.plain).accessibilityLabel("Conversation vocale").accessibilityIdentifier("voice-mode")
-                        .disabled(model.sending || model.opening || model.transcript.running || (!model.demo && model.state != .connected))
-                    sendButton
-                }
-            }.padding(10)
-                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 28))
-                .overlay(RoundedRectangle(cornerRadius: 28).strokeBorder(AppTheme.line))
-                .shadow(color: .black.opacity(0.045), radius: 22, y: 6)
-                .accessibilityElement(children: .contain)
-                .accessibilityIdentifier("composer-surface")
-        }.padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 8).frame(maxWidth: 750).frame(maxWidth: .infinity)
-            .background(AppTheme.background)
-    }
-
-    private var messageActions: some View {
-        Menu {
-            Button("Ajouter une photo", systemImage: "photo") { focused = false; attachmentContext = model.attachmentContext; showPhotos = true }
-            Button("Ajouter un fichier", systemImage: "doc") { focused = false; attachmentContext = model.attachmentContext; showFiles = true }
-        } label: {
-            Image(systemName: "plus").font(.system(size: 20, weight: .regular))
-                .foregroundStyle(.secondary).frame(width: 44, height: 44)
-        }.disabled(model.sending || model.importingAttachments || model.attachments.count >= 4).accessibilityLabel("Ajouter une pièce jointe").accessibilityIdentifier("message-actions")
-    }
-
-    private func composerShortcuts(showToolTitle: Bool, compactProfile: Bool) -> some View {
-        HStack(spacing: 2) {
-            messageActions
-            Button { present(.profiles) } label: {
-                HStack(spacing: 6) {
-                    AgentAvatar(name: model.agent?.name ?? "default", size: 20)
-                    if !compactProfile {
-                        Text(model.agent?.title ?? "Hermes").lineLimit(1).frame(maxWidth: 85)
-                        Image(systemName: "chevron.down").font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary)
-                    }
-                }.padding(.horizontal, 8).frame(minWidth: 44, minHeight: 44)
-                    .background(AppTheme.background, in: Capsule())
-            }.accessibilityLabel("Changer de profil : \(model.agent?.title ?? "Hermes")")
-                .accessibilityIdentifier("switch-profile")
-            Button { present(.history) } label: {
-                Image(systemName: "bubble.left.and.bubble.right").font(.system(size: 18))
-                    .frame(width: 44, height: 44)
-            }.accessibilityLabel("Conversations du profil actif").accessibilityIdentifier("quick-history")
-            Button { present(.spaces) } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "slider.horizontal.3").font(.system(size: 17))
-                    if showToolTitle { Text("Outils") }
-                }.padding(.horizontal, showToolTitle ? 8 : 0).frame(minWidth: 44, minHeight: 44)
-            }.accessibilityLabel("Outils").accessibilityIdentifier("app-navigation")
-        }.font(.caption.weight(.medium)).foregroundStyle(.secondary).buttonStyle(.plain)
-            .fixedSize(horizontal: true, vertical: false)
-    }
-
-    private var sendButton: some View {
-        Button {
-            Task {
-                if model.transcript.running { await model.interrupt() }
-                else { pinnedToBottom = true; focused = false; await model.send() }
-            }
-        } label: {
-            Image(systemName: model.transcript.running ? "stop.fill" : "arrow.up")
-                .font(.system(size: model.transcript.running ? 13 : 19, weight: .semibold))
-                .foregroundStyle(.white).frame(width: 44, height: 44)
-                .background(model.canSend || model.transcript.running ? AppTheme.accent : Color.secondary.opacity(0.28), in: Circle())
-        }.disabled(!model.canSend && !model.transcript.running)
-            .accessibilityLabel(model.transcript.running ? "Arrêter la réponse" : "Envoyer")
-            .accessibilityIdentifier("send-message")
-    }
-
-}
-
-struct CredentialCard: View {
-    let payload: JSONValue
-    let model: AppModel
-    @State private var value = ""
-    @State private var busy = false
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label(payload["event_type"].string == "sudo.request" ? "Accès administrateur demandé" : "Hermes demande un secret", systemImage: "key").font(.subheadline.weight(.semibold))
-            if !payload["prompt"].string.isEmpty { Text(payload["prompt"].string).font(.caption).foregroundStyle(.secondary) }
-            SecureField("Valeur envoyée directement à Hermes", text: $value).textFieldStyle(.roundedBorder)
-            HStack {
-                Button("Annuler") { respond("") }.buttonStyle(.bordered)
-                Spacer()
-                Button("Transmettre") { respond(value) }.buttonStyle(.borderedProminent).disabled(value.isEmpty)
-            }.disabled(busy)
-            Text("Cette valeur ne sera pas conservée dans l’historique local.").font(.caption2).foregroundStyle(.secondary)
-        }.hermesCard()
-    }
-    private func respond(_ text: String) {
-        busy = true
-        Task { await model.answerCredential(text); value = ""; busy = false }
-    }
-}
-
-private struct BottomPreference: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
-struct MessageView: View, Equatable {
-    let message: ChatMessage
-    let agent: String
-    private var user: Bool { message.role == "user" }
-    var body: some View {
-        HStack(alignment: .top) {
-            if user { Spacer(minLength: 42) }
-            VStack(alignment: .leading, spacing: 10) {
-                if !user {
-                    HStack(spacing: 8) { AgentMark(size: 17); Text(agent).font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
-                }
-                Group {
-                    if user { Text(verbatim: message.text).lineSpacing(4) }
-                    else { MarkdownText(text: message.text) }
-                }
-                    .textSelection(.enabled)
-                    .padding(user ? 17 : 0)
-                    .background(user ? AppTheme.surface : .clear, in: RoundedRectangle(cornerRadius: 21))
-                    .overlay(RoundedRectangle(cornerRadius: 21).strokeBorder(user ? AppTheme.line : .clear))
-                if message.delivery != .confirmed {
-                    Text(message.delivery == .sending ? "Envoi…" : message.delivery == .uncertain ? "Réception à vérifier dans l’historique" : "Non envoyé · copiez pour réessayer")
-                        .font(.caption2).foregroundStyle(message.delivery == .sending ? Color.secondary : AppTheme.accent)
-                }
-            }
-            if !user { Spacer(minLength: 5) }
-        }
-        .contextMenu {
-            Button("Copier", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
-            ShareLink(item: message.text) { Label("Partager", systemImage: "square.and.arrow.up") }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier(user ? "user-message" : "assistant-message")
-    }
-}
-
-struct ApprovalCard: View {
-    let payload: JSONValue
-    let model: AppModel
-    @State private var busy = false
-    var body: some View {
-        VStack(alignment: .leading, spacing: 15) {
-            Label("Hermes vous demande l’accord", systemImage: "hand.raised").font(.subheadline.weight(.semibold))
-            Text(payload["command"].string).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-            if !payload["reason"].string.isEmpty { Text(payload["reason"].string).font(.caption).foregroundStyle(.secondary) }
-            HStack {
-                Button("Refuser") { answer("deny") }.buttonStyle(.bordered)
-                Spacer()
-                if payload["choices"].array.contains(.string("once")) {
-                    Button("Autoriser une fois") { answer("once") }.buttonStyle(.borderedProminent)
-                }
-            }.font(.caption).disabled(busy)
-        }.hermesCard()
-    }
-    private func answer(_ choice: String) { busy = true; Task { await model.answerApproval(choice); busy = false } }
-}
-
-struct ClarificationCard: View {
-    let payload: JSONValue
-    let model: AppModel
-    @State private var answer = ""
-    @State private var busy = false
-    @State private var answered = Set<String>()
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label("À vous de choisir", systemImage: "bubble.left.and.text.bubble.right").font(.subheadline.weight(.semibold))
-            if payload["questions"].array.isEmpty {
-                question(payload, qid: nil)
-            } else {
-                ForEach(Array(payload["questions"].array.enumerated()), id: \.offset) { _, q in
-                    if !answered.contains(q["qid"].string) { question(q, qid: q["qid"].string) }
-                }
-            }
-        }.hermesCard()
-    }
-    @ViewBuilder private func question(_ q: JSONValue, qid: String?) -> some View {
-        Text(q["question"].string).font(.subheadline)
-        ForEach(Array(q["choices"].array.enumerated()), id: \.offset) { _, choice in
-            Button(choice.string) { respond(choice.string, qid: qid) }.buttonStyle(.bordered).disabled(busy)
-        }
-        HStack {
-            TextField("Votre réponse…", text: $answer).textFieldStyle(.roundedBorder)
-            Button { respond(answer, qid: qid) } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }.disabled(answer.isEmpty || busy)
+    /// A photo taken with the camera goes through the same resize-and-attach path as a picked one.
+    private func importImage(_ data: Data, name: String) {
+        let context = attachmentContext
+        Task {
+            model.importingAttachments = true
+            defer { model.importingAttachments = false }
+            do {
+                let jpeg = try await Task.detached { try PhotoAttachment.jpeg(data) }.value
+                try await model.addAttachment(data: jpeg, name: name, mimeType: "image/jpeg", context: context)
+            } catch is CancellationError { }
+            catch { model.chatError = error.localizedDescription }
         }
     }
-    private func respond(_ text: String, qid: String?) {
-        busy = true
-        Task { await model.answerClarification(text, qid: qid); if let qid { answered.insert(qid) }; answer = ""; busy = false }
+
+    private func present(_ page: ChatSheet) {
+        focused = false
+        sheet = page
     }
 }

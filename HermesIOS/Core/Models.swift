@@ -10,12 +10,14 @@ public struct AgentProfile: Identifiable, Codable, Equatable, Sendable {
     public var canonicalID: String?
     public var preview: String
     public var skillCount: Int
+    public var pinned: Bool?
+    public var hidden: Bool?
 
     public init(_ v: JSONValue) {
         name = v["name"].string
         let meta = v["ui_meta"]["hermes-bots"]
-        title = v["display_name"].string
-        if title.isEmpty { title = meta["title"].string }
+        title = meta["title"].string
+        if title.isEmpty { title = v["display_name"].string }
         if title.isEmpty { title = name == "default" ? "Hermes" : name.capitalized }
         detail = v["description"].string
         model = v["model"].string
@@ -25,6 +27,7 @@ public struct AgentProfile: Identifiable, Codable, Equatable, Sendable {
         canonicalID = cid.isEmpty ? nil : cid
         preview = canonical["preview"].string
         skillCount = v["skill_count"].int
+        pinned = meta["pinned"].bool; hidden = meta["hidden"].bool
     }
 }
 
@@ -34,6 +37,8 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
     public var title: String
     public var preview: String
     public var updated: Date
+    public var messageCount: Int?
+    public var createdAt: Date?
     public init(_ v: JSONValue, profile: String) {
         id = v["resolved_id"].string.isEmpty ? v["id"].string : v["resolved_id"].string
         self.profile = profile
@@ -42,6 +47,8 @@ public struct Conversation: Identifiable, Codable, Equatable, Sendable {
         preview = v["preview"].string
         let timestamp = max(v["last_active"].double, v["last_activity_at"].double, v["started_at"].double)
         updated = Date(timeIntervalSince1970: timestamp)
+        messageCount = v["message_count"].isNull ? nil : v["message_count"].int
+        createdAt = v["started_at"].double > 0 ? Date(timeIntervalSince1970: v["started_at"].double) : nil
     }
 }
 
@@ -54,6 +61,15 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     public var streaming: Bool
     public init(id: String = UUID().uuidString, role: String, text: String, delivery: Delivery = .confirmed, streaming: Bool = false) {
         self.id = id; self.role = role; self.text = text; self.delivery = delivery; self.streaming = streaming
+    }
+    // Cached display data: a field added or dropped by a later build must never discard the chat.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        role = try c.decodeIfPresent(String.self, forKey: .role) ?? "assistant"
+        text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+        delivery = (try? c.decodeIfPresent(Delivery.self, forKey: .delivery)) ?? .confirmed
+        streaming = try c.decodeIfPresent(Bool.self, forKey: .streaming) ?? false
     }
 }
 
@@ -69,6 +85,16 @@ public struct ChatSnapshot: Codable, Sendable {
         self.storedID = storedID; self.runtimeID = runtimeID; self.profile = profile; self.title = title
         self.messages = messages; self.lastSequence = lastSequence; self.epoch = epoch
     }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        storedID = try c.decode(String.self, forKey: .storedID)
+        runtimeID = try c.decodeIfPresent(String.self, forKey: .runtimeID) ?? ""
+        profile = try c.decodeIfPresent(String.self, forKey: .profile) ?? "default"
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Conversation"
+        messages = (try? c.decodeIfPresent([ChatMessage].self, forKey: .messages)) ?? []
+        lastSequence = try c.decodeIfPresent(Int.self, forKey: .lastSequence) ?? 0
+        epoch = try c.decodeIfPresent(String.self, forKey: .epoch)
+    }
 }
 
 public struct Routine: Identifiable, Sendable {
@@ -76,7 +102,11 @@ public struct Routine: Identifiable, Sendable {
     public var name: String
     public var prompt: String
     public var schedule: String
+    public var rawSchedule: String
+    public var nextRunAt: Date?
     public var paused: Bool
+    public var completed: Bool
+    public var scheduleSummary: String { RoutineSchedule(rawSchedule)?.summary ?? schedule }
     public init(_ v: JSONValue) {
         id = v["job_id"].string.isEmpty ? v["id"].string : v["job_id"].string
         name = v["name"].string.replacingOccurrences(of: #"^\[bot:[^\]]+\]\s*"#, with: "", options: .regularExpression)
@@ -84,6 +114,10 @@ public struct Routine: Identifiable, Sendable {
         schedule = v["schedule_display"].string
         if schedule.isEmpty { schedule = v["schedule"].string }
         if schedule.isEmpty { schedule = v["schedule"]["display"].string }
+        rawSchedule = RoutineSchedule.expression(from: v)
+        if schedule.isEmpty { schedule = rawSchedule }
+        nextRunAt = RoutineSchedule.nextRun(from: v)
         paused = v["paused"].bool || v["state"].string == "paused" || v["enabled"] == .bool(false)
+        completed = v["state"].string == "completed"
     }
 }

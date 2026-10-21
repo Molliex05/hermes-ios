@@ -13,19 +13,82 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     GENERATE_INFOPLIST_FILE: NO
+packages:
+  WebRTC:
+    url: https://github.com/stasel/WebRTC.git
+    exactVersion: 153.0.0
 targets:
   HermesIOS:
     type: application
     platform: iOS
     sources: [HermesIOS]
+    dependencies:
+      - package: WebRTC
+      - target: HermesIOSNotificationService
+        embed: true
+      - target: HermesIOSWidgets
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.hermesios.HermesIOS
         INFOPLIST_FILE: HermesIOS/Resources/Info.plist
+        CODE_SIGN_ENTITLEMENTS: HermesIOS/Resources/HermesIOS.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         TARGETED_DEVICE_FAMILY: "1,2"
     scheme:
       testTargets: [HermesIOSUITests]
+  HermesIOSNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - HermesIOSNotificationService
+      - path: HermesIOS/Core
+        includes:
+          - JSONValue.swift
+          - NotificationCrypto.swift
+          - NotificationEnvelope.swift
+          - NotificationKeyStore.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.hermesios.HermesIOS.NotificationService
+        INFOPLIST_FILE: HermesIOSNotificationService/Info.plist
+        CODE_SIGN_ENTITLEMENTS: HermesIOSNotificationService/HermesIOSNotificationService.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+  HermesIOSWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - HermesIOSWidgets
+      - path: HermesIOS/Core
+        includes:
+          - WidgetSnapshot.swift
+          - WidgetSnapshotStore.swift
+      - path: HermesIOS/LiveActivity
+        includes:
+          - HermesActivityAttributes.swift
+          - ActivityIntents.swift
+      - path: HermesIOS/Features
+        includes:
+          - OrbView.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.hermesios.HermesIOS.Widgets
+        INFOPLIST_FILE: HermesIOSWidgets/Info.plist
+        CODE_SIGN_ENTITLEMENTS: HermesIOSWidgets/HermesIOSWidgets.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+  HermesIOSVoiceTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [HermesIOSVoiceTests]
+    dependencies:
+      - target: HermesIOS
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/HermesIOS.app/HermesIOS"
+        BUNDLE_LOADER: "$(TEST_HOST)"
   HermesIOSUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -42,8 +105,9 @@ schemes:
       targets:
         HermesIOS: all
         HermesIOSUITests: [test]
+        HermesIOSVoiceTests: [test]
     test:
-      targets: [HermesIOSUITests]
+      targets: [HermesIOSUITests, HermesIOSVoiceTests]
       environmentVariables:
         HERMES_IOS_INTEGRATION: "1"
   HermesIOS:

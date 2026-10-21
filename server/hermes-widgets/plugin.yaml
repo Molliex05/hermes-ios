@@ -1,0 +1,8 @@
+name: hermes-widgets
+version: 0.2.0
+description: "Compact, read-only snapshot of Noriven figures (revenue, expenses, profit, MRR) for the Hermès iOS widgets, served under the dashboard's own authentication."
+author: Hermès iOS
+kind: standalone
+requires_hermes: ">=0.21.0"
+provides_tools:
+  - noriven_chiffres

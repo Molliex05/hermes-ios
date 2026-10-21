@@ -35,6 +35,20 @@
                ReferencedContainer = "container:HermesIOS.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "9F03F3BB0258AC1B8423F5A8"
+               BuildableName = "HermesIOSVoiceTests.xctest"
+               BlueprintName = "HermesIOSVoiceTests"
+               ReferencedContainer = "container:HermesIOS.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -61,6 +75,17 @@
                BlueprintIdentifier = "A408AB7B73A825E284FBCEBF"
                BuildableName = "HermesIOSUITests.xctest"
                BlueprintName = "HermesIOSUITests"
+               ReferencedContainer = "container:HermesIOS.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "9F03F3BB0258AC1B8423F5A8"
+               BuildableName = "HermesIOSVoiceTests.xctest"
+               BlueprintName = "HermesIOSVoiceTests"
                ReferencedContainer = "container:HermesIOS.xcodeproj">
             </BuildableReference>
          </TestableReference>

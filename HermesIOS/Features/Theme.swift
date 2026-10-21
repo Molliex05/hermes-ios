@@ -8,6 +8,25 @@ enum AppTheme {
     static let line = Color.primary.opacity(0.08)
     static let colors: [Color] = [accent, Color(red: 0.3, green: 0.43, blue: 0.35), Color(red: 0.44, green: 0.39, blue: 0.59), Color(red: 0.38, green: 0.48, blue: 0.62)]
     static func color(_ name: String) -> Color { colors[name.utf8.reduce(0) { ($0 + Int($1)) % colors.count }] }
+
+    /// Large navigation titles keep the serif voice of the app's headings; inline titles stay system.
+    @MainActor static func configureNavigationBars() {
+        let base = UIFont.preferredFont(forTextStyle: .largeTitle)
+        guard let serif = base.fontDescriptor.withDesign(.serif)?.withSymbolicTraits(.traitBold) ?? base.fontDescriptor.withDesign(.serif) else { return }
+        UINavigationBar.appearance().largeTitleTextAttributes = [.font: UIFont(descriptor: serif, size: 0)]
+    }
+}
+
+/// Closes the sheet presented over the chat, from any depth of its navigation stack.
+/// Always equal: it only ever clears the chat's sheet, so updates never invalidate readers.
+struct ReturnToChat: Equatable, Sendable {
+    let action: @MainActor @Sendable () -> Void
+    @MainActor func callAsFunction() { action() }
+    static func == (lhs: Self, rhs: Self) -> Bool { true }
+}
+
+extension EnvironmentValues {
+    @Entry var returnToChat: ReturnToChat? = nil
 }
 
 struct AgentMark: View {
@@ -93,12 +112,17 @@ extension View {
             self.defaultScrollAnchor(.bottom)
         }
     }
+    /// Inset, rounded cards on the app background (rows keep the system grouped surface, which matches `AppTheme.surface`).
     func modernList() -> some View {
-        listStyle(.plain).scrollContentBackground(.hidden).background(AppTheme.background)
-            .environment(\.defaultMinListRowHeight, 54)
+        listStyle(.insetGrouped).scrollContentBackground(.hidden).background(AppTheme.background)
+            .environment(\.defaultMinListRowHeight, 54).listSectionSpacing(.custom(20)).toggleStyle(AppToggleStyle())
+            .appNavigationBar()
     }
+    func barBackground() -> some View { background(AppTheme.background) }
+    func sheetChrome() -> some View { presentationDragIndicator(.visible).presentationCornerRadius(30).presentationBackground(AppTheme.background) }
     func hermesCard() -> some View {
         padding(20).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 24))
             .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(AppTheme.line))
+            .frame(maxWidth: 560).frame(maxWidth: .infinity)
     }
 }

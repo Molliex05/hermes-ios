@@ -33,7 +33,21 @@ public enum JSONValue: Codable, Sendable, Equatable {
     public var double: Double { if case .number(let v) = self { v } else { 0 } }
     public var int: Int { Int(double) }
     public var isNull: Bool { self == .null }
-    public static func decode(_ data: Data) throws -> JSONValue { try JSONDecoder().decode(Self.self, from: data) }
+    /// Wire/HTTP decoding goes through JSONSerialization: one pass, no throwing type probes per value.
+    public static func decode(_ data: Data) throws -> JSONValue {
+        JSONValue(foundation: try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]))
+    }
+
+    init(foundation value: Any) {
+        switch value {
+        case let number as NSNumber:
+            self = CFGetTypeID(number) == CFBooleanGetTypeID() ? .bool(number.boolValue) : .number(number.doubleValue)
+        case let text as String: self = .string(text)
+        case let object as [String: Any]: self = .object(object.mapValues(JSONValue.init(foundation:)))
+        case let array as [Any]: self = .array(array.map(JSONValue.init(foundation:)))
+        default: self = .null
+        }
+    }
     public func data() throws -> Data { try JSONEncoder().encode(self) }
 }
 
@@ -48,14 +62,35 @@ extension JSONValue: ExpressibleByStringLiteral, ExpressibleByBooleanLiteral, Ex
 public struct RPCFailure: Error, LocalizedError, Sendable {
     public let code: Int
     public let message: String
-    public init(_ message: String, code: Int = 0) { self.message = message; self.code = code }
+    public let reason: String?
+    public init(_ message: String, code: Int = 0, reason: String? = nil) { self.message = message; self.code = code; self.reason = reason }
+    public init(responseError: JSONValue) {
+        self.init(responseError["message"].string, code: responseError["code"].int,
+                  reason: responseError["data"]["reason"].isNull ? nil : responseError["data"]["reason"].string)
+    }
+    public var sessionOwnedElsewhere: Bool {
+        if let reason { return reason == "SESSION_NOT_OWNED" }
+        return code == 4090 && message.contains("already has a live owner")
+    }
+    /// Only documented refusals before admission prove that a prompt was not sent.
+    /// Internal/server and transport errors can arrive after the turn has started.
+    public var rejectsPromptBeforeAdmission: Bool {
+        (4000...4999).contains(code) || [401, 403, 5070, 5071, 5072, -32601, -32602].contains(code)
+    }
+    public var retryableSessionResume: Bool { code == 4007 || code == 4009 }
+    public static let ownershipMessage = "Ce fil est encore ouvert dans une autre interface Hermes. Votre message n’a pas été envoyé et votre brouillon est conservé. Fermez ce fil dans l’interface qui le détient, puis réessayez ici. Vous pouvez aussi continuer dans un nouveau fil avec ce brouillon."
     public var errorDescription: String? { message }
 }
 
 public enum Wire {
     /// Hermes coalesces several newline-delimited envelopes into one WebSocket message.
-    public static func frames(_ text: String) throws -> [JSONValue] {
-        try text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-            .map { try JSONValue.decode(Data($0.utf8)) }
+    /// A malformed envelope is skipped, never fatal: one bad frame must not drop the connection
+    /// (and a replayed bad frame would otherwise loop reconnects forever).
+    public static func frames(_ text: String) -> [JSONValue] {
+        text.split(separator: "\n").compactMap { line in
+            line.trimmingCharacters(in: .whitespaces).isEmpty ? nil : try? JSONValue.decode(Data(line.utf8))
+        }
     }
+
+    public static func frames(_ data: Data) -> [JSONValue] { frames(String(decoding: data, as: UTF8.self)) }
 }

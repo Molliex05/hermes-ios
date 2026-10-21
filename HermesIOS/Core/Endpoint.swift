@@ -26,11 +26,12 @@ public struct Endpoint: Codable, Equatable, Sendable {
         return c.url!
     }
 
-    public func socket(ticket: String? = nil, token: String? = nil) -> URL {
-        var c = URLComponents(url: url("/api/ws"), resolvingAgainstBaseURL: false)!
+    public func socket(ticket: String? = nil, token: String? = nil, path: String = "/api/ws", query: [URLQueryItem] = []) -> URL {
+        var c = URLComponents(url: url(path), resolvingAgainstBaseURL: false)!
         c.scheme = baseURL.scheme == "https" ? "wss" : "ws"
         if let ticket { c.queryItems = [.init(name: "ticket", value: ticket)] }
         else if let token { c.queryItems = [.init(name: "token", value: token)] }
+        c.queryItems = (c.queryItems ?? []) + query
         return c.url!
     }
 
