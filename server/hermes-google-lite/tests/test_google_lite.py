@@ -11,7 +11,7 @@ api = sys.modules["hermes_google_lite.google_api"]
 class Resp:
     def __init__(self, status=200, payload=None):
         self.status_code, self._p = status, payload if payload is not None else {}
-        self.content = b"x"
+        self.content = b"x" if status != 204 else b""
     def json(self): return self._p
 
 
@@ -19,7 +19,7 @@ def b64(text): return base64.urlsafe_b64encode(text.encode()).decode().rstrip("=
 
 
 class Fake:
-    def __init__(self): self.calls = []; self.expire_once = False; self.labels = [{"id": "INBOX", "name": "INBOX", "type": "system"}, {"id": "Label_1", "name": "Factures", "type": "user"}]
+    def __init__(self): self.calls = []; self.expire_once = False; self.event = {"id": "e1", "summary": "Dentiste", "start": {"dateTime": "2026-10-21T14:00:00-04:00"}, "end": {"dateTime": "2026-10-21T15:30:00-04:00"}, "attendees": [{"email": "a@x.org"}]}; self.labels = [{"id": "INBOX", "name": "INBOX", "type": "system"}, {"id": "Label_1", "name": "Factures", "type": "user"}]
     def api_calls(self): return [c for c in self.calls if c[1] != api.TOKEN_URL]
     def __call__(self, method, url, **kw):
         self.calls.append((method, url, kw))
@@ -39,7 +39,18 @@ class Fake:
             made = {"id": f"Label_{len(self.labels) + 1}", "name": kw["json"]["name"], "type": "user"}; self.labels.append(made); return Resp(200, made)
         if method == "POST" and path.endswith("/messages/batchModify"): return Resp(204, {})
         if method == "POST" and path.endswith("/drafts"): return Resp(200, {"id": "d1", "message": {"threadId": kw["json"]["message"].get("threadId", "t9")}})
-        if method == "GET" and path.endswith("/events"): return Resp(200, {"timeZone": "America/Toronto", "items": [{"id": "e1", "summary": "Dentiste", "start": {"dateTime": "2026-10-21T14:00:00-04:00"}, "end": {"dateTime": "2026-10-21T15:00:00-04:00"}}]})
+        if method == "GET" and path.endswith("/calendarList"): return Resp(200, {"items": [
+            {"id": "maxime@gmail.com", "summary": "Maxime", "primary": True, "accessRole": "owner", "selected": True},
+            {"id": "work@corp.com", "summary": "Travail", "accessRole": "reader", "selected": True},
+            {"id": "old@x.com", "summary": "Ancien", "accessRole": "reader", "selected": False},
+            {"id": "fr.canadian#holiday@group.v.calendar.google.com", "summary": "Jours fériés", "accessRole": "reader", "selected": True}]})
+        if "/calendars/primary/events/" in path:
+            if method == "GET": return Resp(200, self.event)
+            if method == "PATCH": return Resp(200, {**self.event, **kw["json"]})
+            if method == "DELETE": return Resp(204)
+        if method == "GET" and path.endswith("/events"):
+            if "/work%40corp.com/" in path: return Resp(200, {"timeZone": "America/Toronto", "items": [{"id": "e9", "summary": "Réunion équipe", "start": {"dateTime": "2026-10-21T09:00:00-04:00"}, "end": {"dateTime": "2026-10-21T10:00:00-04:00"}}]})
+            return Resp(200, {"timeZone": "America/Toronto", "items": [{"id": "e1", "summary": "Dentiste", "start": {"dateTime": "2026-10-21T14:00:00-04:00"}, "end": {"dateTime": "2026-10-21T15:00:00-04:00"}}]})
         if method == "POST" and path.endswith("/events"): return Resp(200, {"id": "e2", "htmlLink": "https://cal/e2", "start": kw["json"]["start"]})
         return Resp(404, {})
 
@@ -70,7 +81,7 @@ class Safety(Base):
     def test_source_has_no_send_endpoint(self):
         text = (ROOT / "google_api.py").read_text() + (ROOT / "__init__.py").read_text()
         self.assertNotIn("/send", text.replace("`", ""))
-        self.assertEqual(sorted(self.tools), ["agenda_creer", "agenda_lister", "gmail_brouillon", "gmail_chercher", "gmail_dossiers", "gmail_lire", "gmail_trier"])
+        self.assertEqual(sorted(self.tools), ["agenda_calendriers", "agenda_creer", "agenda_lister", "agenda_modifier", "agenda_supprimer", "gmail_brouillon", "gmail_chercher", "gmail_dossiers", "gmail_lire", "gmail_trier"])
     def test_blocked_on_api_server(self):
         plugin._env_platform = lambda: "api_server"
         self.assertIn("pas disponible", self.call("gmail_chercher", requete="x")["error"])
@@ -154,9 +165,50 @@ class Triage(Base):
 class Calendar(Base):
     def test_list(self):
         r = self.call("agenda_lister", debut="2026-10-21", fin="2026-10-21")
-        self.assertEqual(r["evenements"][0]["titre"], "Dentiste")
+        self.assertEqual([e["titre"] for e in r["evenements"]], ["Réunion équipe", "Dentiste"])
+        self.assertEqual([e["calendrier"] for e in r["evenements"]], ["Travail", "Maxime"])
         params = [c for c in self.fake.calls if (c[2].get("params") or {}).get("timeMin")][-1][2]["params"]
         self.assertTrue(params["timeMin"].startswith("2026-10-21T00:00:00-04:00")); self.assertTrue(params["timeMax"].startswith("2026-10-22T00:00:00-04:00"))
+    def test_default_skips_hidden_and_holiday_calendars(self):
+        self.call("agenda_lister", debut="2026-10-21", fin="2026-10-21")
+        urls = [c[1] for c in self.fake.api_calls() if c[1].endswith("/events") and (c[2].get("params") or {}).get("timeMin", "").startswith("2026")]
+        self.assertEqual(len(urls), 2); self.assertFalse(any("old" in u or "holiday" in u for u in urls))
+    def test_one_calendar_by_name(self):
+        r = self.call("agenda_lister", debut="2026-10-21", fin="2026-10-21", calendrier="travail")
+        self.assertEqual([e["titre"] for e in r["evenements"]], ["Réunion équipe"])
+        self.assertIn("Aucun agenda", self.call("agenda_lister", calendrier="inconnu")["error"])
+    def test_calendar_list_tool(self):
+        names = [c["nom"] for c in self.call("agenda_calendriers")["agendas"]]
+        self.assertEqual(names, ["Maxime", "Travail", "Ancien", "Jours fériés"])
+    def test_writes_stay_on_primary(self):
+        self.call("agenda_creer", titre="Test", debut="2026-10-22T09:30")
+        posts = [c[1] for c in self.fake.api_calls() if c[0] == "POST" and c[1].endswith("/events")]
+        self.assertTrue(all("/calendars/primary/events" in u for u in posts))
+        for url in (f"{api.CALENDAR}/calendars/work%40corp.com/events", f"{api.CALENDAR}/calendars/work%40corp.com/events/e9"):
+            with self.assertRaises(api.GoogleError): api.request("POST", url)
+        with self.assertRaises(api.GoogleError): api.request("DELETE", f"{api.CALENDAR}/calendars/work%40corp.com/events/e9")
+    def test_modify_keeps_duration_and_notifies_nobody(self):
+        r = self.call("agenda_modifier", id="e1", debut="2026-10-22T10:00", titre="Dentiste (déplacé)")
+        self.assertTrue(r["ok"]); self.assertEqual(r["titre"], "Dentiste (déplacé)")
+        patch = [c for c in self.fake.api_calls() if c[0] == "PATCH"][0]
+        self.assertEqual(patch[2]["params"], {"sendUpdates": "none"})
+        self.assertEqual(patch[2]["json"]["start"]["dateTime"], "2026-10-22T10:00:00-04:00"); self.assertEqual(patch[2]["json"]["end"]["dateTime"], "2026-10-22T11:30:00-04:00")
+    def test_modify_validation(self):
+        self.assertIn("Rien à modifier", self.call("agenda_modifier", id="e1")["error"])
+        self.assertIn("horaire", self.call("agenda_modifier", id="e1", debut="2026-10-22")["error"])
+        self.assertIn("après le début", self.call("agenda_modifier", id="e1", debut="2026-10-22T10:00", fin="2026-10-22T09:00")["error"])
+        self.assertIn("invalide", self.call("agenda_modifier", id="../x", titre="a")["error"])
+    def test_delete_main_calendar_only_without_notification(self):
+        r = self.call("agenda_supprimer", id="e1")
+        self.assertTrue(r["ok"]); self.assertEqual(r["titre"], "Dentiste"); self.assertEqual(r["participants"], 1); self.assertIn("30 jours", r["note"])
+        delete = [c for c in self.fake.api_calls() if c[0] == "DELETE"][0]
+        self.assertTrue(delete[1].endswith("/calendars/primary/events/e1")); self.assertEqual(delete[2]["params"], {"sendUpdates": "none"})
+        for url in (f"{api.CALENDAR}/calendars/work%40corp.com/events/e9", f"{api.CALENDAR}/calendars/primary"):
+            with self.assertRaises(api.GoogleError): api.request("DELETE", url)
+        self.assertIn("invalide", self.call("agenda_supprimer", id="a/b")["error"])
+    def test_removal_rate_limit(self):
+        for _ in range(plugin.REMOVALS_PER_HOUR): self.assertTrue(self.call("agenda_supprimer", id="e1")["ok"])
+        self.assertIn("Limite", self.call("agenda_supprimer", id="e1")["error"])
     def test_create_timed_without_invites(self):
         self.assertTrue(self.call("agenda_creer", titre="Café", debut="2026-10-22T09:30")["ok"])
         post = [c for c in self.fake.calls if c[0] == "POST" and c[1].endswith("/events")][0]

@@ -15,7 +15,7 @@ import time
 from email.message import EmailMessage
 from email.utils import parseaddr
 from typing import Any, Dict, Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me"
@@ -23,7 +23,8 @@ CALENDAR = "https://www.googleapis.com/calendar/v3"
 HOSTS = {"oauth2.googleapis.com", "gmail.googleapis.com", "www.googleapis.com"}
 SCOPES = (
     "https://www.googleapis.com/auth/gmail.modify",       # read, drafts and labels; the plugin never sends or deletes
-    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/calendar.events",                 # events on every calendar the account can reach
+    "https://www.googleapis.com/auth/calendar.calendarlist.readonly",  # which calendars exist (names only)
 )
 TIMEOUT = 20
 
@@ -35,8 +36,12 @@ _ALLOWED = (
     ("GET", re.compile(r"^/gmail/v1/users/me/labels$")),
     ("POST", re.compile(r"^/gmail/v1/users/me/labels$")),
     ("POST", re.compile(r"^/gmail/v1/users/me/messages/batchModify$")),
-    ("GET", re.compile(r"^/calendar/v3/calendars/primary/events$")),
-    ("POST", re.compile(r"^/calendar/v3/calendars/primary/events$")),
+    ("GET", re.compile(r"^/calendar/v3/users/me/calendarList$")),
+    ("GET", re.compile(r"^/calendar/v3/calendars/[A-Za-z0-9._%-]{1,200}/events$")),   # read any calendar
+    ("POST", re.compile(r"^/calendar/v3/calendars/primary/events$")),                 # write: the main calendar only
+    ("GET", re.compile(r"^/calendar/v3/calendars/primary/events/[A-Za-z0-9_-]{1,100}$")),
+    ("PATCH", re.compile(r"^/calendar/v3/calendars/primary/events/[A-Za-z0-9_-]{1,100}$")),
+    ("DELETE", re.compile(r"^/calendar/v3/calendars/primary/events/[A-Za-z0-9_-]{1,100}$")),
 )
 
 
@@ -328,20 +333,51 @@ def calendar_timezone() -> str:
     return _timezone["tz"]
 
 
-def calendar_list(time_min: str, time_max: str, query: str, limit: int) -> list:
+_calendars: Dict[str, Any] = {"at": 0.0, "items": []}
+MAX_CALENDARS = 8
+_NOISE = ("#holiday@group.v.calendar.google.com", "addressbook#contacts@group.v.calendar.google.com")
+
+
+def calendar_calendars(force: bool = False) -> list:
+    """The calendars the account can see (own, shared, subscribed), as Google shows them."""
+    if force or not _calendars["items"] or time.time() - _calendars["at"] > 600:
+        items = request("GET", f"{CALENDAR}/users/me/calendarList", params={"maxResults": 100, "minAccessRole": "reader"}).get("items") or []
+        _calendars.update(at=time.time(), items=[{
+            "id": str(c.get("id") or ""), "nom": c.get("summaryOverride") or c.get("summary") or "(sans nom)",
+            "principal": bool(c.get("primary")), "role": c.get("accessRole"), "affiche": c.get("selected", True) is not False,
+            "fuseau": c.get("timeZone")} for c in items if c.get("id")])
+    return list(_calendars["items"])
+
+
+def _pick_calendars(wanted: str) -> list:
+    every = calendar_calendars()
+    if wanted:
+        needle = wanted.strip().lower()
+        chosen = [c for c in every if needle in c["nom"].lower() or needle == c["id"].lower()]
+        if not chosen:
+            raise GoogleError(f"Aucun agenda ne correspond à « {wanted} ». Utilise agenda_calendriers pour voir la liste.")
+        return chosen[:MAX_CALENDARS]
+    shown = [c for c in every if c["affiche"] and not c["id"].endswith(_NOISE)]
+    return (shown or every)[:MAX_CALENDARS]
+
+
+def calendar_list(time_min: str, time_max: str, query: str, limit: int, calendar: str = "") -> list:
+    """Events across the shown calendars (or the one named), merged by start time."""
     params = {"timeMin": time_min, "timeMax": time_max, "singleEvents": "true", "orderBy": "startTime",
               "maxResults": max(1, min(limit, 50))}
     if query:
         params["q"] = query
-    events = request("GET", f"{CALENDAR}/calendars/primary/events", params=params).get("items") or []
     out = []
-    for e in events:
-        start, end = e.get("start") or {}, e.get("end") or {}
-        out.append({"id": e.get("id"), "titre": e.get("summary") or "(sans titre)", "debut": start.get("dateTime") or start.get("date"),
-                    "fin": end.get("dateTime") or end.get("date"), "lieu": e.get("location") or "",
-                    "description": str(e.get("description") or "")[:300], "participants": len(e.get("attendees") or []),
-                    "statut": e.get("status"), "lien": e.get("htmlLink")})
-    return out
+    for cal in _pick_calendars(calendar):
+        for e in request("GET", f"{CALENDAR}/calendars/{quote(cal['id'], safe='')}/events", params=params).get("items") or []:
+            start, end = e.get("start") or {}, e.get("end") or {}
+            out.append({"id": e.get("id"), "calendrier": cal["nom"], "titre": e.get("summary") or "(sans titre)",
+                        "debut": start.get("dateTime") or start.get("date"), "fin": end.get("dateTime") or end.get("date"),
+                        "lieu": e.get("location") or "", "description": str(e.get("description") or "")[:300],
+                        "participants": len(e.get("attendees") or []), "statut": e.get("status"), "lien": e.get("htmlLink"),
+                        "modifiable": bool(cal["principal"])})
+    out.sort(key=lambda e: str(e["debut"] or ""))
+    return out[:max(1, min(limit, 50))]
 
 
 def calendar_create(summary: str, start: Dict[str, str], end: Dict[str, str], description: str = "", location: str = "") -> Dict[str, Any]:
@@ -352,3 +388,30 @@ def calendar_create(summary: str, start: Dict[str, str], end: Dict[str, str], de
         body["location"] = location
     created = request("POST", f"{CALENDAR}/calendars/primary/events", params={"sendUpdates": "none"}, json=body)
     return {"id": created.get("id"), "lien": created.get("htmlLink"), "debut": (created.get("start") or {}).get("dateTime") or (created.get("start") or {}).get("date")}
+
+
+def _event_url(event_id: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", event_id or ""):
+        raise GoogleError("Identifiant d'événement invalide.")
+    return f"{CALENDAR}/calendars/primary/events/{event_id}"
+
+
+def calendar_get(event_id: str) -> Dict[str, Any]:
+    """An event of the MAIN calendar (events of other calendars are read-only and answer 404 here)."""
+    return request("GET", _event_url(event_id))
+
+
+def calendar_update(event_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
+    updated = request("PATCH", _event_url(event_id), params={"sendUpdates": "none"}, json=patch)
+    return {"id": updated.get("id"), "titre": updated.get("summary"), "lien": updated.get("htmlLink"),
+            "debut": (updated.get("start") or {}).get("dateTime") or (updated.get("start") or {}).get("date"),
+            "fin": (updated.get("end") or {}).get("dateTime") or (updated.get("end") or {}).get("date")}
+
+
+def calendar_delete(event_id: str) -> Dict[str, Any]:
+    """Deletes an event of the main calendar without notifying anyone; Google keeps it in the calendar bin for 30 days."""
+    event = calendar_get(event_id)
+    request("DELETE", _event_url(event_id), params={"sendUpdates": "none"})
+    start = event.get("start") or {}
+    return {"id": event_id, "titre": event.get("summary") or "(sans titre)", "debut": start.get("dateTime") or start.get("date"),
+            "participants": len(event.get("attendees") or [])}

@@ -12,11 +12,12 @@ Optional Hermes plugins that live in `server/`. They run inside the Hermes conta
 
 ## hermes-google-lite
 
-Tools: `gmail_chercher`, `gmail_lire`, `gmail_brouillon`, `gmail_dossiers`, `gmail_trier`, `agenda_lister`, `agenda_creer`.
+Tools: `gmail_chercher`, `gmail_lire`, `gmail_brouillon`, `gmail_dossiers`, `gmail_trier`, `agenda_calendriers`, `agenda_lister`, `agenda_creer`, `agenda_modifier`, `agenda_supprimer`.
 
-- **Never sends or deletes.** Requests go through a closed allowlist of (method, path) pairs: no send, no trash, no delete, no label rename or delete, no `modify` on a single message. Only `batchModify` is allowed and only to add folders and remove `INBOX` or `UNREAD`. Tests assert this.
+- **Never sends mail or deletes mail.** Requests go through a closed allowlist of (method, path) pairs: no send, no trash, no delete, no label rename or delete, no `modify` on a single message. Only `batchModify` is allowed and only to add folders and remove `INBOX` or `UNREAD`. Tests assert this.
 - **Folders** are Gmail labels, sub-folders are `Parent/Child` (4 levels at most). They are created on demand. Names reserved by Gmail (inbox, sent, trash, spam, `CATEGORY_*`, …) are refused.
 - **Filing** targets explicit ids (100 at most) or a Gmail search (200 matches at most per call); 1000 messages per hour in total. Drafts are limited to 10 an hour and events to 10 an hour. Everything undoes from Gmail.
+- **Calendars**: reading covers every calendar shown in the account (own, shared, work), merged by start time with each event's calendar name; hidden and holiday calendars are skipped. Writing is limited to the **main** calendar: create, modify and delete never notify guests (`sendUpdates=none`), edits are limited to 10 an hour and deletions to 5; Google keeps deleted events 30 days in the calendar bin. Events of other calendars are refused (the allowlist only has read paths for them).
 - **Untrusted content**: mail and event text is returned with a warning and must never be treated as instructions. The tools are blocked on the `api_server` platform.
-- **Credentials** are `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REFRESH_TOKEN` in the profile's `.env`, never in the repository. `oauth_setup.py url|exchange|check` runs the consent flow with PKCE. Scopes are `gmail.modify` and `calendar.events`; the OAuth client must be published ("In production") or its refresh token expires after 7 days, which `check` reports.
+- **Credentials** are `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REFRESH_TOKEN` in the profile's `.env`, never in the repository. `oauth_setup.py url|exchange|check` runs the consent flow with PKCE. Scopes are `gmail.modify`, `calendar.events` and `calendar.calendarlist.readonly`; the OAuth client must be published ("In production") or its refresh token expires after 7 days, which `check` reports.
 - Tests: `python3 -m unittest discover -s tests` in the plugin folder (fake Google, offline).

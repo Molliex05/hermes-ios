@@ -1,6 +1,6 @@
 name: hermes-google-lite
-version: 0.2.0
-description: "Gmail (chercher, lire, brouillons, ranger en dossiers et sous-dossiers, archiver — jamais d'envoi ni de suppression) et Google Calendar (lister, créer des événements)."
+version: 0.4.0
+description: "Gmail (chercher, lire, brouillons, ranger en dossiers et sous-dossiers, archiver — jamais d'envoi ni de suppression) et Google Calendar (lire tous les agendas, créer, modifier et supprimer des événements dans l'agenda principal)."
 author: Hermès iOS
 kind: standalone
 requires_hermes: ">=0.21.0"
@@ -15,4 +15,7 @@ provides_tools:
   - gmail_trier
   - gmail_dossiers
   - agenda_lister
+  - agenda_calendriers
   - agenda_creer
+  - agenda_modifier
+  - agenda_supprimer
