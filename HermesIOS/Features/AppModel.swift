@@ -1414,6 +1414,10 @@ final class AppModel {
     }
 
     private func demoReply() async {
+        #if DEBUG
+        // Emulates the network round trip before a real message shows up (session creation, persistence).
+        if ProcessInfo.processInfo.arguments.contains("--demo-slow-send") { try? await Task.sleep(for: .milliseconds(220)) }
+        #endif
         let text = draft; draft = ""
         transcript.messages.append(.init(role: "user", text: text))
         transcript.running = true
