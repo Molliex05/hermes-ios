@@ -24,6 +24,7 @@
 		2385223B5DEAB01545E54893 /* ApprovalsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08734E14815870F155D2113F /* ApprovalsSettingsView.swift */; };
 		23C8F8F7F37C15AED2812D64 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B00D49A62F7932717F5453 /* Haptics.swift */; };
 		23E92A41D7BC145F4759684D /* StreamingTranscriber.swift in Sources */ = {isa = PBXBuildFile; fileRef = C090E451DBD450770375EC1E /* StreamingTranscriber.swift */; };
+		2447BF28A55D3BB3FF00FF45 /* LocalSpeech.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0975D60362A6E3F22B2DA9C /* LocalSpeech.swift */; };
 		27316298D68C4B149E54621E /* AttachSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2B786F5F6662DB91C33D678 /* AttachSheet.swift */; };
 		28423163919A6E21C7FB224D /* VoiceFiller.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1F3CDA374E42BBFCE84A4F6 /* VoiceFiller.swift */; };
 		292D6A3F22704C5977086389 /* AgentsHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 94E003103ABED5DE7BD3D43B /* AgentsHubView.swift */; };
@@ -277,6 +278,7 @@
 		B015E03D9D8F60B51C9F3C89 /* RoutinesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutinesView.swift; sourceTree = "<group>"; };
 		B056C8FD81F3AB48622A70C0 /* WidgetRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetRefresh.swift; sourceTree = "<group>"; };
 		B083DF2BEBD828CF266749E2 /* DraftAttachment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraftAttachment.swift; sourceTree = "<group>"; };
+		B0975D60362A6E3F22B2DA9C /* LocalSpeech.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSpeech.swift; sourceTree = "<group>"; };
 		B104A4361ECD7B91A321759C /* NativeVoiceAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeVoiceAPI.swift; sourceTree = "<group>"; };
 		B19818CCC8AD6C15BBC328BA /* ConfigurationValue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigurationValue.swift; sourceTree = "<group>"; };
 		B1B95AADFCA8B42EAEAAFECD /* ChatTranscriptView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatTranscriptView.swift; sourceTree = "<group>"; };
@@ -517,6 +519,7 @@
 				399BB0F5CE1F8FF278DE6053 /* GroupsView.swift */,
 				66B00D49A62F7932717F5453 /* Haptics.swift */,
 				19B9D9CC524C6E12BC3360D4 /* KanbanView.swift */,
+				B0975D60362A6E3F22B2DA9C /* LocalSpeech.swift */,
 				D8C2642D7ADE3DDF465C6E89 /* MarkdownText.swift */,
 				4140F253F6342BD71320743C /* MenuView.swift */,
 				851E43F4DDB4C85BF0F4C3EB /* NativeToolSession.swift */,
@@ -839,6 +842,7 @@
 				C4E5F98CEC41BFB069485A78 /* Keychain.swift in Sources */,
 				3183427FCD19DE10DA400471 /* LiveActivities.swift in Sources */,
 				B3E754254F266AC7A3A72788 /* LocalCache.swift in Sources */,
+				2447BF28A55D3BB3FF00FF45 /* LocalSpeech.swift in Sources */,
 				E3BDA5080F70B105FDDA04F3 /* MarkdownText.swift in Sources */,
 				A65B1AFBDE1BEE9C71B20D2A /* MenuView.swift in Sources */,
 				11258E6C86A1C839693F1627 /* MessagingSettingsView.swift in Sources */,

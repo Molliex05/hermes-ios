@@ -52,6 +52,7 @@ final class VoiceConversation {
     @ObservationIgnored private var liveSTT = false
     // Reply fed by AppModel.speechSink.
     @ObservationIgnored private var reply = VoiceReplyText()
+    @ObservationIgnored private let localSpeech = LocalSpeech()
     @ObservationIgnored private var replyOpen = false
     @ObservationIgnored private var replyStatus: String?
     @ObservationIgnored private var liveDelegation: String?
@@ -62,6 +63,7 @@ final class VoiceConversation {
     private static var liveUnavailable = Set<String>()
     private static let waitingNotice = "Hermes attend votre réponse dans le chat. La conversation vocale reprendra ensuite."
     private static let busyNotice = "Hermes termine la réponse précédente…"
+    private static let localVoiceNotice = "La voix du serveur est indisponible (quota). L’iPhone lit la réponse."
     /// Spoken once when the agent has been working in silence: after a tool starts, or after a slow start.
     private static let holdingLine = "Je regarde ça. "
     private static let holdingToolDelay: TimeInterval = 0.5
@@ -304,7 +306,7 @@ final class VoiceConversation {
             if now - started > 1, notice == nil { notice = Self.busyNotice }
             try await Task.sleep(for: .milliseconds(50))
         }
-        if notice == Self.busyNotice { notice = nil }
+        if notice == Self.busyNotice || notice == Self.localVoiceNotice { notice = nil }
         return true
     }
 
@@ -394,7 +396,14 @@ final class VoiceConversation {
         let speech: String
         do { speech = try await voiceAPI.speech(text) }
         catch is CancellationError { throw CancellationError() }
-        catch { try validate(attempt); throw VoiceTurnIssue(error.localizedDescription) }
+        catch {
+            try validate(attempt)
+            VoiceMetrics.shared.note("ttsLocal", 1)
+            try await speakLocally(text, attempt: attempt)
+            VoiceMetrics.shared.mark(.playbackEnd)
+            VoiceMetrics.shared.finish(profile: tools.profile)
+            return
+        }
         try validate(attempt)
         VoiceMetrics.shared.mark(.firstPCM)
         try await audio.play(speech); try validate(attempt); phase = .speaking
@@ -405,6 +414,25 @@ final class VoiceConversation {
         }
         VoiceMetrics.shared.mark(.playbackEnd)
         VoiceMetrics.shared.finish(profile: tools.profile)
+    }
+
+    /// The server's voice refused the reply: the iPhone reads it, so the call keeps talking. The text is in the chat anyway.
+    private func speakLocally(_ text: String, attempt: UUID) async throws {
+        notice = Self.localVoiceNotice
+        guard let rendered = await localSpeech.render(text) else {
+            throw VoiceTurnIssue("La voix du serveur est indisponible. La réponse reste dans le chat.")
+        }
+        try validate(attempt)
+        let engine = audio.engine, id = UUID()
+        try engine.reservePlayback(id)
+        try await engine.preparePCM(sampleRate: rendered.sampleRate, id: id)
+        _ = try await engine.enqueuePCM(rendered.pcm, sampleRate: rendered.sampleRate, id: id)
+        try await engine.finishPCM(id: id)
+        try validate(attempt); phase = .speaking
+        while audio.playing {
+            try await Task.sleep(for: .milliseconds(50)); try validate(attempt)
+            if let failure = audio.failure { throw RPCFailure(failure) }
+        }
     }
 
     /// « Je regarde ça » from the bundled recording, through the call's own audio engine (so echo cancellation
@@ -719,7 +747,7 @@ final class VoiceConversation {
             if elapsed > 1.5, notice == nil { notice = Self.busyNotice }
             try await Task.sleep(for: .milliseconds(100))
         }
-        if notice == Self.busyNotice { notice = nil }
+        if notice == Self.busyNotice || notice == Self.localVoiceNotice { notice = nil }
         return true
     }
 
