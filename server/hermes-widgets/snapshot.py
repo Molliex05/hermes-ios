@@ -40,7 +40,7 @@ def _shift(month: str, delta: int) -> str:
 
 
 def _projection(raw: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """Shape `finance_get_projection` (Noriven MCP) for the widgets; None when the tool is absent or malformed."""
+    """Shape `analytics_get_finance_projection` (Noriven MCP) for the widgets; None when the tool is absent or malformed."""
     if not isinstance(raw, dict) or not raw.get("ok"):
         return None
     current, following = raw.get("current_month") or {}, raw.get("next_month") or {}
@@ -88,7 +88,7 @@ async def fetch(call: CallTool, today: Optional[date] = None) -> Dict[str, Any]:
     except Exception:
         growth = {"rows": []}      # MRR is secondary: the money figures still ship
     try:
-        projection = await call("finance_get_projection", {})
+        projection = await call("analytics_get_finance_projection", {})
     except Exception:
         projection = None      # not deployed yet, or temporarily failing: the figures above still ship
     if not money.get("ok", True):
