@@ -92,6 +92,10 @@ struct VoiceEvidenceWindow {
     private(set) var span = 0.0
     private(set) var voicedDuration = 0.0
 
+    /// Explicit: with a private stored property the synthesized memberwise initializer is private on older toolchains
+    /// (CI's macos-15 runner), so `VoiceActivity` and `VoiceBargeIn` could not build it.
+    init(duration: Double) { self.duration = duration }
+
     mutating func clear() {
         samples.removeAll(keepingCapacity: true); span = 0; voicedDuration = 0
     }
