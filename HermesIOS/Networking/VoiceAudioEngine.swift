@@ -3,8 +3,9 @@ import Foundation
 import Accelerate
 
 /// One duplex graph for the whole voice conversation. AVAudioSession, graph mutations,
-/// conversion and file decoding stay off MainActor. The render taps only update bounded
-/// PCM storage/meters; they never enqueue unbounded tasks or perform disk I/O.
+/// conversion and file decoding stay off MainActor. The input tap measures each buffer
+/// (timestamped `VoiceLevel`), converts it once to 16 kHz mono and feeds bounded storage
+/// plus two bounded streams (meters, live-STT PCM); it never performs disk I/O.
 final class VoiceAudioEngine: @unchecked Sendable {
     struct Snapshot: Sendable {
         var monitoring = false
@@ -33,8 +34,17 @@ final class VoiceAudioEngine: @unchecked Sendable {
     private var observers: [NSObjectProtocol] = []
     private var inputTapInstalled = false
     private var outputTapInstalled = false
+    private var recoveries: [TimeInterval] = []
 
     var snapshot: Snapshot { state.snapshot() }
+
+    // MARK: Bench (automated latency runs)
+    /// While on, the real microphone is ignored and only `injectBench` buffers feed the pipeline.
+    func setBenchInput(_ on: Bool) { state.setBench(on) }
+    var inputSampleRate: Double { state.inputRate }
+    func injectBench(_ buffer: AVAudioPCMBuffer) {
+        state.acceptInput(buffer, at: AVAudioTime(sampleTime: 0, atRate: buffer.format.sampleRate), generation: state.generation, injected: true)
+    }
 
     func prepare() async throws {
         let generation = state.generation
@@ -78,13 +88,15 @@ final class VoiceAudioEngine: @unchecked Sendable {
     }
     #endif
 
-    func startCapture(includePreRoll: Bool) async throws {
+    /// Starts one utterance (pre-roll first) and returns its live 16 kHz s16le PCM,
+    /// in ~100 ms chunks, finished by finishCapture/cancelCapture/mute/teardown.
+    func startCapture(includePreRoll: Bool, maxSeconds: Double) async throws -> AsyncStream<Data> {
         let generation = state.generation
-        try await onQueue {
+        return try await onQueue {
             try self.state.validate(generation)
             try self.prepareOnQueue(generation: generation)
             try self.state.validate(generation)
-            try self.state.beginCapture(includePreRoll: includePreRoll)
+            return try self.state.beginCapture(includePreRoll: includePreRoll, maxSeconds: maxSeconds)
         }
     }
 
@@ -92,11 +104,17 @@ final class VoiceAudioEngine: @unchecked Sendable {
         let generation = state.generation
         return try await onQueue {
             try self.state.validate(generation)
-            let captured = try self.state.finishCapture()
+            let samples = try self.state.finishCapture()
             // WAV encoding/copy occurs on this worker, never the UI or input render thread.
-            return Self.wav(captured.samples, sampleRate: captured.sampleRate)
+            return VoiceWAV.encode(samples, sampleRate: Int(VoicePCMResampler.targetRate))
         }
     }
+
+    func cancelCapture() { state.cancelCapture() }
+
+    /// Meter frames from the input tap; a newer stream replaces the previous one.
+    /// Finished when the engine is torn down or fails.
+    func levels() -> AsyncStream<VoiceLevel> { state.levels() }
 
     func setInputMuted(_ muted: Bool) {
         state.setMuted(muted)
@@ -199,6 +217,11 @@ final class VoiceAudioEngine: @unchecked Sendable {
         }
     }
 
+    /// Wait for an earlier standard-voice teardown before another audio engine takes over.
+    static func settleAudioWork() async {
+        await withCheckedContinuation { continuation in queue.async { continuation.resume() } }
+    }
+
     func cleanup() {
         state.invalidate()
         Self.queue.async { [self] in shutdownOnQueue(deactivate: true) }
@@ -206,8 +229,9 @@ final class VoiceAudioEngine: @unchecked Sendable {
 
     private func prepareOnQueue(generation: UUID) throws {
         if let engine {
-            guard engine.isRunning else { throw RPCFailure("L’audio a été interrompu. Relancez la conversation vocale.") }
-            return
+            if engine.isRunning { return }
+            // Stopped by a route/format change: rebuild the graph on the same call.
+            teardownGraphOnQueue()
         }
         if let previous = Self.sessionOwner, previous !== self {
             previous.state.fail("Une autre conversation utilise l’audio.")
@@ -233,11 +257,13 @@ final class VoiceAudioEngine: @unchecked Sendable {
                 throw RPCFailure("Aucune entrée audio compatible n’est disponible.")
             }
             state.configure(sampleRate: inputFormat.sampleRate, generation: generation)
+            let route = session.currentRoute
+            VoiceDiag.log("prepare input=\(inputFormat.sampleRate)Hz ch=\(inputFormat.channelCount) fmt=\(inputFormat.commonFormat.rawValue) permission=\(AVAudioApplication.shared.recordPermission.rawValue) in=\(route.inputs.map(\.portType.rawValue)) out=\(route.outputs.map(\.portType.rawValue)) muted=\(state.isMuted)")
             engine.attach(player)
             engine.connect(player, to: engine.mainMixerNode, format: output)
             let renderState = state
-            engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { buffer, _ in
-                renderState.acceptInput(buffer, generation: generation)
+            engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { buffer, when in
+                renderState.acceptInput(buffer, at: when, generation: generation)
             }
             inputTapInstalled = true
             engine.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { buffer, _ in
@@ -249,6 +275,7 @@ final class VoiceAudioEngine: @unchecked Sendable {
             try state.validate(generation)
             try engine.start()
             try state.validate(generation)
+            VoiceDiag.log("engine started running=\(engine.isRunning)")
             state.setMonitoring(true)
             observeChanges(engine)
         } catch {
@@ -260,9 +287,12 @@ final class VoiceAudioEngine: @unchecked Sendable {
     private func observeChanges(_ engine: AVAudioEngine) {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil) { [weak self] _ in
-            Self.queue.async { [weak self] in
+            // Enabling voice processing, the speaker override, Bluetooth or wired headphones all
+            // reconfigure the hardware and stop the engine: rebuild instead of ending the call.
+            Self.queue.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                VoiceDiag.log("config change running=\(self?.engine?.isRunning ?? false) monitoring=\(self?.state.snapshot().monitoring ?? false)")
                 guard let self, let engine = self.engine, !engine.isRunning, self.state.snapshot().monitoring else { return }
-                self.failOnQueue("La sortie audio a changé. Relancez la conversation vocale.")
+                self.recoverOnQueue()
             }
         })
         observers.append(center.addObserver(forName: AVAudioSession.interruptionNotification, object: AVAudioSession.sharedInstance(), queue: nil) { [weak self] note in
@@ -273,6 +303,61 @@ final class VoiceAudioEngine: @unchecked Sendable {
         observers.append(center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: nil) { [weak self] _ in
             Self.queue.async { [weak self] in self?.failOnQueue("L’audio de l’iPhone a redémarré. Relancez la conversation vocale.") }
         })
+    }
+
+    private func recoverOnQueue() {
+        let now = ProcessInfo.processInfo.systemUptime
+        recoveries = recoveries.filter { now - $0 < 10 } + [now]
+        guard recoveries.count <= 4 else {
+            failOnQueue("La sortie audio change trop souvent. Relancez la conversation vocale."); return
+        }
+        let generation = state.generation
+        let resumePlayback = playbackID != nil
+        // 1) Restart the same engine in place, the way Apple documents it for configuration changes:
+        //    enabling voice processing or a route change stops the engine right after it started.
+        if let engine, inputTapInstalled {
+            let format = engine.inputNode.outputFormat(forBus: 0)
+            VoiceDiag.log("recover in place input=\(format.sampleRate)Hz ch=\(format.channelCount) fmt=\(format.commonFormat.rawValue)")
+            if (8000...96000).contains(format.sampleRate), format.channelCount > 0, format.commonFormat == .pcmFormatFloat32 {
+                do {
+                    engine.inputNode.removeTap(onBus: 0)
+                    state.configure(sampleRate: format.sampleRate, generation: generation)
+                    let renderState = state
+                    engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, when in
+                        renderState.acceptInput(buffer, at: when, generation: generation)
+                    }
+                    engine.prepare()
+                    try engine.start()
+                    if resumePlayback { player?.play() }
+                    VoiceDiag.log("recovered in place running=\(engine.isRunning)")
+                    return
+                } catch { VoiceDiag.log("in-place recovery failed: \(error)") }
+            }
+        }
+        // 2) Full rebuild. A failure here is always reported to the call (never a silent stop).
+        teardownGraphOnQueue()
+        do {
+            try prepareOnQueue(generation: generation)
+            if resumePlayback { player?.play() }
+            VoiceDiag.log("recovered by rebuild")
+        } catch {
+            VoiceDiag.log("rebuild failed: \(error)")
+            state.fail("L’audio de l’iPhone n’a pas pu reprendre (\(error.localizedDescription)). Relancez la conversation vocale.")
+            shutdownOnQueue(deactivate: true)
+        }
+    }
+
+    /// Drops the engine graph but keeps the call: capture, meters and the current playback ID survive.
+    private func teardownGraphOnQueue() {
+        for observer in observers { NotificationCenter.default.removeObserver(observer) }
+        observers.removeAll()
+        if let engine {
+            if inputTapInstalled { engine.inputNode.removeTap(onBus: 0) }
+            if outputTapInstalled { engine.mainMixerNode.removeTap(onBus: 0) }
+            engine.stop()
+        }
+        inputTapInstalled = false; outputTapInstalled = false
+        engine = nil; player = nil
     }
 
     private func failOnQueue(_ message: String) {
@@ -401,37 +486,33 @@ final class VoiceAudioEngine: @unchecked Sendable {
             }
         }
     }
-
-    private static func wav(_ samples: [Int16], sampleRate: Double) -> Data {
-        let bytes = samples.count * MemoryLayout<Int16>.size
-        var data = Data(capacity: 44 + bytes)
-        func integer<T: FixedWidthInteger>(_ value: T) {
-            var little = value.littleEndian
-            withUnsafeBytes(of: &little) { data.append(contentsOf: $0) }
-        }
-        data.append(contentsOf: "RIFF".utf8); integer(UInt32(36 + bytes))
-        data.append(contentsOf: "WAVEfmt ".utf8); integer(UInt32(16)); integer(UInt16(1)); integer(UInt16(1))
-        integer(UInt32(sampleRate)); integer(UInt32(sampleRate) * 2); integer(UInt16(2)); integer(UInt16(16))
-        data.append(contentsOf: "data".utf8); integer(UInt32(bytes))
-        samples.withUnsafeBytes { data.append(contentsOf: $0) }
-        return data
-    }
 }
 
 /// Render callbacks, the serial audio worker, and main-thread snapshots share only this
-/// lock-protected state. Capture is capped at 120s; the pre-roll is a fixed 750ms ring.
+/// lock-protected state. Input is stored once at 16 kHz: the capture is capped by
+/// `voice.max_recording_seconds` (<= 300 s, ~9.6 MB) and the pre-roll is a fixed 1 s ring.
 private final class VoiceAudioState: @unchecked Sendable {
+    private static let rate = Int(VoicePCMResampler.targetRate)
     private let lock = NSLock()
     private var token = UUID()
     private var status = VoiceAudioEngine.Snapshot()
     private var muted = false
-    private var sampleRate = 48000.0
+    private var resampler = VoicePCMResampler(sourceRate: 48000)
     private var samples: [Int16] = []
+    private var maximum = 120 * rate
     private var preRoll: [Int16] = []
     private var ringIndex = 0
     private var ringCount = 0
+    private var pending: [Int16] = []
+    private var pcm: AsyncStream<Data>.Continuation?
+    private var meters: AsyncStream<VoiceLevel>.Continuation?
     private var lastInput = 0.0
     private var lastOutput = 0.0
+    private var benchInput = false
+    private var sourceRate = 48000.0
+
+    var inputRate: Double { lock.withLock { sourceRate } }
+    func setBench(_ on: Bool) { lock.withLock { benchInput = on } }
 
     var generation: UUID { lock.withLock { token } }
     var isMuted: Bool { lock.withLock { muted } }
@@ -446,17 +527,22 @@ private final class VoiceAudioState: @unchecked Sendable {
     func configure(sampleRate: Double, generation: UUID) {
         lock.withLock {
             guard token == generation else { return }
-            self.sampleRate = sampleRate
-            preRoll = [Int16](repeating: 0, count: Int(sampleRate * 0.75))
+            resampler = VoicePCMResampler(sourceRate: sampleRate)
+            sourceRate = sampleRate
+            preRoll = [Int16](repeating: 0, count: Self.rate)
             ringIndex = 0; ringCount = 0
         }
     }
 
     func setMonitoring(_ active: Bool) {
-        lock.withLock {
+        let ended: (AsyncStream<Data>.Continuation?, AsyncStream<VoiceLevel>.Continuation?) = lock.withLock {
             status.monitoring = active
-            if !active { status.capturing = false; status.inputPower = -160; status.outputLevel = 0 }
+            guard !active else { return (nil, nil) }
+            status.capturing = false; status.inputPower = -160; status.outputLevel = 0
+            defer { pcm = nil; meters = nil }
+            return (pcm, meters)
         }
+        ended.0?.finish(); ended.1?.finish()
     }
 
     func snapshot() -> VoiceAudioEngine.Snapshot {
@@ -469,62 +555,125 @@ private final class VoiceAudioState: @unchecked Sendable {
         }
     }
 
-    func beginCapture(includePreRoll: Bool) throws {
-        // Reserve outside the render-state lock: starting a two-minute capture must
-        // not stall an input callback while the allocator prepares its bounded storage.
-        let capacity = lock.withLock { Int(sampleRate * 120) }
+    func levels() -> AsyncStream<VoiceLevel> {
+        let (stream, continuation) = AsyncStream<VoiceLevel>.makeStream(bufferingPolicy: .bufferingNewest(256))
+        let previous = lock.withLock { () -> AsyncStream<VoiceLevel>.Continuation? in
+            defer { meters = continuation }
+            return meters
+        }
+        previous?.finish()
+        return stream
+    }
+
+    func beginCapture(includePreRoll: Bool, maxSeconds: Double) throws -> AsyncStream<Data> {
+        // Reserve outside the render-state lock: starting a long capture must not stall
+        // an input callback while the allocator prepares its bounded storage.
+        let capacity = Int(min(300, max(5, maxSeconds.isFinite ? maxSeconds : 120))) * Self.rate
         var fresh: [Int16] = []
-        fresh.reserveCapacity(capacity)
-        try lock.withLock {
+        fresh.reserveCapacity(capacity + Self.rate)
+        // Bounded by the capture cap: at most one 100 ms chunk per stored 100 ms.
+        let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
+        let (previous, first): (AsyncStream<Data>.Continuation?, Data?) = try lock.withLock {
             guard status.monitoring, !muted else { throw RPCFailure("Le microphone est en pause.") }
             swap(&samples, &fresh)
+            maximum = capacity
             if includePreRoll, ringCount > 0 {
                 let first = (ringIndex - ringCount + preRoll.count) % preRoll.count
                 for offset in 0..<ringCount { samples.append(preRoll[(first + offset) % preRoll.count]) }
             }
             status.capturing = true
+            pending.removeAll(keepingCapacity: true)
+            defer { pcm = continuation }
+            return (pcm, samples.isEmpty ? nil : VoiceWAV.pcm(samples))
         }
+        previous?.finish()
+        if let first { continuation.yield(first) }
+        return stream
     }
 
-    func finishCapture() throws -> (samples: [Int16], sampleRate: Double) {
-        try lock.withLock {
+    func finishCapture() throws -> [Int16] {
+        let (result, tail, stream): ([Int16], Data?, AsyncStream<Data>.Continuation?) = try lock.withLock {
             guard status.capturing else { throw RPCFailure("Aucun enregistrement disponible.") }
             status.capturing = false
-            let result = samples
-            samples = []
-            return (result, sampleRate)
+            let result = samples, tail = pending.isEmpty ? nil : VoiceWAV.pcm(pending)
+            samples = []; pending = []
+            defer { pcm = nil }
+            return (result, tail, pcm)
         }
+        if let tail { stream?.yield(tail) }
+        stream?.finish()
+        return result
+    }
+
+    func cancelCapture() {
+        let stream = lock.withLock { () -> AsyncStream<Data>.Continuation? in
+            status.capturing = false; samples = []; pending = []
+            defer { pcm = nil }
+            return pcm
+        }
+        stream?.finish()
     }
 
     func setMuted(_ value: Bool) {
-        lock.withLock {
+        let stream = lock.withLock { () -> AsyncStream<Data>.Continuation? in
             muted = value
             status.inputPower = -160
-            if value {
-                status.capturing = false; samples = []
-                ringIndex = 0; ringCount = 0
-            }
+            guard value else { return nil }
+            status.capturing = false; samples = []; pending = []
+            ringIndex = 0; ringCount = 0
+            defer { pcm = nil }
+            return pcm
         }
+        stream?.finish()
     }
 
-    func acceptInput(_ buffer: AVAudioPCMBuffer, generation: UUID) {
-        guard let channel = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return }
+    func acceptInput(_ buffer: AVAudioPCMBuffer, at when: AVAudioTime, generation: UUID, injected: Bool = false) {
+        // Bench runs take only injected audio; normal runs take only the microphone.
+        guard lock.withLock({ benchInput }) == injected else { return }
+        guard let channel = buffer.floatChannelData?[0], buffer.frameLength > 0, buffer.format.sampleRate > 0 else {
+            diagTap(rms: -1, gate: "noFloatData"); return
+        }
+        let count = Int(buffer.frameLength)
         var energy: Float = 0
-        vDSP_svesq(channel, 1, &energy, vDSP_Length(buffer.frameLength))
-        let rms = sqrt(Double(energy) / Double(buffer.frameLength))
-        lock.withLock {
-            guard token == generation, status.monitoring, !muted, !preRoll.isEmpty else { return }
+        vDSP_svesq(channel, 1, &energy, vDSP_Length(count))
+        let rms = sqrt(Double(energy) / Double(count))
+        let time = when.isHostTimeValid ? AVAudioTime.seconds(forHostTime: when.hostTime) : ProcessInfo.processInfo.systemUptime
+        let level = VoiceLevel(time: time, duration: Double(count) / buffer.format.sampleRate, rms: rms * 32767)
+        let delivery: (AsyncStream<VoiceLevel>.Continuation?, AsyncStream<Data>.Continuation?, Data?) = lock.withLock {
+            guard token == generation, status.monitoring, !muted, !preRoll.isEmpty else {
+                diagTap(rms: rms * 32767, gate: "token=\(token == generation) monitoring=\(status.monitoring) muted=\(muted) preRollEmpty=\(preRoll.isEmpty)")
+                return (nil, nil, nil)
+            }
+            diagTap(rms: rms * 32767, gate: nil)
             status.inputPower = rms > 0 ? max(-160, 20 * log10(rms)) : -160
             lastInput = ProcessInfo.processInfo.systemUptime
-            let maximum = Int(sampleRate * 120)
-            for index in 0..<Int(buffer.frameLength) {
-                let raw = channel[index]
-                let value = raw.isFinite ? Int16(max(-32768, min(32767, raw * 32767))) : 0
+            let converted = resampler.process(UnsafeBufferPointer(start: channel, count: count))
+            for value in converted {
                 preRoll[ringIndex] = value; ringIndex = (ringIndex + 1) % preRoll.count
                 ringCount = min(preRoll.count, ringCount + 1)
-                if status.capturing && samples.count < maximum { samples.append(value) }
             }
+            guard status.capturing, samples.count < maximum else { return (meters, nil, nil) }
+            let accepted = converted.prefix(maximum - samples.count)
+            samples.append(contentsOf: accepted)
+            guard pcm != nil else { return (meters, nil, nil) }
+            pending.append(contentsOf: accepted)
+            guard pending.count >= Self.rate / 10 else { return (meters, nil, nil) }
+            defer { pending.removeAll(keepingCapacity: true) }
+            return (meters, pcm, VoiceWAV.pcm(pending))
         }
+        if let chunk = delivery.2 { delivery.1?.yield(chunk) }
+        delivery.0?.yield(level)
+    }
+
+    private var diagCalls = 0, diagPeak = 0.0, diagLast = ProcessInfo.processInfo.systemUptime, diagGate = ""
+    /// Aggregated once per second; called with or without the lock held (it only touches its own counters).
+    private func diagTap(rms: Double, gate: String?) {
+        diagCalls += 1; diagPeak = max(diagPeak, rms)
+        if let gate { diagGate = gate }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - diagLast >= 1 else { return }
+        VoiceDiag.log("tap calls=\(diagCalls) peakRMS=\(Int(diagPeak)) gate=\(diagGate.isEmpty ? "open" : diagGate)")
+        diagCalls = 0; diagPeak = 0; diagGate = ""; diagLast = now
     }
 
     func acceptOutput(_ buffer: AVAudioPCMBuffer, generation: UUID) {
@@ -558,16 +707,16 @@ private final class VoiceAudioState: @unchecked Sendable {
             return existing
         }
     }
-    func invalidate() {
-        lock.withLock {
-            token = UUID(); status = VoiceAudioEngine.Snapshot()
-            samples = []; preRoll = []; ringCount = 0; ringIndex = 0; muted = false
+    func invalidate() { reset(failure: nil) }
+    func fail(_ message: String) { reset(failure: message) }
+    private func reset(failure: String?) {
+        let ended: (AsyncStream<Data>.Continuation?, AsyncStream<VoiceLevel>.Continuation?) = lock.withLock {
+            token = UUID(); status = VoiceAudioEngine.Snapshot(); status.failure = failure
+            samples = []; pending = []; preRoll = []; ringCount = 0; ringIndex = 0
+            if failure == nil { muted = false }
+            defer { pcm = nil; meters = nil }
+            return (pcm, meters)
         }
-    }
-    func fail(_ message: String) {
-        lock.withLock {
-            token = UUID(); status = VoiceAudioEngine.Snapshot(); status.failure = message
-            samples = []; preRoll = []; ringCount = 0; ringIndex = 0
-        }
+        ended.0?.finish(); ended.1?.finish()
     }
 }

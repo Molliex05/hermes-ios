@@ -84,19 +84,19 @@ struct RoutineDetailView: View {
         }
         .modernList().navigationTitle(name.isEmpty ? routine.name : name).navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
+            AppToolbarItem(placement: .confirmationAction) {
                 Button("Enregistrer") { Task { await save() } }
                     .disabled(!canMutate || !valid || !hasChanges)
             }
         }
         .task { await load() }.refreshable { await load() }
-        .confirmationDialog("Supprimer cette routine sur Hermès ?", isPresented: $deleting, titleVisibility: .visible) {
+        .appConfirm("Supprimer cette routine sur Hermès ?", isPresented: $deleting) {
             Button("Supprimer", role: .destructive) { Task { await tools.perform {
                 guard !jobMissing else { return }
                 _ = try await tools.request(path, method: "DELETE"); await tools.app.loadRoutines(); dismiss()
             } } }
         }
-        .confirmationDialog("Exécuter la version enregistrée de cette routine ?", isPresented: $triggering, titleVisibility: .visible) {
+        .appConfirm("Exécuter la version enregistrée de cette routine ?", isPresented: $triggering) {
             Button("Exécuter") { Task { await trigger() } }
         } message: {
             if paused { Text("Hermès réactive aussi la routine mise en pause lors d’un lancement manuel.") }

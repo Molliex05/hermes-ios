@@ -89,7 +89,7 @@ public struct Transcript: Sendable {
             if p["status"].string == "error" { failure = p["error"].string }
         case "thinking.delta", "reasoning.delta":
             running = true; activity = "Réfléchit…"
-        case "tool.start", "tool.progress", "tool.generating":
+        case "tool.start", "tool.generating":
             running = true
             activity = p["name"].string.isEmpty ? "Utilise un outil…" : p["name"].string
             if event["type"].string == "tool.start" { updateTool(p, completed: false) }
@@ -98,15 +98,12 @@ public struct Transcript: Sendable {
             activity = running ? (toolSteps.last(where: { $0.state == .running })?.name ?? "Réfléchit…") : nil
         case "status.update":
             if !p["text"].string.isEmpty { activity = p["text"].string }
-        case "approval.request": approval = p
-        case "clarify.request": clarification = p
-        case "sudo.request", "secret.request":
-            var request = p.object
-            request["event_type"] = event["type"]
-            credential = .object(request)
-        case "approval.expire": if p["request_id"].isNull || approval?["request_id"] == p["request_id"] { approval = nil }
-        case "clarify.expire": if p["request_id"].isNull || clarification?["request_id"] == p["request_id"] { clarification = nil }
-        case "sudo.expire", "secret.expire": if p["request_id"].isNull || credential?["request_id"] == p["request_id"] { credential = nil }
+        // Interactive prompts arrive as server→client requests (see ServerRequests); only the
+        // approval queue snapshot from `session.resume` (`pending_approval`) lives here.
+        case "approval.cancelled":
+            let ids = p["request_ids"].array
+            if let current = approval, current["rpc_id"].isNull,
+               ids.isEmpty || ids.contains(current["request_id"]) { approval = nil }
         case "error":
             failure = p["message"].string; running = false; activity = nil; approval = nil; clarification = nil; credential = nil
             finishOpenTools()
@@ -142,19 +139,42 @@ public struct Transcript: Sendable {
         let old = messages
         var used = Set<String>()
         var projected: [ChatMessage] = []
+        // Indexed once, so matching a row is a lookup instead of a scan of every earlier message (hydrate runs after
+        // each reply, on the main thread, over histories of up to hundreds of messages).
+        var byText: [String: [Int]] = [:]
+        var byID: [String: Int] = [:]
+        for (index, message) in old.enumerated() {
+            byText[message.role + "\u{0}" + message.text, default: []].append(index)
+            if byID[message.id] == nil { byID[message.id] = index }
+        }
+        var cursor: [String: Int] = [:]
+        func firstUnused(role: String, text: String) -> Int? {
+            let key = role + "\u{0}" + text
+            guard let list = byText[key] else { return nil }
+            var position = cursor[key] ?? 0
+            while position < list.count, used.contains(old[list[position]].id) { position += 1 }
+            cursor[key] = position
+            return position < list.count ? list[position] : nil
+        }
         for row in payload["messages"].array {
             let role = row["role"].string
             guard ["user", "assistant"].contains(role), row["display_kind"].string != "hidden" else { continue }
             let text = row["text"].string
             guard !text.isEmpty else { continue }
             let stable = row["row_id"].isNull ? nil : "row-\(row["row_id"].int)"
-            let match = old.first { !used.contains($0.id) && $0.role == role && ($0.text == text || (stable != nil && $0.id == stable)) }
+            // Earliest unused message with the same role and text, or with this stable row id.
+            var found = firstUnused(role: role, text: text)
+            if let stable, let index = byID[stable], old[index].role == role, !used.contains(old[index].id), index < (found ?? Int.max) { found = index }
+            let match = found.map { old[$0] }
             let id = match?.id ?? stable ?? UUID().uuidString
             used.insert(id)
             projected.append(.init(id: id, role: role, text: text))
         }
         let inflight = payload["inflight"]
-        running = payload["running"].bool
+        // `session.history` carries only messages; resume snapshots also carry the live state.
+        // Never let a plain history refresh mark a running turn idle or drop a pending card.
+        let carriesState = payload.object.keys.contains { ["running", "inflight", "pending_approval"].contains($0) }
+        if carriesState { running = payload["running"].bool }
         if !running { finishOpenTools() }
         if !inflight.isNull {
             let user = inflight["user"].string
@@ -179,9 +199,9 @@ public struct Transcript: Sendable {
             }
         }
         messages = projected
-        approval = payload["pending_approval"].isNull ? nil : payload["pending_approval"]
-        clarification = payload["pending_clarify"].isNull ? nil : payload["pending_clarify"]
-        if !running { credential = nil }
+        guard carriesState else { return }
+        // Live prompts come from server requests (rpc_id); a snapshot only refreshes the queue copy.
+        if approval?["rpc_id"].isNull != false { approval = payload["pending_approval"].isNull ? nil : payload["pending_approval"] }
         activity = running ? "En cours…" : nil
         if !inflight["error"].string.isEmpty { failure = inflight["error"].string }
     }
@@ -209,7 +229,7 @@ public struct Transcript: Sendable {
             // Reconcile tools and control cards even after the ring loses message.start.
             // Keep this inside the running branch: an idle snapshot is authoritative,
             // and old lifecycle events must not make a finished turn appear active again.
-            for event in tail where ["message.start", "message.complete", "tool.start", "tool.complete", "tool.progress", "tool.generating", "approval.request", "clarify.request", "sudo.request", "secret.request", "approval.expire", "clarify.expire", "sudo.expire", "secret.expire", "error"].contains(event["type"].string) { apply(event) }
+            for event in tail where ["message.start", "message.complete", "tool.start", "tool.complete", "tool.generating", "approval.cancelled", "error"].contains(event["type"].string) { apply(event) }
         }
         lastSequence = max(lastSequence, latestSequence)
     }

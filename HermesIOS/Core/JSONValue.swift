@@ -33,7 +33,21 @@ public enum JSONValue: Codable, Sendable, Equatable {
     public var double: Double { if case .number(let v) = self { v } else { 0 } }
     public var int: Int { Int(double) }
     public var isNull: Bool { self == .null }
-    public static func decode(_ data: Data) throws -> JSONValue { try JSONDecoder().decode(Self.self, from: data) }
+    /// Wire/HTTP decoding goes through JSONSerialization: one pass, no throwing type probes per value.
+    public static func decode(_ data: Data) throws -> JSONValue {
+        JSONValue(foundation: try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]))
+    }
+
+    init(foundation value: Any) {
+        switch value {
+        case let number as NSNumber:
+            self = CFGetTypeID(number) == CFBooleanGetTypeID() ? .bool(number.boolValue) : .number(number.doubleValue)
+        case let text as String: self = .string(text)
+        case let object as [String: Any]: self = .object(object.mapValues(JSONValue.init(foundation:)))
+        case let array as [Any]: self = .array(array.map(JSONValue.init(foundation:)))
+        default: self = .null
+        }
+    }
     public func data() throws -> Data { try JSONEncoder().encode(self) }
 }
 
@@ -70,8 +84,13 @@ public struct RPCFailure: Error, LocalizedError, Sendable {
 
 public enum Wire {
     /// Hermes coalesces several newline-delimited envelopes into one WebSocket message.
-    public static func frames(_ text: String) throws -> [JSONValue] {
-        try text.split(separator: "\n").filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-            .map { try JSONValue.decode(Data($0.utf8)) }
+    /// A malformed envelope is skipped, never fatal: one bad frame must not drop the connection
+    /// (and a replayed bad frame would otherwise loop reconnects forever).
+    public static func frames(_ text: String) -> [JSONValue] {
+        text.split(separator: "\n").compactMap { line in
+            line.trimmingCharacters(in: .whitespaces).isEmpty ? nil : try? JSONValue.decode(Data(line.utf8))
+        }
     }
+
+    public static func frames(_ data: Data) -> [JSONValue] { frames(String(decoding: data, as: UTF8.self)) }
 }

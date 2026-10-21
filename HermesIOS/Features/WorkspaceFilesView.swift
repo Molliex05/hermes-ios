@@ -54,8 +54,8 @@ struct RemoteTextEditor: View {
             if readOnly { ContentUnavailableView("Aperçu limité", systemImage: "doc", description: Text("Ce fichier est binaire ou trop grand pour être modifié ici.")) }
             else { TextEditor(text: $text).font(.system(.body, design: .monospaced)).scrollContentBackground(.hidden).disabled(original == nil) }
             if saved { Label("Enregistré sur Hermes", systemImage: "checkmark.circle").font(.caption).foregroundStyle(AppTheme.accent) }
-        }.padding(18).background(AppTheme.background).navigationTitle(title).navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("Enregistrer") { Task { await save() } }.disabled(readOnly || original == nil || text == original || tools.busy) }
+        }.padding(18).background(AppTheme.background).appNavigationBar().navigationTitle(title).navigationBarTitleDisplayMode(.inline)
+            .toolbar { AppToolbarItem(placement: .primaryAction) { Button("Enregistrer") { Task { await save() } }.disabled(readOnly || original == nil || text == original || tools.busy) } }
             .task { await tools.perform {
                 let result = try await tools.request("/api/fs/read-text", query: [URLQueryItem(name: "path", value: path)])
                 readOnly = result["binary"].bool || result["truncated"].bool
@@ -88,17 +88,17 @@ struct ProjectEditor: View {
                 TextField("Description", text: $description, axis: .vertical)
                 if project == nil { TextField("Dossier sur le serveur", text: $path).textInputAutocapitalization(.never).autocorrectionDisabled() }
                 ToolFeedback(tools: tools)
-            }.navigationTitle(project == nil ? "Nouveau projet" : "Modifier le projet")
+            }.modernList().navigationTitle(project == nil ? "Nouveau projet" : "Modifier le projet")
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) { Button("Enregistrer") { Task { await tools.perform {
+                    AppToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }
+                    AppToolbarItem(placement: .confirmationAction) { Button("Enregistrer") { Task { await tools.perform {
                         var body: [String: JSONValue] = ["name": .string(name), "description": .string(description)]
                         if let project { body["id"] = project["id"] }
-                        else { body["primary_path"] = .string(path); body["folders"] = [["path": .string(path)]] }
+                        else { body["primary_path"] = .string(path); body["folders"] = [.string(path)] }
                         _ = try await tools.request(project == nil ? "projects.create" : "projects.update", body: .object(body), rpc: true)
                         await saved(); dismiss()
                     } } }.disabled(name.isEmpty || (project == nil && path.isEmpty) || tools.busy) }
                 }.task { name = project?["name"].string ?? ""; description = project?["description"].string ?? "" }
-        }
+        }.presentationBackground(AppTheme.background)
     }
 }

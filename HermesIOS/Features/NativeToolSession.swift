@@ -13,15 +13,18 @@ final class NativeToolSession {
     @ObservationIgnored private var resourceKey: String?
     @ObservationIgnored private var loadID = UUID()
 
-    init(_ app: AppModel) {
-        self.app = app; profile = app.profile; connectionID = app.activeConnection?.id
+    /// Without `profile`, the session follows the current chat's profile and fails once it changes.
+    /// With an explicit `profile`, it stays pinned to that agent whatever the chat shows (settings, agent hub).
+    private let pinned: Bool
+    init(_ app: AppModel, profile explicit: String? = nil) {
+        self.app = app; profile = explicit ?? app.profile; pinned = explicit != nil; connectionID = app.activeConnection?.id
     }
 
     func request(_ path: String, method: String = "GET", body: JSONValue? = nil,
                  query: [URLQueryItem] = [], rpc: Bool = false) async throws -> JSONValue {
         guard !app.demo else { throw RPCFailure("Connectez votre Hermes pour effectuer cette action.") }
         return try await app.toolRequest(path, method: method, body: body, query: query,
-            connectionID: connectionID, profile: profile, rpc: rpc)
+            connectionID: connectionID, profile: profile, rpc: rpc, pinned: pinned)
     }
 
     func load(_ path: String, query: [URLQueryItem] = [], rpc: Bool = false) async {
@@ -32,10 +35,16 @@ final class NativeToolSession {
         loading = true; error = nil
         defer { if loadID == attempt { loading = false } }
         do {
+            #if DEBUG
+            // Lets UI tests and screenshots see the first-load placeholders of the demo.
+            if app.demo, ProcessInfo.processInfo.arguments.contains("--demo-slow") { try await Task.sleep(for: .seconds(4)) }
+            #endif
             let result = app.demo ? Self.preview(path) : try await request(path, query: query, rpc: rpc)
             try Task.checkCancellation()
             guard loadID == attempt else { return }
-            data = result; app.toolCache[key] = result
+            // A poll that brings nothing new must not redraw the screen.
+            if data != result { data = result }
+            app.toolCache[key] = result
         } catch is CancellationError { }
         catch {
             guard loadID == attempt else { return }

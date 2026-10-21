@@ -1,331 +1,321 @@
 import SwiftUI
 
-struct AgentSettingsView: View {
-    let app: AppModel
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    HStack(spacing: 14) {
-                        AgentAvatar(name: app.profile, size: 44)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(app.agent?.title ?? app.profile).font(.title3.weight(.medium))
-                            Text(app.activeConnection?.name ?? "Aperçu interactif").font(.caption).foregroundStyle(.secondary)
-                        }
-                    }.padding(.vertical, 8)
-                } footer: { Text("Ces réglages appartiennent à cet agent et sont enregistrés sur son serveur Hermes.") }
-                Section("Son fonctionnement") {
-                    NavigationLink { ConfigurationView(app: app, permissions: true) } label: {
-                        settingsRow("Permissions", detail: "Quand demander votre accord", symbol: "hand.raised")
-                    }.accessibilityLabel("Permissions")
-                    NavigationLink { CapabilityView(app: app, mcp: false) } label: {
-                        settingsRow("Outils disponibles", detail: "Ce que l’agent peut utiliser", symbol: "wrench.and.screwdriver")
-                    }
-                    NavigationLink { CapabilityView(app: app, mcp: true) } label: {
-                        settingsRow("Connexions MCP", detail: "Ses services et intégrations", symbol: "puzzlepiece.extension")
-                    }
-                    NavigationLink { MemoryView(app: app) } label: {
-                        settingsRow("Mémoire", detail: "Ce qu’il retient de vos échanges", symbol: "brain")
-                    }
-                    NavigationLink { ConfigurationView(app: app) } label: {
-                        settingsRow("Préférences de l’agent", detail: "Tous les réglages Hermes", symbol: "slider.horizontal.3")
-                    }
-                }
-            }.modernList().navigationTitle("Mon agent").navigationBarTitleDisplayMode(.inline)
+/// The pages of one agent's settings, shared by its settings root and the menu search.
+enum AgentSettingsPage: String, CaseIterable, Identifiable, Hashable {
+    case model, voice, permissions, personality, skills, tools, credentials, providers, messaging, plugins
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .model: "Modèle"
+        case .voice: "Voix"
+        case .permissions: "Permissions"
+        case .personality: "Mémoire et personnalité"
+        case .skills: "Compétences"
+        case .tools: "Outils et MCP"
+        case .credentials: "Clés et identifiants"
+        case .providers: "Fournisseurs"
+        case .messaging: "Messagerie"
+        case .plugins: "Extensions"
         }
     }
+    var detail: String {
+        switch self {
+        case .model: "Principal, secours, auxiliaires"
+        case .voice: "Conversation, transcription, synthèse"
+        case .permissions: "Quand demander votre accord"
+        case .personality: "SOUL.md, rôle, ce qu’il retient"
+        case .skills: "Ses compétences installées"
+        case .tools: "Ce qu’il peut utiliser, services MCP"
+        case .credentials: "Clés API, sans jamais les afficher"
+        case .providers: "Comptes, points de terminaison, modèles"
+        case .messaging: "Telegram, Discord, Slack…"
+        case .plugins: "Plugins installés et leurs réglages"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .model: "cpu"
+        case .voice: "waveform"
+        case .permissions: "hand.raised"
+        case .personality: "brain"
+        case .skills: "sparkles"
+        case .tools: "wrench.and.screwdriver"
+        case .credentials: "key"
+        case .providers: "server.rack"
+        case .messaging: "bubble.left.and.text.bubble.right"
+        case .plugins: "shippingbox"
+        }
+    }
+    /// Extra words for search, including the desktop's English names.
+    var keywords: String {
+        switch self {
+        case .model: "model llm fallback auxiliaire moa"
+        case .voice: "voice tts stt micro"
+        case .permissions: "approvals approbations accord sécurité"
+        case .personality: "memory soul description rôle identité"
+        case .skills: "skills"
+        case .tools: "tools toolsets mcp serveurs"
+        case .credentials: "keys api env secrets"
+        case .providers: "providers oauth endpoint"
+        case .messaging: "gateway canaux bot"
+        case .plugins: "plugins"
+        }
+    }
+    static let essential: [Self] = [.model, .voice, .permissions, .personality, .skills, .tools]
+    static let connections: [Self] = [.credentials, .providers, .messaging, .plugins]
+}
 
-    private func settingsRow(_ title: String, detail: String, symbol: String) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: symbol).font(.system(size: 18)).foregroundStyle(AppTheme.accent).frame(width: 26)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.subheadline.weight(.medium))
-                Text(detail).font(.caption).foregroundStyle(.secondary)
-            }
-        }.padding(.vertical, 5)
+/// Settings of one Hermes agent, pushed in the menu: « Essentiel », « Connexions », « Avancé ».
+/// Without `profile`, it opens on the agent of the current conversation.
+struct AgentSettingsView: View {
+    let app: AppModel
+    @State private var profile: String
+    init(app: AppModel, profile: String? = nil) {
+        self.app = app
+        _profile = State(initialValue: profile ?? app.agent?.name ?? app.profile)
+    }
+    var body: some View {
+        AgentSettingsRoot(app: app, profile: $profile).id(profile)
     }
 }
 
-struct ConfigurationView: View {
-    @State private var tools: NativeToolSession
-    @State private var config: JSONValue = [:]
-    @State private var fields: JSONValue = [:]
+private struct AgentSettingsRoot: View {
+    let app: AppModel
+    @Binding var profile: String
+    @State private var store: AgentConfigStore
     @State private var search = ""
-    let permissions: Bool
-    private let profileTitle: String
-    private let connectionName: String
-    init(app: AppModel, permissions: Bool = false) {
-        _tools = State(initialValue: NativeToolSession(app)); self.permissions = permissions
-        profileTitle = app.agent?.title ?? app.profile
-        connectionName = app.activeConnection?.name ?? "Aperçu interactif"
+    @Environment(\.returnToChat) private var returnToChat
+    @Environment(\.dismiss) private var dismiss
+
+    init(app: AppModel, profile: Binding<String>) {
+        self.app = app; _profile = profile
+        _store = State(initialValue: AgentConfigStore(app: app, profile: profile.wrappedValue))
     }
-    private let everydayPermissions = ["approvals.mode", "approvals.timeout", "approvals.cron_mode", "approvals.destructive_slash_confirm", "approvals.mcp_reload_confirm"]
-    private var keys: [String] {
-        fields.object.keys.sorted().filter { key in
-            let field = fields[key]
-            let relevant = !permissions || key.hasPrefix("approvals.") || key.hasPrefix("command_allowlist")
-            return relevant && (search.isEmpty || "\(key) \(friendly(key)) \(field["description"].string)".localizedCaseInsensitiveContains(search))
-        }
-    }
-    private func isAdvanced(_ key: String) -> Bool {
-        if permissions { return !everydayPermissions.contains(key) }
-        return ["array", "list", "object", "dict"].contains(fields[key]["type"].string)
-    }
-    private var simpleKeys: [String] {
-        permissions ? everydayPermissions.filter { keys.contains($0) } : keys.filter { !isAdvanced($0) }
-    }
-    private var advancedKeys: [String] { keys.filter(isAdvanced) }
+
+    private var agent: AgentProfile? { app.profiles.first { $0.name == profile } }
+    private var visibleProfiles: [AgentProfile] { app.profiles.filter { $0.hidden != true || $0.name == profile } }
+    /// Model and voice are « Essentiel »; memory is part of « Mémoire et personnalité ».
+    private var advancedSections: [SettingsSection] { SettingsCatalog.sections.filter { !["model", "voice", "memory"].contains($0.id) } }
 
     var body: some View {
         List {
+            AppSearchSection(text: $search, prompt: "Rechercher un réglage")
             if search.isEmpty {
                 Section {
-                    HStack(spacing: 12) {
-                        AgentAvatar(name: tools.profile, size: 38)
+                    HStack(spacing: 14) {
+                        AgentAvatar(name: profile, size: 48)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(profileTitle).font(.headline)
-                            Text(connectionName).font(.caption).foregroundStyle(.secondary)
+                            Text(store.title).font(.system(.title3, design: .serif))
+                            Text(profile == "default" ? "Agent principal · \(store.serverName)" : "@\(profile) · \(store.serverName)")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
-                    }.padding(.vertical, 5)
-                } footer: {
-                    Text(permissions
-                         ? "Politique enregistrée pour cet agent. Les exceptions de session et les protections du serveur restent gérées par Hermes."
-                         : "Les changements sont enregistrés dans ce profil Hermes.")
-                }
-            }
-            ToolFeedback(tools: tools)
-            if tools.busy && fields.object.isEmpty {
-                HStack(spacing: 10) { ProgressView(); Text("Chargement des réglages…").foregroundStyle(.secondary) }
-            } else if !search.isEmpty {
-                if keys.isEmpty { ContentUnavailableView.search(text: search) }
-                else { configurationRows(keys) }
-            } else {
-                if !simpleKeys.isEmpty {
-                    Section(permissions ? "Votre accord" : "Réglages") { configurationRows(simpleKeys) }
-                }
-                if !advancedKeys.isEmpty {
-                    Section {
-                        NavigationLink {
-                            List {
-                                Section { Text("Les mêmes réglages Hermes, pour ajuster les règles et les cas particuliers de \(profileTitle).").font(.subheadline).foregroundStyle(.secondary) }
-                                ToolFeedback(tools: tools)
-                                configurationRows(advancedKeys)
-                            }.modernList().navigationTitle("Réglages avancés").navigationBarTitleDisplayMode(.inline)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Label("Réglages avancés", systemImage: "slider.horizontal.3").font(.subheadline.weight(.medium))
-                                Text(permissions ? "Règles permanentes et autres automatisations" : "Listes et paramètres structurés")
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }.padding(.vertical, 4)
-                        }.accessibilityIdentifier("configuration-advanced")
-                    }
-                }
-            }
-        }.modernList().navigationTitle(permissions ? "Permissions" : "Préférences")
-            .navigationBarTitleDisplayMode(.inline)
-            .searchable(text: $search, prompt: "Rechercher un réglage")
-            .task { await load() }.refreshable { await load() }
-    }
-
-    private func configurationRows(_ entries: [String]) -> some View {
-        ForEach(entries, id: \.self) { key in
-            NavigationLink {
-                ConfigurationEditor(tools: tools, key: key, field: fields[key], original: config.at(key), profileTitle: profileTitle) { value in
-                    config = merge(config, JSONValue.patch(key, value: value))
-                }
-            } label: {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(friendly(key)).font(.subheadline.weight(.medium))
-                    Text(configurationSummary(key: key, value: config.at(key), field: fields[key]))
-                        .font(.caption).foregroundStyle(key == "approvals.mode" ? AppTheme.accent : .secondary).lineLimit(2)
-                    if key == "approvals.mode", let effect = approvalEffect(config.at(key).string) {
-                        Text(effect).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                }.padding(.vertical, 5)
-            }.accessibilityIdentifier("configuration-" + key)
-        }
-    }
-    private func load() async {
-        await tools.perform {
-            if tools.app.demo {
-                config = ["approvals": ["mode": "smart", "timeout": 300, "cron_mode": "deny", "deny": []], "command_allowlist": []]
-                fields = [
-                    "approvals.mode": ["type": "select", "options": ["manual", "smart", "off"], "description": "Politique d’autorisation"],
-                    "approvals.timeout": ["type": "number"], "approvals.cron_mode": ["type": "string"],
-                    "approvals.deny": ["type": "list"], "command_allowlist": ["type": "list"]
-                ]; return
-            }
-            config = try await tools.request("/api/config")
-            fields = try await tools.request("/api/config/schema")["fields"]
-        }
-    }
-    private func merge(_ source: JSONValue, _ patch: JSONValue) -> JSONValue {
-        guard case .object(let changes) = patch else { return patch }
-        var result = source.object
-        for (key, value) in changes { result[key] = merge(result[key] ?? .null, value) }
-        return .object(result)
-    }
-}
-
-private func friendly(_ key: String) -> String {
-    ["approvals.mode": "Quand demander mon accord", "approvals.timeout": "Délai de réponse", "approvals.cron_mode": "Actions sensibles des routines", "approvals.single_query_mode": "Actions sans conversation", "approvals.unattended_mode": "Actions automatisées", "approvals.deny": "Règles interdites", "command_allowlist": "Règles toujours autorisées", "approvals.smart_policy": "Consignes de l’évaluation intelligente", "approvals.denial_breaker_threshold": "Limite des refus consécutifs", "approvals.destructive_slash_confirm": "Confirmer les commandes destructives", "approvals.mcp_reload_confirm": "Confirmer le rechargement MCP", "reasoning_effort": "Effort de raisonnement", "timezone": "Fuseau horaire"][key] ?? key.replacingOccurrences(of: "_", with: " ")
-}
-
-private func configurationOption(_ value: String, key: String) -> String {
-    guard key.hasPrefix("approvals.") else { return value }
-    return ["smart": "Évaluation intelligente", "manual": "Me demander", "off": "Sans demande d’accord", "deny": "Refuser", "approve": "Autoriser"][value] ?? value
-}
-
-// These describe the native approval modes, not a client-side permission system.
-private func approvalEffect(_ value: String) -> String? {
-    switch value {
-    case "manual": "Hermes vous demande avant les actions qui nécessitent une autorisation."
-    case "smart": "Hermes évalue les actions sensibles et vous demande quand un accord est nécessaire."
-    case "off": "Hermes exécute les actions sans demande d’accord. Les règles d’interdiction du serveur restent applicables."
-    default: nil
-    }
-}
-
-private func configurationSummary(key: String, value: JSONValue, field: JSONValue) -> String {
-    let effective = value.isNull ? field["default"] : value
-    if effective.isNull { return "Valeur par défaut du serveur" }
-    switch effective {
-    case .array(let values):
-        if values.isEmpty { return key == "approvals.deny" || key == "command_allowlist" ? "Aucune règle" : "Aucun élément" }
-        return "\(values.count) élément\(values.count == 1 ? "" : "s")"
-    case .object(let values): return "\(values.count) paramètre\(values.count == 1 ? "" : "s")"
-    case .string(let text): return text.isEmpty ? "Non défini" : configurationOption(text, key: key)
-    case .number where key == "approvals.timeout": return "\(effective.displayText) secondes"
-    default: return effective.displayText
-    }
-}
-
-private struct ConfigurationEditor: View {
-    let tools: NativeToolSession
-    let key: String
-    let field: JSONValue
-    let original: JSONValue
-    let profileTitle: String
-    var saved: (JSONValue) -> Void
-    @State private var text = ""
-    @State private var enabled = false
-    @State private var confirm = false
-    @Environment(\.dismiss) private var dismiss
-    private var options: [String] { field["options"].array.map(\.displayText) }
-    private var isBoolean: Bool { ["boolean", "bool"].contains(field["type"].string) }
-    private var isStructured: Bool { ["array", "list", "object", "dict"].contains(field["type"].string) }
-    var body: some View {
-        Form {
-            Section { Label(profileTitle, systemImage: "person.crop.circle").font(.subheadline).foregroundStyle(.secondary) }
-            Section {
-                if isBoolean {
-                    Toggle(friendly(key), isOn: $enabled)
-                } else if key == "approvals.mode", !options.isEmpty {
-                    ForEach(options, id: \.self) { option in
-                        Button { text = option } label: {
-                            HStack(alignment: .top, spacing: 12) {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text(configurationOption(option, key: key)).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
-                                    if let effect = approvalEffect(option) { Text(effect).font(.caption).foregroundStyle(.secondary) }
+                        Spacer(minLength: 0)
+                        if visibleProfiles.count > 1 {
+                            AppMenu {
+                                ForEach(visibleProfiles) { agent in
+                                    AppMenuButton(agent.title, selected: agent.name == profile) { profile = agent.name }
                                 }
-                                Spacer(minLength: 0)
-                                Image(systemName: text == option ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(text == option ? AppTheme.accent : .secondary).font(.title3)
-                            }.padding(.vertical, 7).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
-                        }.buttonStyle(.plain).accessibilityAddTraits(text == option ? .isSelected : [])
-                            .accessibilityIdentifier("approval-mode-" + option)
+                            } label: {
+                                Image(systemName: "arrow.left.arrow.right.circle").font(.title2).foregroundStyle(AppTheme.accent)
+                                    .frame(width: 44, height: 44)
+                            }.accessibilityLabel("Changer d’agent").accessibilityIdentifier("settings-switch-agent")
+                        }
+                    }.padding(.vertical, 6)
+                    if profile != app.profile, let agent {
+                        Button { open(agent) } label: { Label("Discuter avec \(agent.title)", systemImage: "bubble.left.and.bubble.right") }
+                            .disabled(app.opening || app.sending || app.voiceActive || (!app.demo && app.state != .connected))
                     }
-                    if !text.isEmpty && !options.contains(text) { Text("Valeur actuelle : \(text)").font(.caption).foregroundStyle(.secondary) }
-                } else if !options.isEmpty {
-                    Picker("Valeur", selection: $text) {
-                        if !options.contains(text) { Text(text.isEmpty ? "Non défini" : text).tag(text) }
-                        ForEach(options, id: \.self) { Text(configurationOption($0, key: key)).tag($0) }
+                    if agent != nil {
+                        NavigationLink { AgentIdentityView(app: app, name: profile, removed: { dismiss() }) } label: {
+                            Label("Nom, épinglage et visibilité", systemImage: "person.text.rectangle")
+                        }.accessibilityIdentifier("settings-identity")
                     }
-                } else if ["integer", "int", "number", "float"].contains(field["type"].string) {
-                    TextField(key == "approvals.timeout" ? "Secondes" : "Valeur", text: $text).keyboardType(.numbersAndPunctuation)
-                } else {
-                    TextEditor(text: $text).font(isStructured ? .body.monospaced() : .body).frame(minHeight: 140)
-                        .textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .accessibilityLabel(isStructured ? "Valeur JSON" : "Valeur")
+                } footer: { Text("Ces réglages appartiennent à cet agent et sont enregistrés sur son serveur Hermes.").font(.footnote) }
+            }
+            SettingsFeedback(store: store, placeholders: !search.isEmpty)
+            if !search.isEmpty {
+                if store.loaded { SettingsSearchResults(store: store, query: search) }
+            } else {
+                Section("Essentiel") {
+                    ForEach(AgentSettingsPage.essential) { pageLink($0) }
                 }
-            } footer: {
-                VStack(alignment: .leading, spacing: 8) {
-                    if key == "approvals.timeout" { Text("Après ce délai sans réponse, Hermes refuse l’action en attente.") }
-                    if ["approvals.cron_mode", "approvals.single_query_mode", "approvals.unattended_mode"].contains(key) {
-                        Text("Pour les commandes sensibles exécutées sans personne pour répondre : « deny » les refuse, « approve » les autorise automatiquement.")
+                Section("Connexions") {
+                    ForEach(AgentSettingsPage.connections) { pageLink($0) }
+                }
+                Section("Avancé") {
+                    ForEach(advancedSections) { section in
+                        NavigationLink { SettingsSectionView(store: store, section: section) } label: {
+                            SettingsLinkLabel(title: section.title, detail: section.summary, symbol: section.symbol)
+                        }.accessibilityIdentifier("settings-section-" + section.id)
                     }
-                    if key == "approvals.deny" { Text("Les commandes correspondant à ces règles sont refusées, même en mode sans demande d’accord.") }
-                    if key == "command_allowlist" { Text("Ces règles autorisent les commandes correspondantes sans nouvelle demande. Les interdictions restent prioritaires.") }
-                    if isStructured { Text("Ce réglage utilise le format JSON de Hermes.") }
-                    if !field["description"].string.isEmpty { Text(field["description"].string) }
+                    NavigationLink { OtherSettingsView(store: store) } label: {
+                        SettingsLinkLabel(title: "Autres réglages", detail: "Tout ce que Hermes expose d’autre", symbol: "ellipsis.circle")
+                    }.accessibilityIdentifier("settings-other")
                 }
             }
-            ToolFeedback(tools: tools)
-            Button("Enregistrer") {
-                if key.hasPrefix("approvals.") || key == "command_allowlist" { confirm = true }
-                else { Task { await save() } }
-            }.disabled(tools.busy || tools.app.demo)
-        }.modernList().navigationTitle(friendly(key)).navigationBarTitleDisplayMode(.inline)
-            .task { text = original.isNull ? field["default"].displayText : original.displayText; enabled = original.isNull ? field["default"].bool : original.bool }
-            .confirmationDialog("Appliquer ce réglage à \(profileTitle) ?", isPresented: $confirm, titleVisibility: .visible) {
-                Button("Appliquer") { Task { await save() } }
-            } message: { Text("Ce choix sera enregistré sur Hermes et pourra modifier les demandes d’autorisation des prochaines actions.") }
+        }.modernList().navigationTitle(store.title).navigationBarTitleDisplayMode(.inline)
+            .task { await store.load(); await store.loadModelOptions() }
+            .refreshable { await store.load(); await store.loadModelOptions() }
     }
-    private func save() async {
-        await tools.perform {
-            let value: JSONValue
-            switch field["type"].string {
-            case "boolean", "bool": value = .bool(enabled)
-            case "integer", "int", "number", "float":
-                guard let number = Double(text), number.isFinite else { throw RPCFailure("Entrez un nombre valide.") }; value = .number(number)
-            case "array", "list", "object", "dict":
-                guard let parsed = try? JSONValue.decode(Data(text.utf8)) else { throw RPCFailure("Ce réglage avancé attend une liste ou un objet JSON valide.") }
-                let expectsArray = ["array", "list"].contains(field["type"].string)
-                if expectsArray { guard case .array = parsed else { throw RPCFailure("Entrez une liste JSON, entre crochets.") } }
-                else { guard case .object = parsed else { throw RPCFailure("Entrez un objet JSON, entre accolades.") } }
-                value = parsed
-            default: value = .string(text)
-            }
-            _ = try await tools.request("/api/config", method: "PUT", body: ["config": JSONValue.patch(key, value: value)])
-            saved(value); dismiss()
-        }
+
+    private func pageLink(_ page: AgentSettingsPage) -> some View {
+        NavigationLink { AgentSettingsPageView(store: store, page: page) } label: {
+            SettingsLinkLabel(title: page.title, detail: page == .model ? currentModel : page.detail, symbol: page.symbol)
+        }.accessibilityLabel(page.title).accessibilityIdentifier("settings-page-" + page.rawValue)
+    }
+
+    private var currentModel: String {
+        let model = store.modelOptions["model"].string.isEmpty ? store.value("model").string : store.modelOptions["model"].string
+        return model.isEmpty ? AgentSettingsPage.model.detail : model
+    }
+
+    private func open(_ agent: AgentProfile) {
+        if let returnToChat { returnToChat() }
+        Task { await app.openBot(agent) }
     }
 }
 
+/// One page of an agent's settings, given the store its root (or the host below) loaded.
+struct AgentSettingsPageView: View {
+    let store: AgentConfigStore
+    let page: AgentSettingsPage
+    var body: some View {
+        switch page {
+        case .model: catalogSection("model")
+        case .voice: catalogSection("voice")
+        case .permissions: ApprovalsSettingsView(store: store)
+        case .personality: AgentPersonalityView(store: store)
+        case .skills: SkillsView(app: store.app, profile: store.profile)
+        case .tools: CapabilityView(app: store.app, profile: store.profile)
+        case .credentials: CredentialsSettingsView(app: store.app, profile: store.profile)
+        case .providers: ProvidersSettingsView(app: store.app, profile: store.profile)
+        case .messaging: MessagingSettingsView(app: store.app, profile: store.profile)
+        case .plugins: PluginsSettingsView(app: store.app, profile: store.profile)
+        }
+    }
+    @ViewBuilder private func catalogSection(_ id: String) -> some View {
+        if let section = SettingsCatalog.sections.first(where: { $0.id == id }) { SettingsSectionView(store: store, section: section) }
+    }
+}
+
+/// A settings page opened straight from the menu search, with its own store.
+struct AgentSettingsPageHost: View {
+    let page: AgentSettingsPage
+    @State private var store: AgentConfigStore
+    init(app: AppModel, profile: String, page: AgentSettingsPage) {
+        self.page = page
+        _store = State(initialValue: AgentConfigStore(app: app, profile: profile))
+    }
+    var body: some View {
+        AgentSettingsPageView(store: store, page: page)
+            .task { if !store.loaded { await store.load(); await store.loadModelOptions() } }
+    }
+}
+
+/// « Mémoire et personnalité » — role and SOUL.md (`profiles.configure`), memory files and memory settings.
+struct AgentPersonalityView: View {
+    let store: AgentConfigStore
+    @State private var detail = ""
+    @State private var soul = ""
+    @State private var loaded = false
+    @State private var busy = false
+    @State private var saved = false
+    @State private var error: String?
+    private var app: AppModel { store.app }
+    private var name: String { store.profile }
+
+    var body: some View {
+        List {
+            Section {
+                TextField("Son rôle, en quelques mots", text: $detail, axis: .vertical).lineLimit(2...4).disabled(!loaded)
+            } header: { Text("Description") } footer: { Text("Sert aussi à Hermes pour répartir le travail entre vos agents.").font(.footnote) }
+            Section {
+                TextEditor(text: $soul).frame(minHeight: 160).disabled(!loaded)
+            } header: { Text("Personnalité · SOUL.md") } footer: { Text("Sa façon de penser, son ton et ses instructions permanentes.").font(.footnote) }
+            if let error { Section { Text(error).foregroundStyle(AppTheme.accent) } }
+            if saved { Section { Label("Enregistré", systemImage: "checkmark.circle").foregroundStyle(.green) } }
+            Section("Mémoire") {
+                NavigationLink { AgentMemoryFilesView(app: app, profile: name) } label: {
+                    SettingsLinkLabel(title: "Fichiers de mémoire", detail: "Ce qu’il retient et ce qu’il sait de vous", symbol: "doc.text")
+                }
+                ForEach(SettingsCatalog.sections.first { $0.id == "memory" }?.pages ?? []) { page in
+                    NavigationLink { SettingsDestination(store: store, pageID: page.id) } label: {
+                        SettingsLinkLabel(title: page.title, detail: page.summary, symbol: page.symbol)
+                    }.accessibilityIdentifier("settings-page-" + page.id)
+                }
+            }
+        }.modernList().navigationTitle("Mémoire et personnalité").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                AppToolbarItem(placement: .confirmationAction) {
+                    Button(busy ? "En cours…" : "Enregistrer") { Task { await save() } }.disabled(busy || !loaded || app.demo)
+                }
+            }
+            .task { await load() }
+    }
+
+    private func load() async {
+        guard !loaded else { return }
+        detail = app.profiles.first { $0.name == name }?.detail ?? ""
+        if app.demo { soul = "Tu es un assistant attentif et précis."; loaded = true; return }
+        do { soul = try await app.describeBot(name)["soul"].string; loaded = true }
+        catch { self.error = error.localizedDescription }
+    }
+
+    private func save() async {
+        busy = true; error = nil; saved = false
+        defer { busy = false }
+        do { try await app.editBot(name: name, description: detail, soul: soul); saved = true }
+        catch { self.error = error.localizedDescription }
+    }
+}
+
+/// « Outils et MCP » — toolsets (`/api/tools/toolsets`) and MCP servers (`/api/mcp/servers`) of one agent.
 struct CapabilityView: View {
-    @State private var tools: NativeToolSession
+    @State private var toolsets: NativeToolSession
+    @State private var servers: NativeToolSession
+    @State private var mcp = false
     @State private var search = ""
     @State private var adding = false
     @State private var deleting: JSONValue?
-    let mcp: Bool
-    init(app: AppModel, mcp: Bool) { _tools = State(initialValue: NativeToolSession(app)); self.mcp = mcp }
+    init(app: AppModel, profile: String? = nil) {
+        _toolsets = State(initialValue: NativeToolSession(app, profile: profile))
+        _servers = State(initialValue: NativeToolSession(app, profile: profile))
+    }
+    private var tools: NativeToolSession { mcp ? servers : toolsets }
     private var path: String { mcp ? "/api/mcp/servers" : "/api/tools/toolsets" }
-    private var rows: [JSONValue] { (mcp ? tools.data["servers"].array : tools.data.array).filter { search.isEmpty || "\($0["name"].string) \($0["description"].string)".localizedCaseInsensitiveContains(search) } }
+    private var rows: [JSONValue] { (mcp ? servers.data["servers"].array : toolsets.data.array).filter { search.isEmpty || "\($0["name"].string) \($0["description"].string)".localizedCaseInsensitiveContains(search) } }
     var body: some View {
         List {
-            Section { Text("Les changements s’appliquent aux prochaines sessions de cet agent.").font(.caption).foregroundStyle(.secondary) }
+            AppSearchSection(text: $search, prompt: "Rechercher")
+            Section {
+                AppSegmented(title: "Afficher", selection: $mcp, options: [(value: false, label: "Outils"), (value: true, label: "Connexions MCP")], identifier: "capabilities-filter")
+                Text("Les changements s’appliquent aux prochaines sessions de cet agent.").font(.caption).foregroundStyle(.secondary)
+            }
             ToolFeedback(tools: tools)
             ForEach(rows, id: \.["name"].string) { row in
                 VStack(alignment: .leading, spacing: 8) {
-                    Toggle(isOn: Binding(get: { row["enabled"] != false }, set: { value in Task { await tools.perform {
-                        let encoded = row["name"].string.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? ""
-                        _ = try await tools.request(path + "/" + encoded + (mcp ? "/enabled" : ""), method: "PUT", body: ["enabled": .bool(value)])
-                        await tools.load(path)
-                    } } })) { Text(row["label"].string.isEmpty ? row["name"].string : row["label"].string) }
+                    Toggle(isOn: Binding(get: { row["enabled"] != false }, set: { value in
+                        let tools = tools, path = path, mcp = mcp
+                        Task { await tools.perform {
+                            let encoded = row["name"].string.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? ""
+                            _ = try await tools.request(path + "/" + encoded + (mcp ? "/enabled" : ""), method: "PUT", body: ["enabled": .bool(value)])
+                            await tools.load(path)
+                        } }
+                    })) { Text(row["label"].string.isEmpty ? row["name"].string : row["label"].string) }
                     if !row["description"].string.isEmpty { Text(row["description"].string).font(.caption).foregroundStyle(.secondary) }
                     if mcp { Button("Retirer", role: .destructive) { deleting = row }.font(.caption) }
                 }.padding(.vertical, 5).disabled(tools.busy || tools.app.demo)
             }
-        }.modernList().navigationTitle(mcp ? "Connexions MCP" : "Outils")
-            .searchable(text: $search).task { await tools.load(path) }.refreshable { await tools.load(path) }
-            .toolbar { if mcp { Button("Ajouter", systemImage: "plus") { adding = true }.disabled(tools.app.demo) } }
-            .sheet(isPresented: $adding) { MCPForm(tools: tools) { Task { await tools.load(path) } } }
-            .confirmationDialog("Retirer cette connexion MCP ?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
+        }.modernList().navigationTitle("Outils et MCP").navigationBarTitleDisplayMode(.inline)
+            .task(id: mcp) { await tools.load(path) }.refreshable { await tools.load(path) }
+            .toolbar { if mcp { AppToolbarItem(placement: .primaryAction) { Button("Ajouter", systemImage: "plus") { adding = true }.disabled(tools.app.demo) } } }
+            .sheet(isPresented: $adding) { MCPForm(tools: servers) { Task { await servers.load("/api/mcp/servers") } } }
+            .appConfirm("Retirer cette connexion MCP ?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
                 Button("Retirer", role: .destructive) {
                     guard let row = deleting else { return }; deleting = nil
-                    Task { await tools.perform {
-                        _ = try await tools.request(path + "/" + (row["name"].string.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? ""), method: "DELETE")
-                        await tools.load(path)
+                    Task { await servers.perform {
+                        _ = try await servers.request("/api/mcp/servers/" + (row["name"].string.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? ""), method: "DELETE")
+                        await servers.load("/api/mcp/servers")
                     } }
                 }
             }
@@ -347,16 +337,16 @@ private struct MCPForm: View {
                 Text("Ajoutez un serveur MCP HTTP accessible depuis votre agent.").font(.caption).foregroundStyle(.secondary)
             }.modernList().navigationTitle("Ajouter une connexion").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                    AppToolbarItem(placement: .cancellationAction) {
+                        AppCloseButton { dismiss() }
                             .accessibilityLabel("Fermer").accessibilityIdentifier("close-mcp-form")
                     }
-                    ToolbarItem(placement: .confirmationAction) { Button("Ajouter") { Task { await tools.perform {
+                    AppToolbarItem(placement: .confirmationAction) { Button("Ajouter") { Task { await tools.perform {
                         guard let address = URL(string: url), ["https", "http"].contains(address.scheme ?? ""), address.host != nil else { throw RPCFailure("Entrez une URL HTTP ou HTTPS valide.") }
                         _ = try await tools.request("/api/mcp/servers", method: "POST", body: ["name": .string(name), "url": .string(url)])
                         saved(); dismiss()
                     } } }.disabled(name.isEmpty || url.isEmpty || tools.busy) }
                 }
-        }
+        }.presentationBackground(AppTheme.background)
     }
 }

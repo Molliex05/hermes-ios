@@ -62,6 +62,15 @@ public struct ChatMessage: Identifiable, Codable, Equatable, Sendable {
     public init(id: String = UUID().uuidString, role: String, text: String, delivery: Delivery = .confirmed, streaming: Bool = false) {
         self.id = id; self.role = role; self.text = text; self.delivery = delivery; self.streaming = streaming
     }
+    // Cached display data: a field added or dropped by a later build must never discard the chat.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        role = try c.decodeIfPresent(String.self, forKey: .role) ?? "assistant"
+        text = try c.decodeIfPresent(String.self, forKey: .text) ?? ""
+        delivery = (try? c.decodeIfPresent(Delivery.self, forKey: .delivery)) ?? .confirmed
+        streaming = try c.decodeIfPresent(Bool.self, forKey: .streaming) ?? false
+    }
 }
 
 public struct ChatSnapshot: Codable, Sendable {
@@ -75,6 +84,16 @@ public struct ChatSnapshot: Codable, Sendable {
     public init(storedID: String, runtimeID: String = "", profile: String, title: String, messages: [ChatMessage] = [], lastSequence: Int = 0, epoch: String? = nil) {
         self.storedID = storedID; self.runtimeID = runtimeID; self.profile = profile; self.title = title
         self.messages = messages; self.lastSequence = lastSequence; self.epoch = epoch
+    }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        storedID = try c.decode(String.self, forKey: .storedID)
+        runtimeID = try c.decodeIfPresent(String.self, forKey: .runtimeID) ?? ""
+        profile = try c.decodeIfPresent(String.self, forKey: .profile) ?? "default"
+        title = try c.decodeIfPresent(String.self, forKey: .title) ?? "Conversation"
+        messages = (try? c.decodeIfPresent([ChatMessage].self, forKey: .messages)) ?? []
+        lastSequence = try c.decodeIfPresent(Int.self, forKey: .lastSequence) ?? 0
+        epoch = try c.decodeIfPresent(String.self, forKey: .epoch)
     }
 }
 

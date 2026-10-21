@@ -1,17 +1,58 @@
 import Foundation
+import Network
 import Observation
+import UserNotifications
+import WidgetKit
 
 struct CachedWorkspace: Codable, Sendable {
     var profiles: [AgentProfile] = []
     var sessions: [Conversation] = []
     var historyIndex: ConversationIndex?
+    /// Loaded chats only. Each chat lives in its own file (`LocalCache.chatKey`), written when it changes.
     var chats: [String: ChatSnapshot] = [:]
+    /// Every cached chat key with its last use; the oldest beyond `chatLimit` are pruned.
+    var chatIndex: [String: Date] = [:]
     var drafts: [String: String] = [:]
     var selected: String?
     var attachments: [String: [DraftAttachment]]?
     var imageCleanup: [String: [String]]?
     var activity: ConversationActivity?
     var botConversations: [String: Conversation]?
+    /// True when an older single-file cache carried its chats inline: they are rewritten as chat files.
+    var migratedChats = false
+    static let chatLimit = 30
+
+    private enum CodingKeys: String, CodingKey {
+        case profiles, sessions, historyIndex, chats, chatIndex, drafts, selected, attachments, imageCleanup, activity, botConversations
+    }
+    init() {}
+    // Display cache: a field that no longer decodes costs that field, never the whole workspace.
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        profiles = (try? c.decodeIfPresent([AgentProfile].self, forKey: .profiles)) ?? []
+        sessions = (try? c.decodeIfPresent([Conversation].self, forKey: .sessions)) ?? []
+        historyIndex = try? c.decodeIfPresent(ConversationIndex.self, forKey: .historyIndex)
+        chats = (try? c.decodeIfPresent([String: ChatSnapshot].self, forKey: .chats)) ?? [:]
+        chatIndex = (try? c.decodeIfPresent([String: Date].self, forKey: .chatIndex)) ?? [:]
+        drafts = (try? c.decodeIfPresent([String: String].self, forKey: .drafts)) ?? [:]
+        selected = try? c.decodeIfPresent(String.self, forKey: .selected)
+        attachments = try? c.decodeIfPresent([String: [DraftAttachment]].self, forKey: .attachments)
+        imageCleanup = try? c.decodeIfPresent([String: [String]].self, forKey: .imageCleanup)
+        activity = try? c.decodeIfPresent(ConversationActivity.self, forKey: .activity)
+        botConversations = try? c.decodeIfPresent([String: Conversation].self, forKey: .botConversations)
+        if !chats.isEmpty {
+            migratedChats = true
+            for key in chats.keys where chatIndex[key] == nil { chatIndex[key] = .distantPast }
+        }
+    }
+    func encode(to encoder: any Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(profiles, forKey: .profiles); try c.encode(sessions, forKey: .sessions)
+        try c.encodeIfPresent(historyIndex, forKey: .historyIndex); try c.encode(chatIndex, forKey: .chatIndex)
+        try c.encode(drafts, forKey: .drafts); try c.encodeIfPresent(selected, forKey: .selected)
+        try c.encodeIfPresent(attachments, forKey: .attachments); try c.encodeIfPresent(imageCleanup, forKey: .imageCleanup)
+        try c.encodeIfPresent(activity, forKey: .activity); try c.encodeIfPresent(botConversations, forKey: .botConversations)
+    }
 }
 
 @MainActor @Observable
@@ -19,7 +60,12 @@ final class AppModel {
     enum ConnectionState { case offline, connecting, connected, signInRequired }
     var connections: [SavedConnection] = []
     var activeConnection: SavedConnection?
-    var state: ConnectionState = .offline
+    var state: ConnectionState = .offline {
+        didSet {
+            if state == .connected, oldValue != .connected { presence.reset() }
+            refreshPresence()
+        }
+    }
     var profiles: [AgentProfile] = []
     var botConversations: [String: Conversation] = [:]
     var sessions: [Conversation] = []
@@ -29,12 +75,32 @@ final class AppModel {
     var profile = "default" {
         didSet { if !demo, oldValue != profile { sessions = historyIndex[profile]; routines = [] } }
     }
-    var selected: ChatSnapshot?
-    var transcript = Transcript()
+    var selected: ChatSnapshot? {
+        didSet {
+            guard oldValue?.storedID != selected?.storedID || oldValue?.profile != selected?.profile else { return }
+            refreshPresence()
+        }
+    }
+    var transcript = Transcript() {
+        // No `oldValue`: copying the transcript on every streamed token would be costly.
+        didSet {
+            let running = transcript.running
+            if running != lastTurnRunning { lastTurnRunning = running; turnRunningChanged(running) }
+        }
+    }
+    @ObservationIgnored private var lastTurnRunning = false
     var draft = ""
     var attachmentDrafts: [String: [DraftAttachment]] = [:]
     var attachments: [DraftAttachment] { attachmentDrafts[draftKey] ?? [] }
-    var voiceActive = false
+    /// A voice call keeps running like a phone call: screen locked or app in the background,
+    /// the socket and audio stay up (UIBackgroundModes `audio`) until the call ends.
+    var voiceActive = false {
+        didSet {
+            if oldValue && !voiceActive && !foreground && !sending { suspendConnection() }
+            refreshPresence()
+            if voiceActive != oldValue { voiceActive ? startCallActivity() : LiveActivities.shared.endCall() }
+        }
+    }
     var importingAttachments = false
     @ObservationIgnored private var imageCleanup: [String: [String]] = [:]
     var navigationRevision = UUID()
@@ -52,19 +118,50 @@ final class AppModel {
     var sending = false
     var demo = false
     var hasBooted = false
+    /// True until the saved connections are read: no onboarding flash on a cold start.
+    var booting = true
     var notificationRoutingReady = false
     var hasBotProtocol = false
     var draftKey: String { selected.map { key($0.profile, $0.storedID) } ?? "draft-\(profile)" }
     var agent: AgentProfile? { profiles.first { $0.name == (selected?.profile ?? profile) } }
     var canSend: Bool { (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty) && !importingAttachments && !voiceActive && (state == .connected || demo) && !opening && !sending && !transcript.running && (selected == nil || !(selected?.runtimeID.isEmpty ?? true) || demo) }
 
-    @ObservationIgnored var toolCache: [String: JSONValue] = [:]
+    /// Push channel for spoken replies, fed straight from the socket (before UI batching).
+    /// Only events of the selected runtime are delivered; the voice session owns the subscription.
+    enum SpeechEvent: Sendable {
+        case delta(runtime: String, text: String)
+        /// The turn ended: `text` is Hermes' final answer, `status` its native completion status.
+        case complete(runtime: String, text: String, status: String)
+    }
+    @ObservationIgnored var speechSink: ((SpeechEvent) -> Void)?
+
+    /// Display warm-start only (each tool reloads from Hermes); bounded so it can't grow per screen visited.
+    @ObservationIgnored var toolCache: [String: JSONValue] = [:] {
+        didSet { if toolCache.count > 60 { toolCache = [:] } }
+    }
     @ObservationIgnored private let cache = LocalCache()
+    @ObservationIgnored private var dirtyChats = Set<String>()
+    @ObservationIgnored private var chatFingerprints: [String: Int] = [:]
+    @ObservationIgnored private var saveAgain = false
+    @ObservationIgnored private var heldOverflow = false
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
+    @ObservationIgnored private var pathSignature: String?
+    @ObservationIgnored private var reconnectWaiting = false
+    /// Methods whose contract has no `profile` param: the dispatcher rejects unknown keys (4000).
+    private static let profilelessMethods: Set<String> = [
+        "browser.controller.detach", "browser.controller.heartbeat", "browser.controller.register", "browser.controller.result",
+        "client.capabilities", "diagnostics.share_nous", "gateway.capabilities", "image.generate", "learning.delete",
+        "learning.detail", "learning.edit", "learning.frames", "model.disconnect", "model.save_key",
+        "onboarding.ensure_setup_profile", "onboarding.ensure_setup_session", "onboarding.mark_seen",
+        "onboarding.record_failed_start", "onboarding.reset_setup_profile", "onboarding.state", "paste.collapse", "ping",
+        "plugins.list", "reload.env", "reload.mcp", "tools.list", "tools.show", "toolsets.list"
+    ]
     @ObservationIgnored private var http: HermesHTTP?
     @ObservationIgnored private var socket: HermesSocket?
     @ObservationIgnored private var workspace = CachedWorkspace()
     @ObservationIgnored private var reconnectTask: Task<Void, Never>?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private var suspendTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var streamTask: Task<Void, Never>?
     @ObservationIgnored private var held = ReplayBuffer()
@@ -74,16 +171,124 @@ final class AppModel {
     @ObservationIgnored private var hydratedSelection: UUID?
     @ObservationIgnored private var connectionGeneration = UUID()
     @ObservationIgnored private var foreground = true
+    @ObservationIgnored private lazy var presence = PresenceBeacon(client: { [weak self] in self?.http },
+                                                                    installationID: { PushNotifications.shared.installationID })
+    // MARK: Live Activities
+
+    private func startCallActivity() {
+        guard !demo else { return }
+        LiveActivities.shared.endReply(quiet: true)
+        LiveActivities.shared.startCall(title: agent?.title ?? "Hermès", profile: selected?.profile ?? profile, phase: "listening", muted: false)
+    }
+
+    /// A reply in progress gets a Lock Screen/Dynamic Island activity only when the user leaves the app: while the app
+    /// is in front it would be noise, and starting an activity costs a call on the main thread plus two requests.
+    /// ActivityKit only starts one while the app is still in front, so this runs when the scene goes inactive.
+    func appBecameInactive() {
+        guard !demo, transcript.running, !voiceActive, state == .connected else { return }
+        LiveActivities.shared.register = { [weak self] token, id, started in await self?.registerActivity(token: token, id: id, started: started) }
+        LiveActivities.shared.unregister = { [weak self] id in await self?.unregisterActivity(id: id) }
+        LiveActivities.shared.startReply(title: agent?.title ?? "Hermès", profile: selected?.profile ?? profile)
+    }
+
+    private func turnRunningChanged(_ running: Bool) {
+        guard !demo else { return }
+        if !running {
+            LiveActivities.shared.finishReply(foreground: foreground)
+            if foreground, !voiceActive, transcript.failure == nil { Haptics.done() }
+        }
+    }
+
+    private func registerActivity(token: String, id: String, started: Double) async {
+        guard !demo, let http, let connection = activeConnection, let selected, PushNotifications.shared.enabled.contains(connection.id) else { return }
+        let body: JSONValue = .object(["installation_id": .string(PushNotifications.shared.installationID), "connection_id": .string(connection.id.uuidString),
+                                       "profile": .string(selected.profile), "session_id": .string(selected.storedID), "activity_id": .string(id),
+                                       "token": .string(token), "environment": .string(PushNotifications.apnsEnvironment), "kind": .string("reply"),
+                                       "started_at": .number(started)])
+        _ = try? await http.request("/api/plugins/hermes-ios-push/activities", method: "PUT", body: body)
+    }
+
+    private func unregisterActivity(id: String) async {
+        guard !demo, let http else { return }
+        _ = try? await http.request("/api/plugins/hermes-ios-push/activities/\(PushNotifications.shared.installationID)/\(id)", method: "DELETE")
+    }
+
+    /// Set by `hermesios://voice` (widget); the chat opens the voice sheet, also after a cold launch.
+    var pendingVoiceLaunch = false
+    @ObservationIgnored private var widgetRefreshedAt = Date.distantPast
+    @ObservationIgnored private var widgetUnavailable = false
+
+    /// `hermesios://voice` opens a call; any other widget link just opens the app.
+    func handle(url: URL) {
+        guard url.scheme == "hermesios" else { return }
+        if url.host == "voice" { pendingVoiceLaunch = true }
+    }
+
+    /// Saves the Noriven snapshot for the widgets and asks WidgetKit to redraw. Best effort and quiet:
+    /// a server without the plugin (404) or without access is remembered until the next connection.
+    func refreshWidgets(retryUnavailable: Bool = false) async {
+        if retryUnavailable { widgetUnavailable = false }      // a new connection retries a plugin installed meanwhile
+        guard !demo, !widgetUnavailable, let http, Date.now.timeIntervalSince(widgetRefreshedAt) > 15 * 60 else { return }
+        widgetRefreshedAt = .now
+        if await WidgetRefresh.run(using: http) == .unavailable { widgetUnavailable = true }
+    }
+
+    /// The connection is wanted while the app is visible or a voice call is running.
+    private var connectionWanted: Bool { foreground || voiceActive }
 
     func boot() async {
         guard !hasBooted else { return }
         hasBooted = true
-        defer { notificationRoutingReady = true }
+        defer { notificationRoutingReady = true; booting = false }
+        PushNotifications.shared.suppressesPresentation = { [weak self] envelope in self?.suppressesBanner(for: envelope) ?? false }
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--demo") { loadDemo(); return }
         #endif
+        startPathMonitor()
+        LiveActivities.shared.endOrphans()
+        ActivityActions.handler = { [weak self] action in
+            switch action {
+            case .toggleMute: VoiceCallRemote.current?.toggleMicrophone()
+            case .endCall: VoiceCallRemote.current?.pause()
+            case .stopReply: Task { [weak self] in await self?.interrupt() }
+            }
+        }
         connections = await cache.read([SavedConnection].self, key: "connections") ?? []
+        booting = false
         if let first = connections.first { await activate(first) }
+    }
+
+    /// Wi-Fi/cellular switches and returning coverage reconnect at once instead of waiting
+    /// for the heartbeat (up to ~60 s) or the exponential backoff.
+    private func startPathMonitor() {
+        guard pathMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            let usable = path.status == .satisfied
+            let signature = path.availableInterfaces.map { "\($0.type)-\($0.name)" }.joined(separator: ",")
+            Task { @MainActor [weak self] in self?.networkChanged(usable: usable, signature: signature) }
+        }
+        monitor.start(queue: DispatchQueue(label: "org.hermesios.path", qos: .utility))
+        pathMonitor = monitor
+    }
+
+    private func networkChanged(usable: Bool, signature: String) {
+        let previous = pathSignature
+        pathSignature = usable ? signature : nil
+        guard usable, connectionWanted, !demo, http != nil, state != .signInRequired else { return }
+        if state == .connected {
+            // Same network, or a change while a send awaits its receipt: leave the channel alone.
+            guard let previous, previous != signature, !sending, let socket else { return }
+            Task { [weak self] in
+                guard await !socket.probe(), let self, self.socket === socket else { return }
+                socket.close(); self.disconnected(RPCFailure("Le réseau a changé.", code: -1))
+            }
+        } else if (previous == nil || previous != signature) && (reconnectTask == nil || reconnectWaiting) {
+            // A usable path appeared: retry now rather than sleeping out the backoff.
+            reconnectTask?.cancel(); reconnectTask = nil; reconnectWaiting = false
+            socket?.close()
+            startReconnect()
+        }
     }
 
     func openNotification(_ target: NotificationTarget) async {
@@ -95,7 +300,7 @@ final class AppModel {
                 PushNotifications.shared.opened(target)
                 return
             }
-            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
         }
         guard !Task.isCancelled, PushNotifications.shared.pendingTarget == target else { return }
         guard let connection = connections.first(where: { $0.id == target.connectionID }) else {
@@ -143,17 +348,18 @@ final class AppModel {
         reconnectTask?.cancel(); reconnectTask = nil
         refreshTask?.cancel(); streamTask?.cancel()
         socket?.close(); http?.invalidate()
+        toolCache = [:]; dirtyChats = []; chatFingerprints = [:]
         connectionGeneration = UUID(); selectionGeneration = UUID()
         let generation = connectionGeneration
         activeConnection = connection; demo = false; state = .connecting; routines = []
-        connections.removeAll { $0.id == connection.id }
-        connections.insert(connection, at: 0)
-        try? await cache.save(connections, key: "connections")
+        let ordered = [connection] + connections.filter { $0.id != connection.id }
+        if ordered != connections { connections = ordered; try? await cache.save(connections, key: "connections") }
         guard generation == connectionGeneration else { return }
         opening = false; sending = false; buffering = false; held = ReplayBuffer(); streamEvents = []
         let restored = await cache.read(CachedWorkspace.self, key: connection.id.uuidString) ?? CachedWorkspace()
         guard generation == connectionGeneration else { return }
         workspace = restored
+        if restored.migratedChats { dirtyChats = Set(restored.chats.keys) }
         conversationActivity = restored.activity ?? ConversationActivity()
         chatError = nil; toast = nil
         attachmentDrafts = restored.attachments ?? [:]
@@ -161,7 +367,9 @@ final class AppModel {
         profiles = workspace.profiles
         botConversations = workspace.botConversations ?? [:]
         historyIndex = workspace.historyIndex ?? ConversationIndex(legacy: workspace.sessions)
-        selected = workspace.selected.flatMap { workspace.chats[$0] }
+        let restoredChat = await loadChat(workspace.selected)
+        guard generation == connectionGeneration else { return }
+        selected = restoredChat
         profile = selected?.profile ?? profiles.first?.name ?? "default"
         sessions = historyIndex[profile]
         transcript = Transcript(messages: selected?.messages ?? [], lastSequence: selected?.lastSequence ?? 0)
@@ -172,11 +380,11 @@ final class AppModel {
     }
 
     private func startReconnect() {
-        guard foreground, !demo, http != nil, reconnectTask == nil else { return }
+        guard connectionWanted, !demo, http != nil, reconnectTask == nil else { return }
         let generation = connectionGeneration
         reconnectTask = Task { [weak self] in
             var attempt = 0
-            while let self, !Task.isCancelled, generation == self.connectionGeneration, self.foreground {
+            while let self, !Task.isCancelled, generation == self.connectionGeneration, self.connectionWanted {
                 self.state = .connecting
                 do {
                     guard let http = self.http else { return }
@@ -228,6 +436,8 @@ final class AppModel {
                     }
                     attempt += 1
                     if attempt >= 2 { self.state = .offline }
+                    self.reconnectWaiting = true
+                    defer { self.reconnectWaiting = false }
                     do { try await Task.sleep(for: .seconds(min(pow(2, Double(attempt - 1)), 20) + Double.random(in: 0...0.4))) }
                     catch { return }
                 }
@@ -247,14 +457,26 @@ final class AppModel {
 
     func setForeground(_ active: Bool) async {
         foreground = active
+        refreshPresence()
         if active {
+            clearDeliveredForSelected()
             if state != .connected, !sending { startReconnect() }
+            suspendTask?.cancel(); suspendTask = nil
+            LiveActivities.shared.endReply(quiet: true)
         } else {
             let lease = BackgroundLease(name: "Save Hermès conversation")
             defer { lease.end() }
-            // Keep the channel until an in-flight submission is acknowledged.
-            if !sending { suspendConnection() }
             await persistNow()
+            // Keep the channel until an in-flight submission is acknowledged, and for a voice call. Otherwise a short
+            // grace period: leaving the app for a few seconds must not cost a full reconnect on return.
+            if !sending && !voiceActive {
+                let hold = BackgroundLease(name: "Hermès socket grace")
+                suspendTask = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(20))
+                    if let self, !Task.isCancelled, !self.foreground, !self.sending, !self.voiceActive { self.suspendConnection() }
+                    hold.end()
+                }
+            }
         }
     }
 
@@ -331,10 +553,11 @@ final class AppModel {
         guard !sending, !voiceActive else { return }
         if demo { openDemoBot(bot); return }
         guard !opening, let socket else { return }
+        let cached = await loadChat(bot.canonicalID.map { key(bot.name, $0) })
+        guard !opening, !sending, !voiceActive else { return }
         saveCurrent()
         opening = true
         let generation = UUID(); selectionGeneration = generation
-        let cached = bot.canonicalID.flatMap { workspace.chats[key(bot.name, $0)] }
         selected = cached ?? ChatSnapshot(storedID: bot.canonicalID ?? "", profile: bot.name, title: bot.title)
         profile = bot.name
         chatError = nil; conversationActivity.visit(profile: bot.name)
@@ -371,9 +594,10 @@ final class AppModel {
 
     func openConversation(_ conversation: Conversation, title: String? = nil) async {
         guard !sending, !voiceActive else { return }
+        let cached = demo ? workspace.chats[key(conversation.profile, conversation.id)] : await loadChat(key(conversation.profile, conversation.id))
+        guard !sending, !voiceActive else { return }
         saveCurrent()
         let generation = UUID(); selectionGeneration = generation
-        let cached = workspace.chats[key(conversation.profile, conversation.id)]
         selected = cached ?? ChatSnapshot(storedID: conversation.id, profile: conversation.profile, title: title ?? conversation.title)
         if let title { selected?.title = title }
         profile = conversation.profile
@@ -381,7 +605,7 @@ final class AppModel {
         transcript = Transcript(messages: selected?.messages ?? [], lastSequence: selected?.lastSequence ?? 0)
         draft = workspace.drafts[draftKey] ?? ""
         opening = true
-        defer { if generation == selectionGeneration { opening = false; markCurrentConversationRead() } }
+        defer { if generation == selectionGeneration { opening = false; markCurrentConversationRead(); clearDeliveredForSelected() } }
         guard !demo, state == .connected, let selected else { return }
         do { try await attach(selected, generation: generation) }
         catch {
@@ -399,9 +623,11 @@ final class AppModel {
             try Task.checkCancellation()
             guard generation == selectionGeneration, connection == connectionGeneration, self.socket === socket else { throw CancellationError() }
         }
-        buffering = true; held = ReplayBuffer()
+        buffering = true; held = ReplayBuffer(); heldOverflow = false
         defer { if generation == selectionGeneration { buffering = false } }
-        let canReplay = !chat.runtimeID.isEmpty && chat.epoch == socket.epoch && chat.lastSequence > 0 && !transcript.messages.contains(where: { $0.delivery != .confirmed })
+        // The selected chat's transcript carries the authoritative replay watermark.
+        let sequence = transcript.lastSequence
+        let canReplay = !chat.runtimeID.isEmpty && chat.epoch == socket.epoch && sequence > 0 && !transcript.messages.contains(where: { $0.delivery != .confirmed })
         let response = try await socket.call("session.resume", ["close_on_disconnect": false, "profile": .string(chat.profile), "session_id": .string(chat.storedID), "omit_messages": .bool(canReplay)])
         try validate()
         let runtime = response["session_id"].string
@@ -410,13 +636,13 @@ final class AppModel {
         let stored = response["session_key"].string.isEmpty ? response["stored_session_id"].string : response["session_key"].string
         if !stored.isEmpty { selected?.storedID = stored }
         selected?.epoch = socket.epoch
-        let replay = try await socket.call("session.events.since", ["session_id": .string(runtime), "last_seen": .number(Double(canReplay && runtime == chat.runtimeID ? chat.lastSequence : 0))], timeout: 40)
+        let replay = try await socket.call("session.events.since", ["session_id": .string(runtime), "last_seen": .number(Double(canReplay && runtime == chat.runtimeID ? sequence : 0))], timeout: 40)
         try validate()
-        if canReplay && runtime == chat.runtimeID && !replay["truncated"].bool && replay["epoch"].string == socket.epoch {
+        if canReplay && runtime == chat.runtimeID && !replay["truncated"].bool && !heldOverflow && replay["epoch"].string == socket.epoch {
             let events = held.drain(replayed: replay["events"].array, after: transcript.lastSequence, session: runtime)
             for event in events { transcript.apply(event) }
-            if !response["pending_approval"].isNull { transcript.approval = response["pending_approval"] }
-            if !response["pending_clarify"].isNull { transcript.clarification = response["pending_clarify"] }
+            // Queue copy only; a live approval arrives as a server request (syncServerRequests).
+            if !response["pending_approval"].isNull, transcript.approval?["rpc_id"].isNull != false { transcript.approval = response["pending_approval"] }
             if !events.contains(where: { $0["type"].string == "message.complete" }) { transcript.running = response["running"].bool }
         } else {
             let full = response["messages_omitted"].bool ? try await socket.call("session.resume", ["close_on_disconnect": false, "profile": .string(chat.profile), "session_id": .string(chat.storedID)]) : response
@@ -496,12 +722,14 @@ final class AppModel {
     }
 
     /// A spoken turn never consumes the user's typed draft or its attachments.
-    func sendVoice(_ text: String) async throws -> String {
+    /// Chained voice turns pass `voiceTurn` (Hermes' fast `auxiliary.voice_chat` route);
+    /// `interrupted` marks a turn that follows a barge-in over the previous reply.
+    func sendVoice(_ text: String, liveContext: String? = nil, voiceTurn: Bool = false, interrupted: Bool = false) async throws -> String {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw RPCFailure("Aucune parole détectée.") }
-        return try await submit(text, consumeDraft: false)
+        return try await submit(text, consumeDraft: false, liveContext: liveContext, voiceTurn: voiceTurn, interrupted: interrupted)
     }
 
-    private func submit(_ input: String, consumeDraft: Bool) async throws -> String {
+    private func submit(_ input: String, consumeDraft: Bool, liveContext: String? = nil, voiceTurn: Bool = false, interrupted: Bool = false) async throws -> String {
         guard !sending, !opening, !transcript.running, state == .connected, let socket else { throw RPCFailure("Attendez que Hermes soit prêt avant de parler ou d’envoyer un message.") }
         let originalDraftKey = draftKey
         let generation = selectionGeneration
@@ -511,7 +739,7 @@ final class AppModel {
         if text.isEmpty { text = pending.allSatisfy(\.isImage) ? "Que vois-tu dans ces images ?" : "Examine ces fichiers." }
         sending = true
         let lease = BackgroundLease(name: "Send message to Hermès") { [weak self] in
-            guard let self, connection == self.connectionGeneration, !self.foreground else { return }
+            guard let self, connection == self.connectionGeneration, !self.connectionWanted else { return }
             // Expiration is a transport interruption, never an automatic resend/agent stop.
             self.suspendConnection()
         }
@@ -519,7 +747,7 @@ final class AppModel {
             lease.end()
             if connection == connectionGeneration {
                 sending = false
-                if !foreground { suspendConnection() }
+                if !connectionWanted { suspendConnection() }
                 else if state != .connected { startReconnect() }
             }
         }
@@ -578,7 +806,10 @@ final class AppModel {
                 if item.runtimeID != runtime || item.remotePath == nil {
                     let data = try await cache.attachment(item.id)
                     try validate()
-                    let result = try await socket.call("file.attach", ["session_id": .string(runtime), "name": .string(item.name), "data_url": .string("data:\(item.mimeType);base64,\(data.base64EncodedString())")], timeout: 90)
+                    let mime = item.mimeType
+                    let dataURL = await Task.detached(priority: .userInitiated) { "data:\(mime);base64,\(data.base64EncodedString())" }.value
+                    try validate()
+                    let result = try await socket.call("file.attach", ["session_id": .string(runtime), "name": .string(item.name), "data_url": .string(dataURL)], timeout: 90)
                     try validate()
                     guard result["attached"].bool, !result["path"].string.isEmpty else { throw RPCFailure("Hermes n’a pas accepté le fichier.") }
                     item.remotePath = result["path"].string; item.remoteReference = result["ref_text"].string; item.runtimeID = runtime
@@ -614,7 +845,7 @@ final class AppModel {
         await persistNow()
         do {
             try validate()
-            _ = try await socket.call("prompt.submit", ["session_id": .string(runtime), "text": .string(prompt)])
+            _ = try await socket.call("prompt.submit", VoiceLiveProtocol.prompt(runtime: runtime, text: prompt, context: liveContext, voiceTurn: voiceTurn, interrupted: interrupted))
             imageCleanup[runtime] = nil
             try validate()
             if let i = transcript.messages.firstIndex(where: { $0.id == optimistic.id }) { transcript.messages[i].delivery = .confirmed }
@@ -646,7 +877,7 @@ final class AppModel {
             await persistNow()
             if self.socket === socket {
                 suspendConnection()
-                if foreground { startReconnect() }
+                if connectionWanted { startReconnect() }
             }
             throw CancellationError()
 
@@ -688,8 +919,12 @@ final class AppModel {
         do {
             if !request["rpc_id"].isNull { try await socket.answerRequest(request["rpc_id"].string, result: ["choice": .string(choice)]) }
             else {
+                // Queue entry restored from `session.resume`: `resolved` is the number of entries settled.
                 let result = try await socket.call("approval.respond", ["session_id": .string(selected.runtimeID), "request_id": request["request_id"], "choice": .string(choice)])
-                guard result["resolved"].bool else { throw RPCFailure("Cette demande n’est plus active.") }
+                guard result["resolved"].int > 0 || result["resolved"].bool else {
+                    if generation == selectionGeneration, transcript.approval?["request_id"] == request["request_id"] { transcript.approval = nil }
+                    throw RPCFailure("Cette demande n’est plus active.")
+                }
                 if generation == selectionGeneration, transcript.approval?["request_id"] == request["request_id"] { transcript.approval = nil }
             }
             return true
@@ -700,30 +935,32 @@ final class AppModel {
         guard let socket else { return false }
         let generation = selectionGeneration
         do {
-            if !request["rpc_id"].isNull {
-                if let qid { try await socket.lockAnswer(request["rpc_id"].string, question: qid, answer: text) }
-                else { try await socket.answerRequest(request["rpc_id"].string, result: ["answer": .string(text)]) }
-            } else {
-                var params: [String: JSONValue] = ["request_id": request["request_id"], "answer": .string(text)]
-                if let qid { params["question_id"] = .string(qid) }
-                let result = try await socket.call("clarify.respond", .object(params))
-                if result["status"].string == "expired" || result["resolved"] == false { throw RPCFailure("Cette question a expiré.") }
-                if qid == nil, generation == selectionGeneration, transcript.clarification?["request_id"] == request["request_id"] { transcript.clarification = nil }
+            // Clarify is a server→client request only; every answer is locked per question id.
+            guard !request["rpc_id"].isNull, let question = qid ?? request["questions"].array.first?["qid"].string, !question.isEmpty else {
+                if generation == selectionGeneration { transcript.clarification = nil }
+                throw RPCFailure("Cette question a expiré.")
             }
+            try await socket.lockAnswer(request["rpc_id"].string, question: question, answer: text)
             return true
         } catch { notice = error.localizedDescription; return false }
+    }
+
+    /// Cancels a clarification the way the desktop does: an empty answer set settles the request.
+    @discardableResult func dismissClarification(request: JSONValue) async -> Bool {
+        guard let socket, !request["rpc_id"].isNull else { transcript.clarification = nil; return false }
+        do { try await socket.answerRequest(request["rpc_id"].string, result: ["answers": [:]]); return true }
+        catch { notice = error.localizedDescription; return false }
     }
 
     @discardableResult func answerCredential(_ value: String, request: JSONValue) async -> Bool {
         guard let socket else { return false }
         let generation = selectionGeneration
         do {
-            if !request["rpc_id"].isNull { try await socket.answerRequest(request["rpc_id"].string, result: ["value": .string(value)]) }
-            else {
-                let sudo = request["event_type"].string == "sudo.request"
-                _ = try await socket.call(sudo ? "sudo.respond" : "secret.respond", .object(["request_id": request["request_id"], sudo ? "password" : "value": .string(value)]))
-                if generation == selectionGeneration, transcript.credential?["request_id"] == request["request_id"] { transcript.credential = nil }
+            guard !request["rpc_id"].isNull else {
+                if generation == selectionGeneration { transcript.credential = nil }
+                throw RPCFailure("Cette demande a expiré.")
             }
+            try await socket.answerRequest(request["rpc_id"].string, result: ["value": .string(value)])
             return true
         } catch { notice = error.localizedDescription; return false }
     }
@@ -800,6 +1037,7 @@ final class AppModel {
         guard generation == connectionGeneration else { throw CancellationError() }
         if profile == name { await changeProfile("default") }
         workspace.chats = workspace.chats.filter { $0.value.profile != name }
+        for chatKey in workspace.chatIndex.keys where chatKey.hasPrefix(name + ":") { workspace.chatIndex[chatKey] = nil }
         conversationActivity.remove(profile: name)
         botConversations[name] = nil
         historyIndex.update([], profile: name)
@@ -819,9 +1057,14 @@ final class AppModel {
     }
 
     func speechSocket(connectionID: UUID?, profile expected: String) async throws -> URLSessionWebSocketTask {
+        try await audioSocket("/api/audio/speak-stream", connectionID: connectionID, profile: expected)
+    }
+
+    /// An authenticated, profile-scoped audio WebSocket (`speak-stream`, `transcribe-stream`).
+    func audioSocket(_ path: String, connectionID: UUID?, profile expected: String) async throws -> URLSessionWebSocketTask {
         guard activeConnection?.id == connectionID, profile == expected, let http, state == .connected else { throw RPCFailure("Reconnectez cet agent pour parler.") }
         let generation = connectionGeneration
-        let request = try await http.socketRequest(path: "/api/audio/speak-stream", query: [URLQueryItem(name: "profile", value: expected)])
+        let request = try await http.socketRequest(path: path, query: [URLQueryItem(name: "profile", value: expected)])
         guard generation == connectionGeneration, profile == expected else { throw CancellationError() }
         return http.socketSession.webSocketTask(with: request)
     }
@@ -829,15 +1072,16 @@ final class AppModel {
     /// Each tool stays pinned to the server and profile that opened it.
     func toolRequest(_ path: String, method: String = "GET", body: JSONValue? = nil,
                      query: [URLQueryItem] = [], connectionID: UUID?, profile expectedProfile: String,
-                     rpc: Bool = false) async throws -> JSONValue {
-        guard activeConnection?.id == connectionID, profile == expectedProfile,
+                     rpc: Bool = false, pinned: Bool = false) async throws -> JSONValue {
+        guard activeConnection?.id == connectionID, pinned || profile == expectedProfile,
               let http, state == .connected else { throw RPCFailure("Reconnectez cet agent pour accéder à ses outils.") }
         let generation = connectionGeneration
         let result: JSONValue
         if rpc {
             guard let socket else { throw RPCFailure("Hermes est déconnecté.") }
-            var params = body?.object ?? [:]; params["profile"] = .string(expectedProfile)
-            result = try await socket.call(path, .object(params), timeout: ["cli.exec", "skills.manage", "session.compress"].contains(path) ? 240 : 40)
+            var params = body?.object ?? [:]
+            if !Self.profilelessMethods.contains(path) { params["profile"] = .string(expectedProfile) }
+            result = try await socket.call(path, .object(params), timeout: ["cli.exec", "skills.manage", "session.compress", "profiles.create", "plugins.manage"].contains(path) ? 240 : 40)
         } else {
             var scopedBody = body?.object
             if scopedBody != nil { scopedBody?["profile"] = .string(expectedProfile) }
@@ -845,12 +1089,14 @@ final class AppModel {
                 query: query + [URLQueryItem(name: "profile", value: expectedProfile)])
         }
         try Task.checkCancellation()
-        guard generation == connectionGeneration, profile == expectedProfile else { throw CancellationError() }
+        guard generation == connectionGeneration, pinned || profile == expectedProfile else { throw CancellationError() }
         try checkResult(result)
         return result
     }
 
     private func checkResult(_ result: JSONValue) throws {
+        // A native confirmation prompt (expensive model, consent) is an answer for the screen, not a failure.
+        if result["confirm_required"].bool || result["consent_required"].bool { return }
         if result["ok"] == .bool(false) || result["success"] == .bool(false) || (!result["error"].isNull && result["error"] != false && result["error"] != "") {
             let reason = [result["error"].string, result["error"]["message"].string, result["reason"].string, result["message"].string].first { !$0.isEmpty }
             throw RPCFailure(reason ?? "Hermes n’a pas pu effectuer cette action.")
@@ -859,19 +1105,43 @@ final class AppModel {
 
     private func receive(_ event: JSONValue) {
         let type = event["type"].string
-        if type.hasSuffix(".changed") { scheduleListRefresh() }
-        if buffering { held.held.append(event); return }
-        guard event["session_id"].string == selected?.runtimeID else { return }
+        switch type {
+        case "sessions.changed": scheduleListRefresh()
+        case "cron.changed": if !routines.isEmpty { Task { [weak self] in await self?.loadRoutines() } }
+        default: break
+        }
+        if buffering {
+            // Bounded: an overflow forces a full snapshot recovery instead of an exact replay.
+            if held.held.count < 5_000 { held.held.append(event) } else { heldOverflow = true }
+            return
+        }
+        if type == "session.reclaimed", let chat = selected, !chat.runtimeID.isEmpty,
+           [event["session_id"].string, event["payload"]["session_id"].string].contains(chat.runtimeID) {
+            reattachSelected(); return
+        }
+        guard let runtime = selected?.runtimeID, event["session_id"].string == runtime else { return }
+        if let speechSink {
+            switch type {
+            case "message.delta" where !event["payload"]["text"].string.isEmpty:
+                speechSink(.delta(runtime: runtime, text: event["payload"]["text"].string))
+            case "message.complete":
+                speechSink(.complete(runtime: runtime, text: event["payload"]["text"].string, status: event["payload"]["status"].string))
+            case "error":
+                speechSink(.complete(runtime: runtime, text: "", status: "error"))
+            default: break
+            }
+        }
         if type == "message.delta", !event["payload"]["text"].string.isEmpty,
            transcript.messages.last?.streaming != true {
             // First visible token bypasses batching; later fragments stay capped at ~30 fps.
-            flushStream(); transcript.apply(event); scheduleSave(); return
+            flushStream(); transcript.apply(event); scheduleSave(delay: Self.streamingSaveDelay); return
         }
         if type == "message.delta" || type == "reasoning.delta" || type == "thinking.delta" {
             streamEvents.append(event)
             if streamTask == nil {
                 streamTask = Task { [weak self] in
-                    try? await Task.sleep(for: .milliseconds(33))
+                    // Cancelled only by flushStream, which has already delivered the batch.
+                    do { try await Task.sleep(for: .milliseconds(33)) } catch { return }
                     self?.flushStream()
                 }
             }
@@ -880,6 +1150,18 @@ final class AppModel {
             if type == "message.complete" {
                 Task { [weak self] in await self?.refreshCompletedHistory(); try? await self?.refreshSessions() }
             }
+        }
+    }
+
+    /// Hermes reclaimed the live runtime (idle reaper, owner restart): bind the chat again.
+    private func reattachSelected() {
+        guard let chat = selected, state == .connected else { return }
+        selected?.runtimeID = ""; hydratedSelection = nil
+        let generation = selectionGeneration
+        Task { [weak self] in
+            do { try await self?.attach(chat, generation: generation) }
+            catch is CancellationError { }
+            catch { if let self, generation == self.selectionGeneration { self.notice = error.localizedDescription } }
         }
     }
 
@@ -899,8 +1181,10 @@ final class AppModel {
         streamTask?.cancel(); streamTask = nil
         let events = streamEvents; streamEvents.removeAll(keepingCapacity: true)
         for event in events where event["session_id"].string == selected?.runtimeID { transcript.apply(event) }
-        if !events.isEmpty { scheduleSave() }
+        if !events.isEmpty { scheduleSave(delay: Self.streamingSaveDelay) }
     }
+
+    private static let streamingSaveDelay = Duration.seconds(8)
 
     func draftChanged() { workspace.drafts[draftKey] = draft; scheduleSave() }
 
@@ -933,7 +1217,30 @@ final class AppModel {
 
     func setChatVisible(_ visible: Bool) {
         chatVisible = visible
-        if visible { markCurrentConversationRead() }
+        refreshPresence()
+        if visible { markCurrentConversationRead(); clearDeliveredForSelected() }
+    }
+
+    /// An automatic alert is redundant while its conversation is on screen or a voice call is running.
+    private func suppressesBanner(for envelope: NotificationEnvelope) -> Bool {
+        if voiceActive { return true }
+        guard foreground, chatVisible, let connection = activeConnection, let selected, let session = envelope.sessionID else { return false }
+        return envelope.connectionID == connection.id && envelope.profile == selected.profile && session == selected.storedID
+    }
+
+    private func clearDeliveredForSelected() {
+        guard !demo, foreground, chatVisible, let connection = activeConnection, let selected else { return }
+        PushNotifications.shared.clearDelivered(connection: connection.id, profile: selected.profile, session: selected.storedID)
+    }
+
+    /// Presence follows the conversation on screen, or the voice call (which also runs in the background).
+    private func refreshPresence() {
+        var target: PresenceBeacon.Target?
+        if !demo, let connection = activeConnection, let selected, http != nil, state == .connected,
+           PushNotifications.shared.enabled.contains(connection.id), voiceActive || (foreground && chatVisible) {
+            target = .init(connectionID: connection.id, profile: selected.profile, sessionID: selected.storedID)
+        }
+        presence.update(target)
     }
 
     private func markCurrentConversationRead() {
@@ -952,32 +1259,80 @@ final class AppModel {
         workspace.activity = conversationActivity
         workspace.botConversations = botConversations
         workspace.drafts[draftKey] = draft
-        if var chat = selected, !chat.storedID.isEmpty {
-            chat.messages = Array(transcript.messages.suffix(500))
-            chat.lastSequence = transcript.lastSequence
-            workspace.chats[key(chat.profile, chat.storedID)] = chat
-            selected = chat
+        // `selected` is not reassigned here: that would invalidate every view reading it twice a second.
+        if let chat = selected, !chat.storedID.isEmpty {
+            let chatKey = key(chat.profile, chat.storedID)
+            var hasher = Hasher()
+            hasher.combine(transcript.lastSequence); hasher.combine(transcript.messages.count)
+            hasher.combine(chat.runtimeID); hasher.combine(chat.title); hasher.combine(chat.epoch)
+            for message in transcript.messages.suffix(3) { hasher.combine(message.id); hasher.combine(message.text.count); hasher.combine(message.delivery) }
+            let fingerprint = hasher.finalize()
+            if chatFingerprints[chatKey] != fingerprint || workspace.chats[chatKey] == nil {
+                var stored = chat
+                stored.messages = Array(transcript.messages.suffix(500))
+                stored.lastSequence = transcript.lastSequence
+                workspace.chats[chatKey] = stored
+                chatFingerprints[chatKey] = fingerprint
+                dirtyChats.insert(chatKey)
+            }
+            workspace.chatIndex[chatKey] = Date()
         }
         workspace.selected = selected.flatMap { $0.storedID.isEmpty ? nil : key($0.profile, $0.storedID) }
     }
 
-    private func scheduleSave() {
-        guard !demo, saveTask == nil else { return }
+    /// The chat stays in memory once loaded; otherwise it is read from its own cache file.
+    private func loadChat(_ chatKey: String?) async -> ChatSnapshot? {
+        guard let chatKey else { return nil }
+        if let chat = workspace.chats[chatKey] { return chat }
+        guard !demo, let connection = activeConnection, workspace.chatIndex[chatKey] != nil else { return nil }
+        let generation = connectionGeneration
+        let chat = await cache.read(ChatSnapshot.self, key: LocalCache.chatKey(connection: connection.id.uuidString, chat: chatKey))
+        guard generation == connectionGeneration else { return nil }
+        if let chat, workspace.chats[chatKey] == nil { workspace.chats[chatKey] = chat }
+        return workspace.chats[chatKey]
+    }
+
+    /// `delay` is how long changes are gathered before the write. Streamed text uses a long one: the reply is
+    /// recoverable from the server (`events.since`), and rewriting the chat file every second drains the battery.
+    private func scheduleSave(delay: Duration = .milliseconds(700)) {
+        guard !demo else { return }
+        // A change made while a write is in flight gets its own save once that write finishes.
+        if saveTask != nil { saveAgain = true; return }
         let generation = connectionGeneration
         saveTask = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+            do { try await Task.sleep(for: delay) } catch { return }
             guard let self, generation == self.connectionGeneration, !Task.isCancelled else { return }
+            self.saveAgain = false
             await self.persistNow()
-            if generation == self.connectionGeneration { self.saveTask = nil }
+            guard generation == self.connectionGeneration else { return }
+            self.saveTask = nil
+            if self.saveAgain { self.saveAgain = false; self.scheduleSave() }
         }
     }
 
     private func persistNow() async {
         guard !demo, let activeConnection else { return }
+        let connection = activeConnection.id.uuidString
         saveCurrent()
         workspace.profiles = profiles; workspace.sessions = sessions; workspace.historyIndex = historyIndex
-        do { try await cache.save(workspace, key: activeConnection.id.uuidString) }
-        catch { notice = "Le cache local n’a pas pu être enregistré. Votre historique reste chez Hermes." }
+        // Keep the most recently used chats (and always the open one); forget the rest.
+        let current = workspace.selected
+        let pruned = workspace.chatIndex.sorted { $0.value > $1.value }.dropFirst(CachedWorkspace.chatLimit).map(\.key).filter { $0 != current }
+        for chatKey in pruned {
+            workspace.chatIndex[chatKey] = nil; workspace.chats[chatKey] = nil
+            chatFingerprints[chatKey] = nil; dirtyChats.remove(chatKey)
+        }
+        let changed = dirtyChats.compactMap { chatKey in workspace.chats[chatKey].map { (chatKey, $0) } }
+        dirtyChats.removeAll()
+        do {
+            try await cache.save(workspace, key: connection)
+            for (chatKey, chat) in changed { try await cache.save(chat, key: LocalCache.chatKey(connection: connection, chat: chatKey)) }
+            for chatKey in pruned { try? await cache.remove(LocalCache.chatKey(connection: connection, chat: chatKey)) }
+            workspace.migratedChats = false
+        } catch {
+            dirtyChats.formUnion(changed.map(\.0))
+            notice = "Le cache local n’a pas pu être enregistré. Votre historique reste chez Hermes."
+        }
     }
 
     func removeConnection(_ connection: SavedConnection) async {
@@ -998,7 +1353,9 @@ final class AppModel {
             conversationActivity = ConversationActivity(); botConversations = [:]; chatError = nil; toast = nil
         }
         Keychain.delete(connection.id.uuidString)
+        NotificationKeyStore.remove(for: connection.id)
         connections.removeAll { $0.id == connection.id }
+        await cache.removeChats(connection: connection.id.uuidString)
         do { try await cache.remove(connection.id.uuidString); try await cache.remove(connection.id.uuidString + "-groups"); try await cache.save(connections, key: "connections") }
         catch { notice = error.localizedDescription }
     }

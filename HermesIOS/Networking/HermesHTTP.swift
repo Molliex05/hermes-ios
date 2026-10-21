@@ -22,6 +22,7 @@ final class HermesHTTP {
     let socketSession: URLSession
     private let redirects = NoRedirects()
     private var token: String?
+    private var savedCookies: Data?
 
     init(_ connection: SavedConnection) {
         self.connection = connection
@@ -83,11 +84,14 @@ final class HermesHTTP {
 
     func socketRequest(path: String = "/api/ws", query: [URLQueryItem] = []) async throws -> URLRequest {
         let url: URL
-        if let token { url = connection.endpoint.socket(token: token, path: path, query: query) }
-        else {
+        do {
+            // A single-use ticket keeps long-lived credentials out of WebSocket URLs (and proxy logs).
             let response = try await request("/api/auth/ws-ticket", method: "POST", body: [:])
             guard !response["ticket"].string.isEmpty else { throw RPCFailure("Hermes n’a pas fourni de ticket WebSocket.") }
             url = connection.endpoint.socket(ticket: response["ticket"].string, path: path, query: query)
+        } catch let failure as RPCFailure where token != nil && [401, 404, 405].contains(failure.code) {
+            // Loopback/insecure gateways have no ticket route: only they still take `?token=`.
+            url = connection.endpoint.socket(token: token, path: path, query: query)
         }
         var request = URLRequest(url: url)
         request.timeoutInterval = 15
@@ -97,7 +101,12 @@ final class HermesHTTP {
     private func persistCookies() throws {
         guard connection.mode != "token" else { return }
         let cookies = (session.configuration.httpCookieStorage?.cookies ?? []).map(StoredCookie.init)
-        if !cookies.isEmpty { try Keychain.save(JSONEncoder().encode(cookies), key: connection.id.uuidString) }
+        guard !cookies.isEmpty else { return }
+        // Keychain writes are synchronous: only write when the session cookies actually changed.
+        let data = try JSONEncoder().encode(cookies)
+        guard data != savedCookies else { return }
+        try Keychain.save(data, key: connection.id.uuidString)
+        savedCookies = data
     }
 
     func invalidate() { session.invalidateAndCancel(); socketSession.invalidateAndCancel() }

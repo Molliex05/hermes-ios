@@ -23,7 +23,7 @@ struct NotificationsView: View {
                     }.padding(.vertical, 4)
                 }
             } header: { Text("Vos serveurs") } footer: {
-                Text("Les notifications affichent un avis discret, sans le contenu de vos conversations. Leur envoi nécessite l’extension Hermès iOS Push sur chaque serveur.")
+                Text("L’aperçu est chiffré de bout en bout : Apple ne voit qu’un avis générique, et seul cet iPhone le déchiffre. Il exige une adresse HTTPS ou Tailscale ; sinon l’avis reste générique. Leur envoi nécessite l’extension Hermès iOS Push sur chaque serveur.")
             }
             Section {
                 Button("Réessayer la connexion") { Task { await push.configure(connections) } }

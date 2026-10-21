@@ -213,7 +213,7 @@ final class ProtocolTests: XCTestCase {
         XCTAssertTrue(restored.isSecure)
     }
     func testCoalescedUnicodeFrames() throws {
-        let frames = try Wire.frames("{\"method\":\"event\",\"params\":{\"payload\":{\"text\":\"Salut 👋\\nété\"}}}\n{\"id\":\"2\",\"result\":true}\n")
+        let frames = Wire.frames("{\"method\":\"event\",\"params\":{\"payload\":{\"text\":\"Salut 👋\\nété\"}}}\n{\"id\":\"2\",\"result\":true}\n")
         XCTAssertEqual(frames.count, 2)
         XCTAssertEqual(frames[0]["params"]["payload"]["text"].string, "Salut 👋\nété")
         XCTAssertEqual(frames[1]["result"], true)
@@ -396,32 +396,45 @@ extension ProtocolTests {
         XCTAssertEqual(inbox.payload(session: "a", methods: ["clarify"])?["answers"]["one"], "Yes")
     }
 
-    func testRecoveryDoesNotResurrectExpiredControlCards() {
+    func testCancelledApprovalQueueEntryIsCleared() {
         var transcript = Transcript()
-        transcript.recover(["messages": [], "running": true], events: [
-            ["seq": 1, "type": "approval.request", "payload": ["request_id": "old"]],
-            ["seq": 2, "type": "approval.expire", "payload": ["request_id": "old"]],
-            ["seq": 3, "type": "clarify.request", "payload": ["request_id": "question"]],
-            ["seq": 4, "type": "clarify.expire", "payload": ["request_id": "question"]]
-        ], latestSequence: 4)
-        XCTAssertNil(transcript.approval); XCTAssertNil(transcript.clarification)
-        transcript.apply(["seq": 5, "type": "approval.request", "payload": ["request_id": "new"]])
-        transcript.apply(["seq": 6, "type": "approval.expire", "payload": ["request_id": "old"]])
-        XCTAssertEqual(transcript.approval?["request_id"], "new")
+        transcript.hydrate(["messages": [], "running": true, "pending_approval": ["request_id": "old", "choices": ["once", "deny"]]])
+        XCTAssertEqual(transcript.approval?["request_id"], "old")
+        transcript.apply(["seq": 1, "type": "approval.cancelled", "payload": ["request_ids": ["other"]]])
+        XCTAssertEqual(transcript.approval?["request_id"], "old")
+        transcript.apply(["seq": 2, "type": "approval.cancelled", "payload": ["request_ids": ["old"]]])
+        XCTAssertNil(transcript.approval)
+    }
+
+    func testHistoryRefreshKeepsLiveStateAndCards() {
+        var transcript = Transcript()
+        transcript.hydrate(["messages": [], "running": true, "pending_approval": ["request_id": "a"]])
+        // `session.history` carries only messages: it must not mark the turn idle or drop the card.
+        transcript.hydrate(["count": 1, "messages": [["role": "user", "text": "Bonjour"]]])
+        XCTAssertTrue(transcript.running)
+        XCTAssertEqual(transcript.approval?["request_id"], "a")
+        XCTAssertEqual(transcript.messages.map(\.text), ["Bonjour"])
+    }
+
+    func testMalformedFrameIsSkipped() {
+        let frames = Wire.frames("{\"id\":\"1\",\"result\":{\"ok\":true}}\n{broken\n{\"id\":\"2\",\"result\":7}")
+        XCTAssertEqual(frames.map { $0["id"].string }, ["1", "2"])
+        XCTAssertEqual(frames[0]["result"]["ok"], true)
+        XCTAssertEqual(frames[1]["result"], .number(7))
     }
 
     func testCompletionClearsSensitivePrompt() {
         var transcript = Transcript()
-        transcript.apply(["type": "secret.request", "payload": ["request_id": "s"]])
+        transcript.credential = ["rpc_id": "srq-1", "rpc_method": "secret", "env_var": "TOKEN"]
         transcript.apply(["type": "message.complete", "payload": ["text": "Finished"]])
         XCTAssertNil(transcript.credential)
     }
-    func testVoiceCursorNeverReplaysOnFinalSnapshot() throws {
+    func testVoiceCursorNeverReplaysOnFinalSnapshot() {
         var cursor = VoiceTextCursor()
-        XCTAssertEqual(try cursor.delta("Bonjour 👋. "), "Bonjour 👋. ")
-        XCTAssertEqual(try cursor.delta("Bonjour 👋. Suite. "), "Suite. ")
-        XCTAssertEqual(try cursor.delta("Bonjour 👋. Suite."), "")
-        XCTAssertThrowsError(try cursor.delta("Une autre réponse."))
+        XCTAssertEqual(cursor.delta("Bonjour 👋. "), "Bonjour 👋. ")
+        XCTAssertEqual(cursor.delta("Bonjour 👋. Suite. "), "Suite. ")
+        XCTAssertEqual(cursor.delta("Bonjour 👋. Suite."), "")
+        XCTAssertEqual(cursor.delta("Une autre réponse."), "", "A rewritten final is never replayed nor fatal")
     }
     func testVoiceSocketKeepsProfileAndProxyPrefix() throws {
         let endpoint = try Endpoint("https://agent.ts.net/hermes")

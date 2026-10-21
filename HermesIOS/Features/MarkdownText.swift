@@ -2,10 +2,15 @@ import SwiftUI
 
 struct MarkdownText: View {
     let text: String
+    /// Stable identity of the text (a message id). With it, parses are cached and a streamed
+    /// message only re-parses its last block; without it the text is parsed on each render.
+    var cacheKey: String? = nil
     var body: some View {
+        let blocks = cacheKey.map { MarkdownCache.shared.blocks(id: $0, text: text) } ?? ChatMarkdown.parse(text)
         VStack(alignment: .leading, spacing: 12) {
-            ForEach(Array(ChatMarkdown.parse(text).enumerated()), id: \.offset) { _, block in
-                MarkdownBlockView(block: block).equatable()
+            // Unchanged blocks compare equal and skip their body (inline Markdown parsing, layout).
+            ForEach(blocks.indices, id: \.self) { index in
+                MarkdownBlockView(block: blocks[index]).equatable()
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
@@ -84,13 +89,27 @@ private struct CodeBlock: View {
             }.foregroundStyle(.secondary).padding(.horizontal, 14)
             Divider()
             ScrollView(.horizontal) {
-                Text(verbatim: text).font(.system(.callout, design: .monospaced))
-                    .textSelection(.enabled).fixedSize(horizontal: true, vertical: false).padding(14)
+                // Fixed groups of lines: while a fence streams, only the last group changes and is
+                // measured again; earlier groups keep their cached layout.
+                let chunks = ChatMarkdown.codeChunks(text)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(chunks.indices, id: \.self) { index in
+                        CodeChunk(text: chunks[index]).equatable()
+                    }
+                }.textSelection(.enabled).padding(14)
             }
         }.background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(AppTheme.line))
             .onChange(of: text) { _, _ in copied = false }
             .task(id: copied) { if copied { try? await Task.sleep(for: .seconds(2)); if !Task.isCancelled { copied = false } } }
             .accessibilityIdentifier("markdown-code")
+    }
+}
+
+private struct CodeChunk: View, Equatable {
+    let text: String
+    var body: some View {
+        Text(verbatim: text).font(.system(.callout, design: .monospaced))
+            .fixedSize(horizontal: true, vertical: false)
     }
 }

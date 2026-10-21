@@ -53,10 +53,7 @@ struct OnboardingView: View {
                             VStack(alignment: .leading, spacing: 18) {
                                 field("Nom de la connexion", text: $name, placeholder: "Mon Hermes")
                                 field("Adresse Hermes", text: $address, placeholder: "https://hermes.tailnet.ts.net", url: true)
-                                Picker("Authentification", selection: $mode) {
-                                    Text("Identifiants Hermes").tag("basic")
-                                    Text("Jeton existant").tag("token")
-                                }.pickerStyle(.segmented)
+                                AppSegmented(title: "Authentification", selection: $mode, options: [(value: "basic", label: "Identifiants Hermes"), (value: "token", label: "Jeton existant")])
                                 if mode == "basic" {
                                     field("Utilisateur", text: $username, placeholder: "admin")
                                     VStack(alignment: .leading, spacing: 8) {
@@ -88,15 +85,15 @@ struct OnboardingView: View {
                 }.scrollDismissesKeyboard(.interactively).background(AppTheme.background)
             }
             .toolbar {
-                if adding { ToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } }
-                else if step > 0 { ToolbarItem(placement: .topBarLeading) { Button { step = 0 } label: { Image(systemName: "arrow.left") } } }
+                if adding { AppToolbarItem(placement: .cancellationAction) { Button("Fermer") { dismiss() } } }
+                else if step > 0 { AppToolbarItem(placement: .topBarLeading) { Button { step = 0 } label: { Image(systemName: "arrow.left") } } }
             }
             .sheet(isPresented: $showGuide) { ConnectionGuide() }
             .onAppear {
                 if adding { step = 1 }
                 if let existing { name = existing.name; address = existing.endpoint.baseURL.absoluteString; mode = existing.mode }
             }
-        }
+        }.presentationBackground(AppTheme.background)
     }
 
     private var hero: some View {
@@ -157,8 +154,8 @@ struct ConnectionGuide: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }.padding(24)
             }.background(AppTheme.background).navigationTitle("Connexion").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Terminé") { dismiss() } } }
-        }
+                .toolbar { AppToolbarItem(placement: .confirmationAction) { Button("Terminé") { dismiss() } } }
+        }.presentationBackground(AppTheme.background)
     }
     private func instruction(_ n: String, _ title: String, _ detail: String) -> some View {
         HStack(alignment: .top, spacing: 14) {

@@ -10,15 +10,19 @@ struct VoiceNoiseFloor {
     var bufferedSampleCount: Int { samples.count }
 
     mutating func sample(decibels: Double, interval: Double, multiplier: Double) {
-        guard decibels.isFinite, VoiceActivity.validInterval(interval) else { return }
+        guard decibels.isFinite else { return }
+        sample(rms: VoiceActivity.rms(decibels: decibels), duration: interval, multiplier: multiplier)
+    }
+
+    mutating func sample(rms: Double, duration interval: Double, multiplier: Double) {
+        guard rms.isFinite, VoiceActivity.validInterval(interval) else { return }
         elapsed += interval
         let now = elapsed
-        let rms = VoiceActivity.rms(decibels: decibels)
         let factor = VoicePreferences.bounded(multiplier, default: 3, range: 1...10)
         samples.removeAll { now - $0.time > 3 }
-        // Bootstrap at utterance end, before playback. Once calibrated, reject
-        // probable speech instead of teaching its level to the ambient floor.
-        guard !calibrated || rms < max(400, value * factor) else { return }
+        // Once calibrated, reject probable speech instead of teaching its level to the
+        // ambient floor. Bootstrap never learns a level that would hide normal speech.
+        guard rms < (calibrated ? max(400, value * factor) : 1_500) else { return }
         samples.append((rms, elapsed))
         if samples.count > 60 { samples.removeFirst(samples.count - 60) }
         guard calibrated || elapsed + 0.000_001 >= 0.45 else { return }

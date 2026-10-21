@@ -8,10 +8,25 @@ struct VoicePreferences {
     let bargeIn: Bool
     let bargeInGraceSeconds: Double
     let bargeInThresholdMultiplier: Double
+    let maxRecordingSeconds: Double
+    /// `stt.streaming`: the server may offer `/api/audio/transcribe-stream` for this profile.
+    let liveTranscription: Bool
 
-    init(_ voice: JSONValue) {
+    /// Hermes' 3 s default suits push-to-talk; a hands-free phone loop ends the turn after
+    /// 0.55 s (speech resumed while transcribing is merged, so a pause loses nothing).
+    /// Any value the user configured explicitly wins, like the desktop's silence window.
+    var endpointSilence: Double { silenceDuration == 3 ? 0.55 : silenceDuration }
+
+    init(_ voice: JSONValue, stt: JSONValue = .null) {
         threshold = Self.number(voice["silence_threshold"], default: 200, range: 1...32767)
         silenceDuration = Self.number(voice["silence_duration"], default: 3, range: 0.3...30)
+        maxRecordingSeconds = Self.number(voice["max_recording_seconds"], default: 120, range: 5...300)
+        switch stt["streaming"] {
+        case .bool(let value): liveTranscription = value
+        case .number(let value): liveTranscription = value != 0
+        case .string(let value): liveTranscription = ["1", "true", "yes", "on"].contains(value.trimmingCharacters(in: .whitespaces).lowercased())
+        default: liveTranscription = false
+        }
         switch voice["stop_phrases"] {
         case .string(let value): stopPhrases = Self.phrases([.string(value)])
         case .array(let values): stopPhrases = Self.phrases(values)
@@ -54,7 +69,7 @@ struct NativeVoiceAPI {
     func preferences() async throws -> VoicePreferences {
         let response = try await request("config.get", ["key": "full"], true)
         // Keep only non-secret voice preferences; don't retain the full config.
-        return VoicePreferences(response["config"]["voice"])
+        return VoicePreferences(response["config"]["voice"], stt: response["config"]["stt"])
     }
 
     func transcribe(_ recording: Data, mimeType: String) async throws -> String {

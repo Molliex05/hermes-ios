@@ -9,20 +9,28 @@ final class HermesIOSUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.tabBars.firstMatch.exists)
-        XCTAssertGreaterThan(app.buttons["app-navigation"].frame.minY, app.windows.firstMatch.frame.maxY - 130)
+        XCTAssertLessThan(app.buttons["app-navigation"].frame.maxY, app.textFields["chat-composer"].frame.minY)
         XCTAssertLessThan(app.windows.firstMatch.frame.maxY - app.textFields["chat-composer"].frame.maxY, 130)
-        XCTAssertGreaterThan(app.buttons["switch-profile"].frame.minY, app.textFields["chat-composer"].frame.maxY)
+        XCTAssertLessThan(app.buttons["switch-profile"].frame.maxY, app.textFields["chat-composer"].frame.minY)
         assertControlsInsideComposer(in: app)
         capture("01-chat")
         openNavigation("Agents", in: app)
-        XCTAssertTrue(app.staticTexts["Vos agents."].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.navigationBars["Gérer mes agents"].waitForExistence(timeout: 3))
         capture("02-agents")
-        app.buttons.containing(.staticText, identifier: "Atlas").firstMatch.tap()
+        returnToChat(app)
+        // « Mes agents » in the menu opens a conversation in one tap.
+        app.buttons["app-navigation"].tap()
+        let atlas = app.buttons["menu-agent-research"]
+        XCTAssertTrue(app.buttons["menu-current-agent"].waitForExistence(timeout: 3))
+        for _ in 0..<5 where !(atlas.exists && atlas.isHittable) { app.swipeUp() }
+        XCTAssertTrue(atlas.isHittable)
+        capture("02b-menu-agents")
+        atlas.tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Bonjour, je suis Atlas")).firstMatch.waitForExistence(timeout: 3))
         openNavigation("Réglages", in: app)
-        XCTAssertTrue(app.buttons["close-settings"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.navigationBars["Connexions"].waitForExistence(timeout: 3))
         capture("03-settings")
-        app.buttons["close-settings"].tap()
+        returnToChat(app)
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 3))
     }
 
@@ -34,14 +42,18 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
         composer.tap(); composer.typeText("Mon brouillon écrit")
         app.buttons["message-actions"].tap()
-        XCTAssertTrue(app.buttons["Ajouter une photo"].waitForExistence(timeout: 3))
-        XCTAssertTrue(app.buttons["Ajouter un fichier"].exists)
+        // The « + » opens a short sheet of three tiles, never a menu behind the keyboard.
+        XCTAssertTrue(app.buttons["attach-photos"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["attach-files"].exists)
+        XCTAssertTrue(app.buttons["attach-camera"].exists)
         XCTAssertFalse(app.buttons["Mentionner un agent"].exists)
         XCTAssertFalse(app.buttons["Dicter un message"].exists)
         capture("18-attachments-menu")
         app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: 30, dy: 150)).tap()
-        let menuClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["Ajouter une photo"])
+        let menuClosed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.buttons["attach-photos"])
         XCTAssertEqual(XCTWaiter.wait(for: [menuClosed], timeout: 5), .completed)
+        XCTAssertTrue(app.buttons["send-message"].exists)
+        composer.tap(); composer.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: "Mon brouillon écrit".count))
         let voice = app.buttons["voice-mode"]
         let voiceReady = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: voice)
         XCTAssertEqual(XCTWaiter.wait(for: [voiceReady], timeout: 5), .completed)
@@ -77,13 +89,13 @@ final class HermesIOSUITests: XCTestCase {
         assertControlsInsideComposer(in: app)
         capture("13-composer-keyboard")
         openNavigation("Agents", in: app)
-        XCTAssertTrue(app.buttons["return-to-chat"].waitForExistence(timeout: 3))
-        app.buttons["return-to-chat"].tap()
+        XCTAssertTrue(app.navigationBars["Gérer mes agents"].waitForExistence(timeout: 3))
+        returnToChat(app)
         XCTAssertTrue(composer.waitForExistence(timeout: 3))
         XCTAssertEqual(composer.value as? String, "Mon brouillon reste ici")
         openNavigation("Réglages", in: app)
-        XCTAssertTrue(app.buttons["close-settings"].waitForExistence(timeout: 3))
-        app.buttons["close-settings"].tap()
+        XCTAssertTrue(app.navigationBars["Connexions"].waitForExistence(timeout: 3))
+        returnToChat(app)
         XCTAssertTrue(composer.waitForExistence(timeout: 3))
         XCTAssertEqual(composer.value as? String, "Mon brouillon reste ici")
     }
@@ -135,18 +147,11 @@ final class HermesIOSUITests: XCTestCase {
         let final = app.descendants(matching: .any).matching(identifier: "assistant-message").matching(NSPredicate(format: "label CONTAINS %@", "le fil est retrouvé."))
         XCTAssertTrue(final.firstMatch.waitForExistence(timeout: 45))
         XCTAssertFalse(app.staticTexts["Un détail à ajouter ?"].exists)
-        app.buttons["app-navigation"].tap()
-        let search = app.textFields["spaces-search"]
-        XCTAssertTrue(search.waitForExistence(timeout: 5)); search.tap(); search.typeText("Permissions")
-        app.buttons["space-capabilities"].tap()
-        app.buttons["Permissions"].tap()
+        openNavigation("Permissions", in: app)
         XCTAssertTrue(app.staticTexts["Quand demander mon accord"].waitForExistence(timeout: 20))
         capture("25-native-permissions")
-        app.buttons["return-to-chat"].tap()
+        returnToChat(app)
         app.buttons["voice-mode"].tap()
-        let transcriptToggle = app.buttons["voice-transcript-toggle"]
-        XCTAssertTrue(transcriptToggle.waitForExistence(timeout: 30)); transcriptToggle.tap()
-        XCTAssertTrue(app.staticTexts["Bonjour Hermes, résume mon projet."].waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["Hermes vous répond."].waitForExistence(timeout: 45))
         capture("26-native-voice-stream")
         XCTAssertTrue(app.staticTexts["Je vous écoute."].waitForExistence(timeout: 30))
@@ -244,18 +249,14 @@ final class HermesIOSUITests: XCTestCase {
         app.launch()
         connectFixtureIfNeeded(app, address: "http://127.0.0.1:19139")
         XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
-        app.buttons["app-navigation"].tap()
-        let search = app.textFields["spaces-search"]
-        XCTAssertTrue(search.waitForExistence(timeout: 5))
-        search.tap(); search.typeText("cron")
-        app.buttons["space-routines"].tap()
+        openNavigation("Routines", in: app)
         XCTAssertTrue(app.buttons["routine.add"].waitForExistence(timeout: 10))
         app.buttons["routine.add"].tap()
 
         // The normal form exposes a rhythm and a wall-clock time. Technical
         // syntax stays collapsed until the person explicitly opens Advanced.
         XCTAssertTrue(app.buttons["routine.rhythm"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.datePickers["routine.time"].exists)
+        XCTAssertTrue(app.otherElements["routine.time"].exists)
         XCTAssertTrue(app.staticTexts["Tous les jours à 8 h"].exists)
         XCTAssertFalse(app.descendants(matching: .any).matching(identifier: "routine.rawSchedule").firstMatch.exists)
         capture("33-routine-simple-schedule")
@@ -265,7 +266,7 @@ final class HermesIOSUITests: XCTestCase {
         let prompt = app.descendants(matching: .any).matching(identifier: "routine.prompt").firstMatch
         prompt.tap(); prompt.typeText("Réponds brièvement pour tester le résultat de cette routine.")
         app.swipeUp()
-        let advanced = app.buttons["routine.advanced"]
+        let advanced = app.descendants(matching: .any).matching(identifier: "routine.advanced").firstMatch
         XCTAssertTrue(advanced.waitForExistence(timeout: 5)); advanced.tap()
         let raw = app.descendants(matching: .any).matching(identifier: "routine.rawSchedule").firstMatch
         XCTAssertTrue(raw.waitForExistence(timeout: 3))
@@ -302,11 +303,7 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(answer.firstMatch.waitForExistence(timeout: 20))
         capture("35-routine-opened-conversation")
 
-        app.buttons["app-navigation"].tap()
-        XCTAssertTrue(search.waitForExistence(timeout: 5))
-        search.tap(); search.typeText("Permissions")
-        app.buttons["space-capabilities"].tap()
-        app.buttons["Permissions"].tap()
+        openNavigation("Permissions", in: app)
         let policy = app.buttons["configuration-approvals.mode"]
         XCTAssertTrue(policy.waitForExistence(timeout: 20)); policy.tap()
         let manual = app.buttons["approval-mode-manual"]
@@ -314,13 +311,13 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(manual.label.contains("Me demander"))
         capture("36-permission-choices")
         // Read the native options without changing or saving any permission.
-        app.navigationBars.buttons.element(boundBy: 0).tap()
+        app.navigationBars.buttons["nav-back"].firstMatch.tap()
         let advancedPermissions = app.buttons["configuration-advanced"]
         for _ in 0..<4 where !advancedPermissions.isHittable { app.swipeUp() }
         XCTAssertTrue(advancedPermissions.isHittable); advancedPermissions.tap()
         XCTAssertTrue(app.navigationBars["Réglages avancés"].waitForExistence(timeout: 5))
         capture("37-permissions-advanced")
-        app.buttons["return-to-chat"].tap()
+        returnToChat(app)
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 5))
     }
 
@@ -400,23 +397,22 @@ final class HermesIOSUITests: XCTestCase {
         let outcome = XCTWaiter.wait(for: [enabled], timeout: 10)
         capture("09-native-skill")
         XCTAssertEqual(outcome, .completed)
-        app.buttons["return-to-chat"].tap()
-        openNavigation("Modèles", in: app)
+        returnToChat(app)
+        openNavigation("Modèle", in: app)
+        app.buttons["settings-page-model.main"].tap()
+        app.buttons["settings-change-model"].tap()
         XCTAssertTrue(app.staticTexts["hermes-ios-fixture-mobile"].firstMatch.waitForExistence(timeout: 20))
-        app.buttons["return-to-chat"].tap()
+        returnToChat(app)
         openNavigation("Workspace", in: app)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Mobile ")).firstMatch.waitForExistence(timeout: 15))
-        app.buttons["return-to-chat"].tap()
+        returnToChat(app)
         openNavigation("Kanban", in: app)
         XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Mobile fixture ")).firstMatch.waitForExistence(timeout: 15))
         capture("10-native-kanban")
-        app.buttons["return-to-chat"].tap()
+        returnToChat(app)
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
         composer.tap(); composer.typeText("Brouillon préservé pendant la voix")
         app.buttons["voice-mode"].tap()
-        let transcriptToggle = app.buttons["voice-transcript-toggle"]
-        XCTAssertTrue(transcriptToggle.waitForExistence(timeout: 30)); transcriptToggle.tap()
-        XCTAssertTrue(app.staticTexts["Bonjour Hermes, résume mon projet."].waitForExistence(timeout: 30))
         XCTAssertTrue(app.staticTexts["Hermes vous répond."].waitForExistence(timeout: 45))
         XCTAssertTrue(app.staticTexts["Je vous écoute."].waitForExistence(timeout: 15))
         capture("20-native-voice-loop")
@@ -425,43 +421,77 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertEqual(composer.value as? String, "Brouillon préservé pendant la voix")
     }
 
-    func testSpacesDiscoveryAndTools() throws {
+    func testMenuDiscoveryAndTools() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--demo"]
         app.launch()
         XCTAssertTrue(app.buttons["app-navigation"].waitForExistence(timeout: 10))
         app.buttons["app-navigation"].tap()
-        XCTAssertTrue(app.textFields["spaces-search"].waitForExistence(timeout: 3))
-        capture("07-spaces")
+        let search = app.textFields["app-search-field"]
+        XCTAssertTrue(search.waitForExistence(timeout: 3))
+        XCTAssertTrue(app.buttons["menu-current-agent"].exists)
+        capture("07-menu")
         XCTAssertTrue(app.buttons["space-kanban"].exists)
-        XCTAssertFalse(app.buttons["space-skills"].exists)
-        app.buttons["tools-filter-agent"].tap()
-        XCTAssertTrue(app.buttons["space-skills"].waitForExistence(timeout: 3))
-        XCTAssertFalse(app.buttons["space-kanban"].exists)
-        capture("11-agent-tools")
-        for (query, identifier, title) in [("cron", "routines", "Les routines"), ("skills", "skills", "Skills"), ("kanban", "kanban", "Kanban"), ("workspace", "workspace", "Workspace"), ("modèle", "models", "Modèles"), ("voix", "voice", "Voix")] {
-            let search = app.textFields["spaces-search"]
+        // Agent pages are reached from the agent, not duplicated in the menu.
+        XCTAssertFalse(app.buttons["space-agent-model"].exists)
+        XCTAssertFalse(app.buttons["space-capabilities"].exists)
+        for (query, identifier, title) in [("cron", "routines", "Les routines"), ("skills", "skills", "Compétences"), ("kanban", "kanban", "Kanban"),
+                                           ("workspace", "workspace", "Espace de travail"), ("modèle", "agent-model", "Modèle"), ("voix", "agent-voice", "Voix")] {
             search.tap(); search.typeText(query)
             let button = app.buttons["space-" + identifier]
-            XCTAssertTrue(button.waitForExistence(timeout: 3))
+            XCTAssertTrue(button.waitForExistence(timeout: 5), identifier)
             button.tap()
-            XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 3))
-            if identifier == "voice" {
-                XCTAssertTrue(app.buttons["voice-listen"].exists)
-                XCTAssertEqual(app.buttons["voice-listen"].frame.midY, app.buttons["return-to-chat"].frame.midY, accuracy: 1)
-            }
+            XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 3), title)
             if identifier == "kanban" {
                 XCTAssertTrue(app.buttons["Nouvelle tâche"].exists)
-                XCTAssertLessThanOrEqual(app.buttons["Nouvelle tâche"].frame.maxY, app.buttons["return-to-chat"].frame.maxY)
+                XCTAssertTrue(app.staticTexts["Préparer la prochaine idée"].waitForExistence(timeout: 5))
             }
             capture("08-" + identifier)
-            if identifier == "kanban" { XCTAssertTrue(app.staticTexts["Préparer la prochaine idée"].waitForExistence(timeout: 5)) }
-            app.buttons["back-to-spaces"].tap()
-            XCTAssertTrue(app.textFields["spaces-search"].waitForExistence(timeout: 3))
-            app.buttons["Effacer la recherche"].tap()
+            app.navigationBars[title].buttons["nav-back"].tap()
+            XCTAssertTrue(search.waitForExistence(timeout: 3), "back to menu from " + title)
+            search.tap(); search.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: query.count + 2))
         }
-        app.buttons["return-to-chat"].tap()
+        returnToChat(app)
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 3))
+    }
+
+    func testAgentSettingsAreGroupedAndPushed() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo"]
+        app.launch()
+        XCTAssertTrue(app.buttons["app-navigation"].waitForExistence(timeout: 10))
+        app.buttons["app-navigation"].tap()
+        XCTAssertTrue(app.buttons["menu-current-agent"].waitForExistence(timeout: 3))
+        app.buttons["menu-current-agent"].tap()
+        XCTAssertTrue(app.buttons["settings-page-model"].waitForExistence(timeout: 5))
+        for identifier in ["voice", "permissions", "personality", "skills"] { XCTAssertTrue(app.buttons["settings-page-" + identifier].exists, identifier) }
+        // The search field now sits in the list, so the last pages of the section start below the fold.
+        app.swipeUp()
+        XCTAssertTrue(app.buttons["settings-page-tools"].waitForExistence(timeout: 3), "tools")
+        app.swipeDown()
+        capture("14-agent-settings")
+        app.buttons["settings-page-permissions"].tap()
+        XCTAssertTrue(app.navigationBars["Permissions"].waitForExistence(timeout: 5))
+        // Pushed in the same stack: no second sheet, the back button returns to the agent.
+        app.navigationBars["Permissions"].buttons["nav-back"].tap()
+        XCTAssertTrue(app.buttons["settings-page-model"].waitForExistence(timeout: 3))
+        returnToChat(app)
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 3))
+    }
+
+    func testSkeletonWhileFirstLoading() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-slow"]
+        app.launch()
+        XCTAssertTrue(app.buttons["app-navigation"].waitForExistence(timeout: 10))
+        openNavigation("Skills", in: app)
+        XCTAssertTrue(app.navigationBars["Compétences"].waitForExistence(timeout: 3))
+        // Placeholders speak once, as « Chargement », then give way to the real rows.
+        XCTAssertTrue(app.descendants(matching: .any)["Chargement"].firstMatch.waitForExistence(timeout: 2))
+        capture("15-skeleton-skills")
+        let loaded = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.descendants(matching: .any)["Chargement"].firstMatch)
+        XCTAssertEqual(XCTWaiter.wait(for: [loaded], timeout: 10), .completed)
+        returnToChat(app)
     }
 
     private func openNavigation(_ destination: String, in app: XCUIApplication) {
@@ -470,19 +500,28 @@ final class HermesIOSUITests: XCTestCase {
             XCTAssertTrue(app.buttons["manage-agents"].waitForExistence(timeout: 3))
             app.buttons["manage-agents"].tap(); return
         }
-        if destination == "Conversations" { app.buttons["quick-history"].tap(); return }
         app.buttons["app-navigation"].tap()
-        if destination == "Réglages" {
-            XCTAssertTrue(app.buttons["quick-settings"].waitForExistence(timeout: 3))
-            app.buttons["quick-settings"].tap(); return
-        }
-        let search = app.textFields["spaces-search"]
+        let identifier = ["Réglages": "connections", "Routines": "routines", "Kanban": "kanban", "Workspace": "workspace",
+                          "Skills": "skills", "Modèle": "agent-model", "Permissions": "agent-permissions"][destination] ?? destination.lowercased()
+        let query = ["Réglages": "connexions", "Routines": "cron", "Skills": "compétences", "Workspace": "workspace"][destination] ?? destination
+        let search = app.textFields["app-search-field"]
         XCTAssertTrue(search.waitForExistence(timeout: 3))
-        search.tap(); search.typeText(destination)
-        let identifier = destination == "Réglages" ? "settings" : destination == "Modèles" ? "models" : destination == "Conversations" ? "history" : destination.lowercased()
+        search.tap(); search.typeText(query)
         let button = app.buttons["space-" + identifier]
-        XCTAssertTrue(button.waitForExistence(timeout: 3))
+        XCTAssertTrue(button.waitForExistence(timeout: 5))
         button.tap()
+    }
+
+    /// Closes the chat's sheet from any depth: back to its root, then its close button.
+    private func returnToChat(_ app: XCUIApplication) {
+        let close = app.buttons["return-to-chat"]
+        for _ in 0..<6 where !(close.exists && close.isHittable) {
+            let back = app.navigationBars.buttons["nav-back"].firstMatch
+            guard back.exists else { break }
+            back.tap()
+        }
+        XCTAssertTrue(close.waitForExistence(timeout: 3))
+        close.tap()
     }
 
     func testQuickProfileSwitchKeepsSeparateDrafts() throws {
@@ -548,8 +587,9 @@ final class HermesIOSUITests: XCTestCase {
         app.buttons["app-navigation"].tap()
         XCTAssertTrue(app.buttons[shortcutID].waitForExistence(timeout: 3))
         app.buttons[shortcutID].tap()
-        XCTAssertTrue(app.buttons["back-to-spaces"].waitForExistence(timeout: 3))
-        app.buttons["back-to-spaces"].tap()
+        XCTAssertFalse(app.buttons["edit-tool-favorites"].waitForExistence(timeout: 2))
+        app.navigationBars.buttons["nav-back"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["edit-tool-favorites"].waitForExistence(timeout: 3))
         app.buttons["edit-tool-favorites"].tap()
         XCTAssertTrue(app.buttons[selectedID].waitForExistence(timeout: 3))
         app.buttons[selectedID].tap()
@@ -565,7 +605,7 @@ final class HermesIOSUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.buttons["quick-history"].waitForExistence(timeout: 10))
         app.buttons["quick-history"].tap()
-        let filter = app.segmentedControls["history-filter"]
+        let filter = app.otherElements["history-filter"]
         XCTAssertTrue(filter.waitForExistence(timeout: 3))
         filter.buttons["Non lues"].tap()
         let unread = app.buttons["conversation-demo-default-idea"]
@@ -591,7 +631,7 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(composer.waitForExistence(timeout: 10))
         XCTAssertFalse(app.tabBars.firstMatch.exists)
         assertControlsInsideComposer(in: app)
-        for identifier in ["message-actions", "switch-profile", "quick-history", "app-navigation", "voice-mode"] {
+        for identifier in ["message-actions", "switch-profile", "app-navigation", "voice-mode"] {
             let control = app.buttons[identifier]
             XCTAssertTrue(control.isHittable, "\(identifier) remains reachable at the largest text size")
             XCTAssertGreaterThanOrEqual(control.frame.height, 44, "\(identifier) hit target height")
@@ -612,7 +652,7 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
         XCTAssertEqual(composer.value as? String, "Mon brouillon en grand texte")
         app.buttons["app-navigation"].tap()
-        XCTAssertTrue(app.textFields["spaces-search"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.textFields["app-search-field"].waitForExistence(timeout: 5))
         let closeTools = app.buttons["return-to-chat"]
         XCTAssertTrue(closeTools.isHittable)
         XCTAssertGreaterThanOrEqual(closeTools.frame.width, 44)
@@ -633,6 +673,39 @@ final class HermesIOSUITests: XCTestCase {
         let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name; attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testNativeGPTLiveDelegationAndReopen() throws {
+        guard ProcessInfo.processInfo.environment["HERMES_IOS_INTEGRATION"] == "1" else { throw XCTSkip("Requires isolated GPT-Live fixture on port 19159.") }
+        let app = XCUIApplication()
+        app.launchArguments = ["--integration-test", "--live-transport-fixture"]
+        app.launch()
+        connectFixtureIfNeeded(app, address: "http://127.0.0.1:19159")
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 40))
+        app.buttons["Nouvelle conversation"].tap()
+        let composer = app.textFields["chat-composer"]
+        composer.tap()
+        if let previous = composer.value as? String, previous.contains("Brouillon privé GPT-Live") {
+            composer.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: previous.count))
+        }
+        composer.typeText("Brouillon privé GPT-Live")
+        app.buttons["voice-mode"].tap()
+        XCTAssertTrue(app.staticTexts["Je vous écoute."].waitForExistence(timeout: 40))
+        XCTAssertTrue(app.staticTexts["Hermes vous répond."].waitForExistence(timeout: 30))
+        XCTAssertFalse(app.buttons["voice-transcript-toggle"].exists)
+        XCTAssertFalse(app.otherElements["voice-error"].exists)
+        app.buttons["voice-listen"].tap()
+        XCTAssertTrue(app.staticTexts["Micro coupé"].waitForExistence(timeout: 5))
+        capture("60-gpt-live-stone")
+        app.buttons["return-to-chat"].tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        XCTAssertEqual(composer.value as? String, "Brouillon privé GPT-Live")
+        // The header may reuse the first user message as the conversation title.
+        XCTAssertEqual(app.scrollViews.staticTexts.matching(identifier: "Bonjour Hermes, résume mon projet en français.").count, 1)
+        app.buttons["voice-mode"].tap()
+        XCTAssertTrue(app.buttons["voice-engine"].waitForExistence(timeout: 5))
+        app.buttons["return-to-chat"].tap()
+        XCTAssertTrue(composer.waitForExistence(timeout: 5))
     }
 
     func testNativeHandsFreeVoiceConversation() throws {
@@ -663,10 +736,8 @@ final class HermesIOSUITests: XCTestCase {
         let microphone = app.buttons["voice-listen"]
         microphone.tap()
         XCTAssertTrue(app.staticTexts["Microphone coupé."].waitForExistence(timeout: 5))
-        let toggle = app.buttons["voice-transcript-toggle"]
-        XCTAssertTrue(toggle.exists); toggle.tap()
-        XCTAssertTrue(app.staticTexts["Bonjour Hermes, résume mon projet."].waitForExistence(timeout: 5))
-        capture("44-voice-muted-transcript")
+        XCTAssertFalse(app.buttons["voice-transcript-toggle"].exists)
+        capture("44-voice-muted")
         app.buttons["return-to-chat"].tap()
         XCTAssertTrue(composer.waitForExistence(timeout: 5))
         XCTAssertEqual(composer.value as? String, "Mon brouillon reste privé")
@@ -740,10 +811,13 @@ final class HermesIOSUITests: XCTestCase {
     private func assertControlsInsideComposer(in app: XCUIApplication) {
         let surface = app.otherElements["composer-surface"]
         XCTAssertTrue(surface.exists)
-        for identifier in ["message-actions", "switch-profile", "quick-history", "app-navigation", "voice-mode", "send-message"] {
-            let control = app.buttons[identifier]
-            XCTAssertTrue(control.exists)
-            XCTAssertTrue(surface.frame.contains(control.frame), "\(identifier) belongs inside the composer bubble")
+        // The pill holds the plus, the field and one trailing button (voice while empty, send once there is text);
+        // navigation and agent controls live in the header above it.
+        XCTAssertTrue(app.buttons["message-actions"].exists)
+        XCTAssertTrue(surface.frame.contains(app.buttons["message-actions"].frame), "message-actions belongs inside the composer pill")
+        XCTAssertTrue(app.buttons["voice-mode"].exists || app.buttons["send-message"].exists)
+        for identifier in ["switch-profile", "app-navigation"] {
+            XCTAssertLessThan(app.buttons[identifier].frame.maxY, surface.frame.minY, "\(identifier) belongs in the header")
         }
     }
 }

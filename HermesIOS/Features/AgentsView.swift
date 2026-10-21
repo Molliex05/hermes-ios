@@ -1,13 +1,17 @@
 import SwiftUI
 
+/// The agent switcher of the chat: one tap to talk with another agent, management pushed in the same sheet.
 struct QuickProfilePicker: View {
     let model: AppModel
-    var manage: () -> Void
-    var close: () -> Void
+    @State private var managing = false
+    @State private var detent: PresentationDetent = .medium
+    @AppStorage("hermes.showHiddenAgents") private var showHidden = false
+    @Environment(\.returnToChat) private var returnToChat
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var sections: [(title: String, agents: [AgentProfile])] {
-        let bots = model.visibleBots
+        let bots = showHidden ? model.profiles : model.visibleBots
         let pinned = bots.filter { $0.pinned == true }
         let recent = bots.filter { $0.pinned != true && model.lastVisited(profile: $0.name) != nil }
             .sorted { (model.lastVisited(profile: $0.name) ?? .distantPast) > (model.lastVisited(profile: $1.name) ?? .distantPast) }
@@ -17,40 +21,47 @@ struct QuickProfilePicker: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("Vos agents").font(.system(.title2, design: .serif)).tracking(-0.5)
-                Label(model.activeConnection?.name ?? (model.demo ? "Aperçu" : "Hermes"), systemImage: "server.rack")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 26).padding(.top, 25).padding(.bottom, 16)
+        NavigationStack {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
+                        Label(model.activeConnection?.name ?? (model.demo ? "Aperçu" : "Hermes"), systemImage: "server.rack")
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                            .padding(.horizontal, 14)
                         ForEach(sections, id: \.title) { section in
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: 8) {
                                 Text(section.title).font(.caption.weight(.medium)).foregroundStyle(.secondary).padding(.horizontal, 14)
                                 ForEach(section.agents) { agent in profileRow(agent).id(agent.name) }
                             }
                         }
-                    }.padding(.horizontal, 18)
+                        if sections.isEmpty && !model.demo && model.state != .offline { SkeletonRows(count: 3) }
+                        if !model.demo && model.state != .connected {
+                            Text("Reconnectez Hermes pour changer d’agent.").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 14)
+                        }
+                    }.padding(.horizontal, 18).padding(.bottom, 16)
                 }.onAppear { proxy.scrollTo(model.profile, anchor: .center) }
             }
-            if !model.demo && model.state != .connected {
-                Text("Reconnectez Hermes pour changer d’agent.").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 24)
+            .background(AppTheme.background)
+            .navigationTitle("Vos agents").navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                AppToolbarItem(placement: .topBarTrailing) {
+                    AppCloseButton(label: "Revenir au chat") { close() }.accessibilityIdentifier("return-to-chat")
+                }
+                AppToolbarItem(placement: .bottomBar) {
+                    Button { managing = true } label: {
+                        Label("Gérer les agents", systemImage: "person.crop.circle.badge.gearshape").labelStyle(.titleAndIcon)
+                            .font(.subheadline.weight(.medium))
+                    }.accessibilityIdentifier("manage-agents")
+                }
             }
-            HStack {
-                Button(action: manage) {
-                    Label("Gérer les agents", systemImage: "person.crop.circle.badge.gearshape")
-                        .font(.subheadline.weight(.medium)).frame(minHeight: 46)
-                }.accessibilityIdentifier("manage-agents")
-                Spacer()
-                Button(action: close) {
-                    Image(systemName: "xmark").font(.system(size: 14, weight: .semibold))
-                        .frame(width: 46, height: 46).background(AppTheme.surface, in: Circle())
-                }.accessibilityLabel("Revenir au chat").accessibilityIdentifier("return-to-chat")
-            }.buttonStyle(.plain).padding(.horizontal, 26).padding(.top, 10).padding(.bottom, 12)
-        }.background(AppTheme.background)
+            .navigationDestination(isPresented: $managing) { AgentsHubView(app: model) }
+        }.presentationBackground(AppTheme.background)
+        .presentationDetents(typeSize.isAccessibilitySize ? [.large] : [.medium, .large], selection: $detent)
+        .onChange(of: managing) { _, value in if value { detent = .large } }
+        .onAppear { if typeSize.isAccessibilitySize { detent = .large } }
     }
+
+    private func close() { if let returnToChat { returnToChat() } else { dismiss() } }
 
     private func profileRow(_ agent: AgentProfile) -> some View {
         let current = agent.name == model.profile
@@ -71,103 +82,13 @@ struct QuickProfilePicker: View {
                 if unread { Circle().fill(AppTheme.accent).frame(width: 7, height: 7).accessibilityHidden(true) }
                 if current { Image(systemName: "checkmark.circle.fill").foregroundStyle(AppTheme.accent).accessibilityHidden(true) }
             }.padding(.horizontal, 14).padding(.vertical, 12)
-                .background(current ? AppTheme.surface : .clear, in: RoundedRectangle(cornerRadius: 18))
-                .contentShape(Rectangle())
+                .background(current ? AppTheme.accent.opacity(0.07) : AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(current ? AppTheme.accent.opacity(0.25) : AppTheme.line))
+                .contentShape(RoundedRectangle(cornerRadius: 20))
         }.buttonStyle(.plain).disabled(model.opening || model.sending || model.voiceActive || (!model.demo && model.state != .connected))
             .accessibilityIdentifier("quick-profile-\(agent.name)")
             .accessibilityValue(unread ? "Conversation non lue" : current ? "Agent sélectionné" : "")
             .accessibilityAddTraits(current ? .isSelected : [])
-    }
-}
-
-struct AgentsView: View {
-    @Bindable var model: AppModel
-    var openChat: () -> Void
-    @State private var search = ""
-    @State private var creating = false
-    @State private var editing: AgentProfile?
-    @Environment(\.dynamicTypeSize) private var typeSize
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Vos agents.").font(.system(.largeTitle, design: .serif)).tracking(-0.8)
-                        Text("Un talent. Un fil qui continue.").font(.subheadline).foregroundStyle(.secondary)
-                    }.padding(.top, 14)
-                    HStack(spacing: 10) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
-                        TextField("Retrouver un agent", text: $search).font(.subheadline)
-                    }.padding(.horizontal, 16).frame(height: 46).background(AppTheme.surface, in: Capsule())
-                    VStack(spacing: 8) {
-                        ForEach(model.profiles.filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) || $0.detail.localizedCaseInsensitiveContains(search) }) { agent in
-                            HStack(spacing: 0) {
-                                Button { openChat(); Task { await model.openBot(agent) } } label: {
-                                    HStack(spacing: 14) {
-                                        AgentAvatar(name: agent.name, size: 44)
-                                        VStack(alignment: .leading, spacing: 5) {
-                                            HStack(spacing: 8) {
-                                                Text(agent.title).font(.body.weight(.medium)).foregroundStyle(.primary)
-                                                    .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                                                if model.profile == agent.name { Circle().fill(AppTheme.accent).frame(width: 5, height: 5) }
-                                            }
-                                            Text(agent.detail.isEmpty ? "@\(agent.name)" : agent.detail)
-                                                .font(.caption).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
-                                        }
-                                        Spacer(minLength: 0)
-                                    }.padding(.leading, 14).padding(.vertical, 17).contentShape(Rectangle())
-                                }.buttonStyle(.plain).disabled(model.opening || model.sending || model.voiceActive || (!model.demo && model.state != .connected))
-                                    .accessibilityIdentifier("agent-\(agent.name)")
-                                Button { editing = agent } label: {
-                                    Image(systemName: "ellipsis").font(.system(size: 16, weight: .medium)).foregroundStyle(.secondary)
-                                        .frame(width: 44, height: 52)
-                                }.buttonStyle(.plain).accessibilityLabel("Modifier \(agent.title)")
-                            }.background(agent.name == model.profile ? AppTheme.surface : Color.clear, in: RoundedRectangle(cornerRadius: 20))
-                        }
-                    }
-                    HStack(spacing: 8) {
-                        Image(systemName: "arrow.triangle.branch")
-                        Text("Bot Mode · Le même agent, partout.")
-                    }.font(.caption).foregroundStyle(.tertiary).padding(.horizontal, 12)
-                }.padding(.horizontal, 22).padding(.bottom, 24).frame(maxWidth: 680).frame(maxWidth: .infinity)
-            }.background(AppTheme.background).toolbar(.hidden, for: .navigationBar)
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    ToolDock {
-                        Button { creating = true } label: { Label("Créer un agent", systemImage: "plus").frame(minHeight: 44) }
-                            .disabled(model.demo)
-                    }
-                }
-                .sheet(isPresented: $creating) { BotEditor(model: model) }
-                .sheet(item: $editing) { BotEditor(model: model, bot: $0) }
-        }
-    }
-}
-
-struct ProfilePicker: View {
-    let model: AppModel
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        NavigationStack {
-            List(model.profiles) { agent in
-                Button {
-                    Task { await model.changeProfile(agent.name); dismiss() }
-                } label: {
-                    HStack(spacing: 14) {
-                        AgentAvatar(name: agent.name)
-                        VStack(alignment: .leading, spacing: 4) { Text(agent.title).foregroundStyle(.primary); Text(agent.model).font(.caption).foregroundStyle(.secondary) }
-                        Spacer()
-                        if model.profile == agent.name { Image(systemName: "checkmark").foregroundStyle(AppTheme.accent) }
-                    }.padding(.vertical, 7)
-                }
-            }.modernList()
-                .navigationTitle("Vos profils").navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button { dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
-                            .accessibilityLabel("Fermer les profils")
-                    }
-                }
-        }.presentationDetents([.medium, .large])
     }
 }
 
@@ -197,7 +118,7 @@ struct SessionsView: View {
     @State private var refreshID = UUID()
     @FocusState private var searching: Bool
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.toolNavigation) private var navigation
+    @Environment(\.returnToChat) private var returnToChat
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var archived: Bool { filter == .archived }
@@ -235,86 +156,83 @@ struct SessionsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack(alignment: .center, spacing: 14) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Retrouver le fil.").font(.system(.title2, design: .serif)).tracking(-0.6).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                            Text("\(model.agent?.title ?? "Hermes") · \(conversations.count) conversation\(conversations.count == 1 ? "" : "s")")
-                                .font(.subheadline).foregroundStyle(.secondary)
-                        }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                HStack(alignment: .center, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Retrouver le fil.").font(.system(.title2, design: .serif)).tracking(-0.6).lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                        Text("\(model.agent?.title ?? "Hermes") · \(conversations.count) conversation\(conversations.count == 1 ? "" : "s")")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 0)
+                    AgentAvatar(name: model.profile, size: 42)
+                }.padding(.top, 12).padding(.bottom, 2)
+                AppSegmented(title: "Historique", selection: $filter, options: ConversationFilter.allCases.map { (value: $0, label: $0.title) }, identifier: "history-filter")
+                if !model.demo && model.state != .connected {
+                    ConnectionIndicator(model: model)
+                }
+                if let loadError, model.state == .connected {
+                    HStack(spacing: 12) {
+                        Text(loadError).font(.caption).foregroundStyle(.secondary)
                         Spacer(minLength: 0)
-                        AgentAvatar(name: model.profile, size: 42)
-                    }.padding(.top, 12).padding(.bottom, 2)
-                    Picker("Historique", selection: $filter) {
-                        ForEach(ConversationFilter.allCases, id: \.self) { Text($0.title).tag($0) }
-                    }.pickerStyle(.segmented)
-                        .accessibilityIdentifier("history-filter")
-                    if !model.demo && model.state != .connected {
-                        ConnectionIndicator(model: model)
-                    }
-                    if let loadError, model.state == .connected {
-                        HStack(spacing: 12) {
-                            Text(loadError).font(.caption).foregroundStyle(.secondary)
-                            Spacer(minLength: 0)
-                            Button("Réessayer") { Task { await refresh() } }.font(.caption.weight(.medium)).disabled(loading)
-                        }.padding(14).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
-                    }
-                    if (loading || (!model.demo && model.state == .connecting)) && conversations.isEmpty {
-                        ProgressView("Chargement des conversations…").frame(maxWidth: .infinity).padding(.vertical, 45)
-                    } else if conversations.isEmpty {
-                        ContentUnavailableView(archived ? "Aucune archive" : "Tout commence ici",
-                            systemImage: archived ? "archivebox" : "bubble.left.and.bubble.right",
-                            description: Text(archived ? "Les conversations archivées restent disponibles ici." : "Vos échanges avec cet agent apparaîtront ici. Une idée suffit pour commencer."))
-                    } else if filtered.isEmpty && filter == .unread && search.isEmpty {
-                        ContentUnavailableView("Vous êtes à jour", systemImage: "checkmark.bubble",
-                            description: Text("Les conversations avec une nouvelle activité apparaîtront ici."))
-                    } else if filtered.isEmpty {
-                        ContentUnavailableView.search(text: search)
-                    } else {
-                        ForEach(sections, id: \.title) { section in
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(section.title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 4)
-                                LazyVStack(spacing: 8) {
-                                    ForEach(section.rows) { session in conversationRow(session) }
-                                }
+                        Button("Réessayer") { Task { await refresh() } }.font(.caption.weight(.medium)).disabled(loading)
+                    }.padding(14).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+                }
+                if (loading || (!model.demo && model.state == .connecting)) && conversations.isEmpty {
+                    VStack(spacing: 8) { SkeletonRows(count: 5, avatar: false, card: true) }
+                } else if conversations.isEmpty {
+                    ContentUnavailableView(archived ? "Aucune archive" : "Tout commence ici",
+                        systemImage: archived ? "archivebox" : "bubble.left.and.bubble.right",
+                        description: Text(archived ? "Les conversations archivées restent disponibles ici." : "Vos échanges avec cet agent apparaîtront ici. Une idée suffit pour commencer."))
+                } else if filtered.isEmpty && filter == .unread && search.isEmpty {
+                    ContentUnavailableView("Vous êtes à jour", systemImage: "checkmark.bubble",
+                        description: Text("Les conversations avec une nouvelle activité apparaîtront ici."))
+                } else if filtered.isEmpty {
+                    ContentUnavailableView.search(text: search)
+                } else {
+                    ForEach(sections, id: \.title) { section in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(section.title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 4)
+                            LazyVStack(spacing: 8) {
+                                ForEach(section.rows) { session in conversationRow(session) }
                             }
                         }
                     }
-                    if !model.demo, resultScope == queryScope, search.isEmpty, loadedRows.count < total {
-                        Button(loading ? "Chargement…" : "Conversations plus anciennes") { Task { await loadPage(more: true) } }.disabled(loading).frame(minHeight: 44)
-                    }
-                }.padding(.horizontal, 22).padding(.bottom, 24).frame(maxWidth: 680).frame(maxWidth: .infinity)
-            }.scrollDismissesKeyboard(.interactively)
-                .background(AppTheme.background)
-                .navigationTitle("Conversations").navigationBarTitleDisplayMode(.inline)
-                .safeAreaInset(edge: .bottom, spacing: 0) { controls }
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button { dismiss() } label: {
-                            Image(systemName: "xmark").font(.system(size: 16, weight: .medium)).frame(width: 44, height: 44)
-                        }.foregroundStyle(.primary).accessibilityLabel("Fermer les conversations").accessibilityIdentifier("return-to-chat")
-                    }
                 }
-                .task(id: "\(model.activeConnection?.id.uuidString ?? "demo")|\(model.profile)|\(model.state == .connected)") {
-                    refreshID = UUID(); loading = false; loadError = nil
-                    if model.demo || model.state == .connected { await refresh() }
+                if !model.demo, resultScope == queryScope, search.isEmpty, loadedRows.count < total {
+                    Button(loading ? "Chargement…" : "Conversations plus anciennes") { Task { await loadPage(more: true) } }.disabled(loading).frame(minHeight: 44)
                 }
-                .task(id: "\(search)|\(archived)") {
-                    do { try await Task.sleep(for: .milliseconds(300)); try Task.checkCancellation() } catch { return }
-                    await loadPage(more: false)
+            }.padding(.horizontal, 22).padding(.bottom, 24).frame(maxWidth: 680).frame(maxWidth: .infinity)
+        }.scrollDismissesKeyboard(.interactively)
+            .background(AppTheme.background)
+            .navigationTitle("Conversations").navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom, spacing: 0) { controls }
+            .appNavigationBar()
+            .toolbar {
+                AppToolbarItem(placement: .topBarTrailing) {
+                    AppCloseButton(label: "Fermer les conversations") { close() }
+                        .accessibilityIdentifier("return-to-chat")
                 }
-                .alert("Renommer la conversation", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
-                    TextField("Titre", text: $renamedTitle)
-                    Button("Enregistrer") {
-                        guard let row = renaming else { return }; renaming = nil
-                        Task { do { try await model.updateConversation(row, patch: ["title": .string(renamedTitle)]); await loadPage(more: false) } catch { loadError = error.localizedDescription } }
-                    }
-                    Button("Annuler", role: .cancel) { renaming = nil }
+            }
+            .task(id: "\(model.activeConnection?.id.uuidString ?? "demo")|\(model.profile)|\(model.state == .connected)") {
+                refreshID = UUID(); loading = false; loadError = nil
+                if model.demo || model.state == .connected { await refresh() }
+            }
+            .task(id: "\(search)|\(archived)") {
+                do { try await Task.sleep(for: .milliseconds(300)); try Task.checkCancellation() } catch { return }
+                await loadPage(more: false)
+            }
+            .appAlert("Renommer la conversation", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+                TextField("Titre", text: $renamedTitle)
+                Button("Enregistrer") {
+                    guard let row = renaming else { return }; renaming = nil
+                    Task { do { try await model.updateConversation(row, patch: ["title": .string(renamedTitle)]); await loadPage(more: false) } catch { loadError = error.localizedDescription } }
                 }
-        }
+                Button("Annuler", role: .cancel) { renaming = nil }
+            }
     }
+
+    private func close() { if let returnToChat { returnToChat() } else { dismiss() } }
 
     private func conversationRow(_ session: Conversation) -> some View {
         let current = model.selected?.storedID == session.id && model.selected?.profile == session.profile
@@ -325,14 +243,14 @@ struct SessionsView: View {
             guard openingID == nil else { return }
             searching = false
             if current && (model.demo || model.state != .connected || model.selected?.runtimeID.isEmpty == false) {
-                dismiss(); return
+                close(); return
             }
             openingID = session.id
             Task {
                 await model.openConversation(session)
                 openingID = nil
                 if model.selected?.storedID == session.id, model.selected?.profile == session.profile,
-                   model.demo || model.state != .connected || model.selected?.runtimeID.isEmpty == false { dismiss() }
+                   model.demo || model.state != .connected || model.selected?.runtimeID.isEmpty == false { close() }
             }
         } label: {
             HStack(spacing: 12) {
@@ -358,15 +276,15 @@ struct SessionsView: View {
                     else { Image(systemName: "chevron.right").font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary) }
                 }
             }.padding(.horizontal, 14).padding(.vertical, 12).frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
-                .background(current ? AppTheme.accent.opacity(0.055) : AppTheme.surface, in: RoundedRectangle(cornerRadius: 18))
-                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(current ? AppTheme.accent.opacity(0.2) : AppTheme.line.opacity(0.6)))
-                .contentShape(RoundedRectangle(cornerRadius: 18))
+                .background(current ? AppTheme.accent.opacity(0.055) : AppTheme.surface, in: RoundedRectangle(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(current ? AppTheme.accent.opacity(0.2) : AppTheme.line.opacity(0.6)))
+                .contentShape(RoundedRectangle(cornerRadius: 20))
         }.buttonStyle(.plain).disabled(openingID != nil || model.sending || model.voiceActive)
-            .contextMenu {
+            .appContextMenu {
                 // The native canonical title is an identity; edit the bot's display name in Agents.
                 if !isBotChat {
-                Button("Renommer", systemImage: "pencil") { renamedTitle = session.title; renaming = session }
-                Button(archived ? "Restaurer" : "Archiver", systemImage: archived ? "tray.and.arrow.up" : "archivebox") {
+                AppMenuButton("Renommer", systemImage: "pencil") { renamedTitle = session.title; renaming = session }
+                AppMenuButton(archived ? "Restaurer" : "Archiver", systemImage: archived ? "tray.and.arrow.up" : "archivebox") {
                     Task { do { try await model.updateConversation(session, patch: ["archived": .bool(!archived)]); await loadPage(more: false) } catch { loadError = error.localizedDescription } }
                 }.disabled(current && model.transcript.running)
                 }
@@ -382,11 +300,6 @@ struct SessionsView: View {
 
     private var controls: some View {
         HStack(spacing: 10) {
-            if let navigation {
-                Button { searching = false; navigation.showSpaces() } label: {
-                    Image(systemName: "circle.grid.2x2").font(.system(size: 18)).frame(width: 44, height: 48)
-                }.foregroundStyle(.secondary).accessibilityLabel("Outils").accessibilityIdentifier("back-to-spaces")
-            }
             HStack(spacing: 9) {
                 Image(systemName: "magnifyingglass").font(.system(size: 15)).foregroundStyle(.secondary)
                 TextField("Rechercher", text: $search).font(.subheadline).focused($searching).submitLabel(.search)
@@ -395,14 +308,14 @@ struct SessionsView: View {
                     Button { search = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary).frame(width: 28, height: 44) }
                         .accessibilityLabel("Effacer la recherche")
                 }
-            }.padding(.horizontal, 14).frame(minHeight: 50).background(AppTheme.surface, in: Capsule())
-                .overlay(Capsule().strokeBorder(AppTheme.line))
-            Button { model.newChat(); dismiss() } label: {
+            }.padding(.horizontal, 14).frame(minHeight: 50).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(AppTheme.line))
+            Button { model.newChat(); close() } label: {
                 Image(systemName: "square.and.pencil").font(.system(size: 20, weight: .medium))
                     .frame(width: 50, height: 50).foregroundStyle(.white).background(AppTheme.accent, in: Circle())
             }.disabled(model.sending || model.voiceActive).accessibilityLabel("Nouvelle conversation")
         }.buttonStyle(.plain).padding(.horizontal, 18).padding(.vertical, 12).frame(maxWidth: 720).frame(maxWidth: .infinity)
-            .background(AppTheme.background)
+            .barBackground()
     }
 
     private func refresh() async {
@@ -441,86 +354,4 @@ struct SessionsView: View {
         catch { if refreshID == attempt { loadError = error.localizedDescription } }
     }
 
-}
-
-struct BotEditor: View {
-    let model: AppModel
-    var bot: AgentProfile?
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var detail = ""
-    @State private var title = ""
-    @State private var pinned = false
-    @State private var hidden = false
-    @State private var deleting = false
-    @State private var soul = ""
-    @State private var clone = "default"
-    @State private var busy = false
-    @State private var loaded = false
-    @State private var error: String?
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Nom du profil (ex. chercheur)", text: $name).textInputAutocapitalization(.never).autocorrectionDisabled().disabled(bot != nil)
-                    TextField("Son rôle, en quelques mots", text: $detail, axis: .vertical).lineLimit(2...4)
-                } header: { Text("Identité") } footer: { Text("Ce profil sera disponible dans toutes vos interfaces Hermes.") }
-                if bot != nil {
-                    Section("Dans Bot Mode") {
-                        TextField("Nom affiché", text: $title)
-                        Toggle("Épingler cet agent", isOn: $pinned)
-                        Toggle("Masquer du sélecteur rapide", isOn: $hidden)
-                    }
-                }
-                if bot == nil {
-                    Section("Point de départ") {
-                        Picker("Configuration", selection: $clone) {
-                            Text("Nouveau profil").tag("")
-                            ForEach(model.profiles) { Text("Copier \($0.title)").tag($0.name) }
-                        }
-                    }
-                }
-                Section { TextEditor(text: $soul).frame(minHeight: 150) } header: { Text("Personnalité · SOUL.md") } footer: { Text("Sa façon de penser, son ton et ses instructions permanentes.") }
-                if let bot, bot.name != "default" {
-                    Section { Button("Supprimer cet agent", role: .destructive) { deleting = true }.disabled(busy || model.demo) }
-                }
-                if let error { Section { Text(error).foregroundStyle(AppTheme.accent) } }
-            }.modernList()
-                .navigationTitle(bot == nil ? "Un nouvel agent" : "Modifier \(bot!.title)").navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button(busy ? "En cours…" : "Enregistrer") { save() }.disabled(busy || name.isEmpty || (bot != nil && !loaded) || model.demo)
-                    }
-                }
-                .confirmationDialog("Supprimer définitivement cet agent ?", isPresented: $deleting, titleVisibility: .visible) {
-                    Button("Supprimer l’agent et ses données", role: .destructive) {
-                        guard let bot else { return }; busy = true
-                        Task { do { try await model.deleteBot(bot.name); dismiss() } catch { self.error = error.localizedDescription }; busy = false }
-                    }
-                } message: { Text("Hermes supprimera ce profil, son historique, ses skills et sa configuration sur le serveur.") }
-                .interactiveDismissDisabled(busy)
-                .task {
-                    if let bot {
-                        name = bot.name; detail = bot.detail; title = bot.title; pinned = bot.pinned == true; hidden = bot.hidden == true
-                        do { let data = try await model.describeBot(bot.name); soul = data["soul"].string; loaded = true }
-                        catch { self.error = error.localizedDescription }
-                    } else { loaded = true }
-                }
-        }
-    }
-    private func save() {
-        busy = true; error = nil
-        Task {
-            do {
-                if bot == nil { try await model.createBot(name: name, description: detail, soul: soul, clone: clone) }
-                else {
-                    try await model.editBot(name: name, description: detail, soul: soul)
-                    try await model.editBotPresentation(name: name, title: title, pinned: pinned, hidden: hidden)
-                }
-                dismiss()
-            } catch { self.error = error.localizedDescription }
-            busy = false
-        }
-    }
 }

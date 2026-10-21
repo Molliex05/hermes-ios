@@ -9,15 +9,38 @@ enum ChatMarkdown {
         case code(language: String, text: String), table([[String]]), rule
     }
 
-    static func parse(_ source: String) -> [Block] {
-        let lines = source.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+    /// A point where parsing can resume from scratch: the UTF-8 offset of a line that follows a
+    /// blank line and starts without indentation, and the number of blocks completed before it.
+    /// Nothing before it can change when text is appended after it (no lookahead crosses a blank
+    /// line, and only an indented line can extend the previous list item).
+    struct Checkpoint: Equatable, Sendable {
+        var utf8Offset: Int
+        var blockCount: Int
+    }
+
+    static func parse(_ source: String) -> [Block] { parseDetailed(normalized(source)).blocks }
+
+    static func normalized(_ source: String) -> String {
+        // "\r\n" is one Character, so look for the carriage return byte instead.
+        source.utf8.contains(13) ? source.replacingOccurrences(of: "\r\n", with: "\n") : source
+    }
+
+    /// Parses already-normalized text and reports the last checkpoint reached.
+    static func parseDetailed(_ source: String) -> (blocks: [Block], checkpoint: Checkpoint?) {
+        let lines = source.components(separatedBy: "\n")
         var blocks: [Block] = [], paragraph: [String] = []
-        var i = 0
+        var checkpoint: Checkpoint?
+        var i = 0, lineOffset = 0, offsetLine = 0
         func flush() {
             if !paragraph.isEmpty { blocks.append(.paragraph(paragraph.joined(separator: "\n"))); paragraph = [] }
         }
         while i < lines.count {
             let line = lines[i], trimmed = line.trimmingCharacters(in: .whitespaces)
+            if i > 0, paragraph.isEmpty, let first = line.first, !first.isWhitespace,
+               lines[i - 1].trimmingCharacters(in: .whitespaces).isEmpty {
+                while offsetLine < i { lineOffset += lines[offsetLine].utf8.count + 1; offsetLine += 1 }
+                checkpoint = Checkpoint(utf8Offset: lineOffset, blockCount: blocks.count)
+            }
             if let fence = fenceStart(line) {
                 flush(); i += 1
                 var code: [String] = []
@@ -68,7 +91,38 @@ enum ChatMarkdown {
             } else { paragraph.append(line) }
             i += 1
         }
-        flush(); return blocks
+        flush(); return (blocks, checkpoint)
+    }
+
+    /// Splits code into groups of lines so a streamed code block only re-measures its last group.
+    static func codeChunks(_ text: String, lines: Int = 40) -> [String] {
+        var result: [String] = []
+        var start = text.startIndex, count = 0
+        var index = text.utf8.startIndex
+        while index < text.utf8.endIndex {
+            if text.utf8[index] == 10 {
+                count += 1
+                if count == lines {
+                    result.append(String(text[start..<index]))
+                    start = text.utf8.index(after: index); count = 0
+                }
+            }
+            index = text.utf8.index(after: index)
+        }
+        result.append(String(text[start...]))
+        return result
+    }
+
+    /// Byte equality of the first `count` UTF-8 bytes (no Unicode normalization work).
+    static func sameUTF8Prefix(_ lhs: String, _ rhs: String, count: Int) -> Bool {
+        guard lhs.utf8.count >= count, rhs.utf8.count >= count else { return false }
+        guard count > 0 else { return true }
+        var lhs = lhs, rhs = rhs
+        return lhs.withUTF8 { a in rhs.withUTF8 { b in memcmp(a.baseAddress!, b.baseAddress!, count) == 0 } }
+    }
+
+    static func sameUTF8(_ lhs: String, _ rhs: String) -> Bool {
+        lhs.utf8.count == rhs.utf8.count && sameUTF8Prefix(lhs, rhs, count: lhs.utf8.count)
     }
 
     private static func fenceStart(_ line: String) -> (character: Character, count: Int, language: String)? {
@@ -130,5 +184,63 @@ enum ChatMarkdown {
             let part = $0.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
             return part.count >= 3 && part.allSatisfy { $0 == "-" }
         }
+    }
+}
+
+/// Incremental parse of a growing message. Blocks before the last checkpoint are reused as long
+/// as their bytes are unchanged; only the tail (usually the block being streamed) is re-parsed.
+/// Any edit inside the stable prefix falls back to a full parse, so results always equal
+/// `ChatMarkdown.parse(text)`.
+struct StreamingMarkdown: Sendable {
+    private(set) var blocks: [ChatMarkdown.Block] = []
+    private var source = ""
+    private var normalized = ""
+    private var stableBlocks: [ChatMarkdown.Block] = []
+    private var stableCount = 0
+
+    init() {}
+
+    @discardableResult
+    mutating func update(_ raw: String) -> [ChatMarkdown.Block] {
+        if ChatMarkdown.sameUTF8(raw, source) { return blocks }
+        let text = ChatMarkdown.normalized(raw)
+        var base: [ChatMarkdown.Block] = [], offset = 0
+        if stableCount > 0, ChatMarkdown.sameUTF8Prefix(text, normalized, count: stableCount) {
+            base = stableBlocks; offset = stableCount
+        }
+        let tail = offset == 0 ? text : String(text[text.utf8.index(text.startIndex, offsetBy: offset)...])
+        let parsed = ChatMarkdown.parseDetailed(tail)
+        blocks = base + parsed.blocks
+        if let checkpoint = parsed.checkpoint {
+            stableBlocks = base + parsed.blocks.prefix(checkpoint.blockCount)
+            stableCount = offset + checkpoint.utf8Offset
+        } else if offset == 0 {
+            stableBlocks = []; stableCount = 0
+        }
+        source = raw; normalized = text
+        return blocks
+    }
+}
+
+/// Parsed blocks per message id, validated against the exact text. Streaming messages keep
+/// their incremental parser here, so a finished answer is never parsed again from scratch.
+@MainActor final class MarkdownCache {
+    static let shared = MarkdownCache()
+    private struct Entry { var parser = StreamingMarkdown(); var tick = 0 }
+    private var entries: [String: Entry] = [:]
+    private var tick = 0
+    private let capacity: Int
+
+    init(capacity: Int = 600) { self.capacity = capacity }
+
+    func blocks(id: String, text: String) -> [ChatMarkdown.Block] {
+        tick += 1
+        let blocks = entries[id, default: Entry()].parser.update(text)
+        entries[id]?.tick = tick
+        if entries.count > capacity {
+            let stale = entries.sorted { $0.value.tick < $1.value.tick }.prefix(entries.count - capacity * 3 / 4)
+            for (key, _) in stale { entries.removeValue(forKey: key) }
+        }
+        return blocks
     }
 }

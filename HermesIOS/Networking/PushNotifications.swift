@@ -17,7 +17,9 @@ final class PushNotifications {
     private var syncing = false
     private var resync = false
     private let defaults = UserDefaults.standard
-    private let installationID: String
+    let installationID: String
+    /// Set by AppModel: whether a banner for this notification must stay silent (chat on screen, voice call).
+    var suppressesPresentation: (@MainActor (NotificationEnvelope) -> Bool)?
 
     private init() {
         enabled = Set((UserDefaults.standard.stringArray(forKey: "push.enabled") ?? []).compactMap(UUID.init(uuidString:)))
@@ -36,8 +38,14 @@ final class PushNotifications {
             for id in enabled { statuses[id] = "Autorisez les notifications dans les réglages de l’iPhone." }
         }
         if authorized && !enabled.isEmpty { UIApplication.shared.registerForRemoteNotifications() }
-        if deviceToken != nil { await synchronize() }
+        // Registering rotates the encryption key and costs one request per connection: only when something changed,
+        // or after a long while (so a server that lost the registration gets it back).
+        let signature = "\(deviceToken ?? "")|\(authorized)|\(enabled.map(\.uuidString).sorted())|\(saved.map { $0.id.uuidString }.sorted())"
+        if signature == lastSyncSignature, Date.now.timeIntervalSince(lastSyncAt) < 6 * 3600 { return }
+        if deviceToken != nil { await synchronize(); lastSyncSignature = signature; lastSyncAt = .now }
     }
+    private var lastSyncSignature = ""
+    private var lastSyncAt = Date.distantPast
 
     #if DEBUG
     func authorizeFixtureIfRequested() async {
@@ -87,12 +95,23 @@ final class PushNotifications {
                 // Revoke on the server first: a local switch alone cannot stop APNs.
                 _ = try await http.request(Self.path + "/devices/" + installationID + "/" + connection.id.uuidString, method: "DELETE")
                 enabled.remove(connection.id); save(); statuses[connection.id] = "Désactivées"
+                NotificationKeyStore.remove(for: connection.id)
                 await synchronize() // A registration already in flight must observe the new preference.
             }
         } catch {
             statuses[connection.id] = (error as? RPCFailure)?.code == 404
                 ? "Installez l’extension Hermès iOS Push sur ce serveur."
                 : error.localizedDescription
+        }
+    }
+
+    /// Removes the delivered banners of one conversation thread (the same hash the server sends as `thread-id`).
+    func clearDelivered(connection: UUID, profile: String, session: String) {
+        let thread = NotificationEnvelope.threadID(connection: connection, profile: profile, session: session)
+        Task {
+            let center = UNUserNotificationCenter.current()
+            let ids = await center.deliveredNotifications().filter { $0.request.content.threadIdentifier == thread }.map(\.request.identifier)
+            if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
         }
     }
 
@@ -116,15 +135,28 @@ final class PushNotifications {
                         // Development signing still uses the APNs sandbox in Release builds.
                         let environment = Self.apnsEnvironment
                         #endif
-                        let result = try await http.request(Self.path + "/devices", method: "PUT", body: [
+                        var body: [String: JSONValue] = [
                             "installation_id": .string(installationID), "connection_id": .string(connection.id.uuidString),
                             "token": .string(deviceToken), "environment": .string(environment)
-                        ])
+                        ]
+                        // A fresh key at every registration; sent only over a channel that protects it.
+                        let secure = NotificationKeyTransport.allowsKey(over: connection.endpoint.baseURL)
+                        let key = secure ? NotificationKeyStore.generateKey() : nil
+                        if let key { body["key"] = .string(key.base64EncodedString()) }
+                        let result = try await http.request(Self.path + "/devices", method: "PUT", body: .object(body))
                         guard result["registered"].bool else { throw RPCFailure("Le serveur n’a pas confirmé l’inscription aux notifications.") }
-                        if enabled.contains(connection.id) { statuses[connection.id] = "Activées · réponses et messages programmés" }
-                        else { resync = true }
+                        // The server now holds the new key: keep the same one on this side. If the keychain
+                        // refuses it, the next registration rotates again and pushes stay generic until then.
+                        let stored = key.map { NotificationKeyStore.store($0, for: connection.id) } ?? false
+                        if !stored { NotificationKeyStore.remove(for: connection.id) }
+                        if enabled.contains(connection.id) {
+                            statuses[connection.id] = !secure
+                                ? "Activées · aperçu chiffré indisponible : cette adresse n’est pas sécurisée (HTTPS ou Tailscale requis)."
+                                : stored ? "Activées · réponses et messages programmés" : "Activées · aperçu chiffré indisponible sur cet iPhone."
+                        } else { resync = true }
                     } else {
                         _ = try await http.request(Self.path + "/devices/" + installationID + "/" + connection.id.uuidString, method: "DELETE")
+                        NotificationKeyStore.remove(for: connection.id)
                     }
                 } catch {
                     if enabled.contains(connection.id) { statuses[connection.id] = "Enregistrement à reprendre : " + error.localizedDescription }
@@ -133,7 +165,7 @@ final class PushNotifications {
         } while resync
     }
 
-    private static var apnsEnvironment: String {
+    static var apnsEnvironment: String {
         // Read our signed provisioning profile, not the Debug/Release configuration:
         // a Release app installed from Xcode still uses the development APNs service.
         if let url = Bundle.main.url(forResource: "embedded", withExtension: "mobileprovision"),
@@ -154,6 +186,12 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         return true
     }
 
+    /// The server's hourly silent push: refresh the widgets' figures, no UI and no alert.
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any]) async -> UIBackgroundFetchResult {
+        guard (userInfo["hermes"] as? [String: Any])?["kind"] as? String == "widgets" else { return .noData }
+        return await WidgetRefresh.runInBackground() ? .newData : .failed
+    }
+
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         PushNotifications.shared.receiveToken(deviceToken)
     }
@@ -170,7 +208,12 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         completionHandler()
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .sound, .list])
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        let envelope = (try? JSONSerialization.data(withJSONObject: notification.request.content.userInfo))
+            .flatMap { try? JSONValue.decode($0) }.flatMap { NotificationEnvelope($0) }
+        // An agent's deliberate ios_notify (kind tool) always shows; automatic turn alerts are
+        // silenced when the conversation is on screen or a voice call is running.
+        let silent = await MainActor.run { envelope.map { $0.kind != .tool && (PushNotifications.shared.suppressesPresentation?($0) ?? false) } ?? false }
+        return silent ? [] : [.banner, .sound, .list]
     }
 }
