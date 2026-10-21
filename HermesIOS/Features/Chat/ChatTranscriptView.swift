@@ -34,6 +34,10 @@ struct ChatTranscriptView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 27) {
+                        // Reports where the content starts, so a blank band under the last row can be told from a short chat.
+                        Color.clear.frame(height: 0).background(GeometryReader { marker in
+                            Color.clear.preference(key: TopPreference.self, value: marker.frame(in: .named("chat-scroll")).minY)
+                        })
                         LazyVStack(alignment: .leading, spacing: 27) {
                             MessageHistory(messages: history, agent: agent)
                             // Its own identity namespace: reusing the message id here would make the
@@ -86,6 +90,7 @@ struct ChatTranscriptView: View {
                         follower.dragging = false
                         if bottomVisible, !pinnedToBottom { pinnedToBottom = true }
                     })
+                .onPreferenceChange(TopPreference.self) { follower.top = $0 }
                 .onPreferenceChange(BottomPreference.self) { y in
                     bottomMoved(y, height: geo.size.height, proxy: proxy)
                 }
@@ -112,6 +117,10 @@ struct ChatTranscriptView: View {
     /// flips, and following the stream goes through one throttled scroll (at most one per
     /// stream flush) instead of scrolling from both layout and text changes.
     private func bottomMoved(_ y: CGFloat, height: CGFloat, proxy: ScrollViewProxy) {
+        follower.end = y; follower.viewport = height
+        if ScrollGap.isBlank(contentTop: follower.top, endMarker: y, viewport: height) {
+            follower.heal { withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) } }
+        }
         let visible = y <= height + 55
         if bottomVisible != visible { bottomVisible = visible }
         var pinned = pinnedToBottom
@@ -131,11 +140,29 @@ struct ChatTranscriptView: View {
 /// Coalesces follow-the-stream scrolls to the stream's flush cadence (~30 fps).
 @MainActor final class ScrollFollower {
     var dragging = false
+    /// Last positions reported by the content's start and end markers, and the viewport height.
+    var top = 0.0, end = 0.0, viewport = 0.0
+    private var healing = false
     private var scheduled = false
     private var last = Date.distantPast
     private static let interval: TimeInterval = 1.0 / 30
 
     func didScroll() { last = Date() }
+
+    /// Brings the list back to its end when it stays scrolled past it. Waits a moment and re-checks, so a normal
+    /// overscroll bounce or a keyboard still moving never fights the user.
+    func heal(_ scroll: @escaping @MainActor () -> Void) {
+        guard !healing else { return }
+        healing = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(160))
+            guard let self else { return }
+            self.healing = false
+            guard !self.dragging, ScrollGap.isBlank(contentTop: self.top, endMarker: self.end, viewport: self.viewport) else { return }
+            self.last = Date()
+            scroll()
+        }
+    }
 
     func follow(_ scroll: @escaping @MainActor () -> Void) {
         guard !scheduled else { return }
@@ -151,6 +178,11 @@ struct ChatTranscriptView: View {
             scroll()
         }
     }
+}
+
+private struct TopPreference: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 private struct BottomPreference: PreferenceKey {

@@ -433,6 +433,7 @@ class ToolOutbox(Fixture):
         self.assertNotIn('session_id', payload['hermes'])
         expected = push.hashlib.sha256(f'{self.connection}:noriven'.encode()).hexdigest()
         self.assertEqual(payload['aps']['thread-id'], expected)
+        self.assertNotIn('category', payload['aps'])                      # nothing to answer without a conversation
         self.assertEqual(payload['hermes']['kind'], 'tool')
         self.assertEqual(payload['aps']['alert'], {'title': 'Hermès', 'body': 'Nouveau message'})
 
@@ -442,6 +443,7 @@ class ToolOutbox(Fixture):
         self.assertEqual(payload['hermes']['session_id'], 'sess-9')
         expected = push.hashlib.sha256(f'{self.connection}:noriven:sess-9'.encode()).hexdigest()
         self.assertEqual(payload['aps']['thread-id'], expected)
+        self.assertEqual(payload['aps']['category'], 'hermes.reply')       # a conversation target offers the reply action
 
     def test_turn_dedupe_marker(self):
         self.call(turn_session='s1', turn='T1')
