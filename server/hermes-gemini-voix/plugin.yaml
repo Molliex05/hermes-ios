@@ -1,0 +1,9 @@
+name: gemini-voix
+version: 0.2.0
+description: "Gemini 3.8 TTS (Flash / Flash-Lite) with Voice design, replicated or Extended Voice Library voices, streamed as PCM through Hermes' voice relay. Set tts.provider to gemini-voix; voice and model come from tts.gemini.voice and tts.gemini.model."
+author: Hermès iOS
+kind: standalone
+requires_hermes: ">=0.21.0"
+optional_env:
+  - GEMINI_API_KEY
+  - GOOGLE_API_KEY

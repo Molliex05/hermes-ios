@@ -1,0 +1,8 @@
+name: hermes-meteo
+version: 0.1.0
+description: "Météo gratuite par Open-Meteo (sans clé) : conditions actuelles et prévisions pour un lieu."
+author: Hermès iOS
+kind: standalone
+requires_hermes: ">=0.21.0"
+provides_tools:
+  - meteo

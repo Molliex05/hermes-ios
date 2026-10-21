@@ -20,6 +20,10 @@ class Client:
     async def connect(self):
         ticket = (await self.http.post(BASE + "/api/auth/ws-ticket")).json()["ticket"]
         self.ws = await websockets.connect(BASE.replace("http://", "ws://", 1) + "/api/ws?ticket=" + ticket, max_size=16 * 1024 * 1024)
+        # Like the app: without this per-connection declaration Hermes 0.21.7 withdraws approvals
+        # and never sends clarify/sudo/secret requests to the client.
+        capabilities = await self.rpc("client.capabilities", {"server_requests": True})
+        assert "approval" in capabilities["server_requests"] and "clarify" in capabilities["server_requests"], capabilities
 
     async def rpc(self, method, params=None):
         rid = str(uuid.uuid4())

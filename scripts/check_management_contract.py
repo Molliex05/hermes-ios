@@ -43,9 +43,10 @@ async def main():
         await call('PUT','/api/skills/content',json={'name':name,'content':content+' edited'})
         assert (await call('GET','/api/skills/content',params={'name':name}))['content'].endswith('edited')
         removal = await c.rpc('cli.exec',{'argv':['--profile','research','skills','uninstall',name,'--yes'],'timeout':30})
-        assert removal.get('code') == 0 and not removal.get('blocked'), removal
+        # 0.21.7 refuses a non-hub uninstall with a non-zero exit (older builds exited zero); the app only offers hub uninstall.
+        assert removal.get('code') != 0 or removal.get('blocked') or 'not a hub-installed skill' in removal.get('output', ''), removal
         assert any(s['name']==name for s in await call('GET','/api/skills')), 'Local skills must not be presented as hub-uninstallable'
-        print('PASS skills create/edit; native CLI refuses non-hub uninstall despite exit zero', flush=True)
+        print('PASS skills create/edit; native CLI refuses non-hub uninstall', flush=True)
 
         project = (await c.rpc('projects.create',{'profile':'research','name':'Contract '+suffix}))['project']
         await c.rpc('projects.update',{'profile':'research','id':project['id'],'name':'Edited '+suffix,'description':'Updated'})
