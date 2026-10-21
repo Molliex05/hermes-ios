@@ -1,7 +1,7 @@
 import Foundation
 import Network
 import Observation
-import UserNotifications
+@preconcurrency import UserNotifications
 import WidgetKit
 
 struct CachedWorkspace: Codable, Sendable {

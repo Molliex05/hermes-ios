@@ -20,11 +20,16 @@ struct AppToolbarItem<Content: View>: ToolbarContent {
     }
 
     var body: some ToolbarContent {
+        // `sharedBackgroundVisibility` exists only in the iOS 26 SDK (Swift 6.2); older toolchains (CI's Xcode 16.4) skip it.
+        #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
             ToolbarItem(placement: placement, content: content).sharedBackgroundVisibility(.hidden)
         } else {
             ToolbarItem(placement: placement, content: content)
         }
+        #else
+        ToolbarItem(placement: placement, content: content)
+        #endif
     }
 }
 

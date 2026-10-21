@@ -22,7 +22,7 @@ class Fake:
     async def __call__(self, name, args):
         self.calls.append((name, args))
         if self.fail: raise RuntimeError("secret upstream detail")
-        if name == "finance_get_projection":
+        if name == "analytics_get_finance_projection":
             if self.projection is None: raise RuntimeError("unknown tool")
             return self.projection
         return MONEY if args["dataset"] == "revenue_vs_expenses_monthly" else MRR

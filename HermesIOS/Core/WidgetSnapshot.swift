@@ -25,7 +25,7 @@ public struct WidgetSnapshot: Codable, Equatable, Sendable {
         public var month: String
         public var snapshotDate: String
     }
-    /// The Finance projection (net, CAD); absent until Noriven's `finance_get_projection` is deployed.
+    /// The Finance projection (net, CAD); absent until Noriven's `analytics_get_finance_projection` is deployed.
     public struct Projection: Codable, Equatable, Sendable {
         public struct Point: Codable, Equatable, Sendable {
             public var month: String
