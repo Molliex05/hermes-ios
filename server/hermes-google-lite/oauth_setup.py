@@ -48,7 +48,7 @@ def main(argv):
         if missing:
             sys.exit("Autorisation incomplète, il manque : " + ", ".join(m.rsplit("/", 1)[-1] for m in missing))
         save_env_value("GOOGLE_REFRESH_TOKEN", data["refresh_token"]); PENDING.unlink(missing_ok=True)
-        print("OK : autorisation enregistrée (gmail.modify, calendar.events).")
+        print("OK : autorisation enregistrée (gmail.modify, calendar.events, calendar.calendarlist.readonly).")
         # Google adds `refresh_token_expires_in` only to tokens of apps in Testing (7 days). Its absence means a durable token.
         print("Jeton limité à 7 jours (mode test) :", "OUI (%s s)" % data["refresh_token_expires_in"] if "refresh_token_expires_in" in data else "non, durable")
     elif command == "check":
