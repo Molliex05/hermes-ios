@@ -223,12 +223,20 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         PushNotifications.shared.registrationFailed()
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard let data = try? JSONSerialization.data(withJSONObject: response.notification.request.content.userInfo),
-              let json = try? JSONValue.decode(data), let target = NotificationTarget(json) else { return }
+    /// Completion-handler form on purpose: the system finishes it with UIKit state-restoration work that asserts the main
+    /// thread. An async override ran off the main thread and crashed the app on every tap, so the handler is called
+    /// from the main actor.
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        let payload = try? JSONSerialization.data(withJSONObject: response.notification.request.content.userInfo)
         // Only the « Répondre » action carries text; a plain tap just opens the conversation.
         let reply = response.actionIdentifier == PushNotifications.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
-        await MainActor.run { PushNotifications.shared.open(target, reply: reply) }
+        let done = CompletionBox(completionHandler)
+        Task { @MainActor in
+            if let payload, let json = try? JSONValue.decode(payload), let target = NotificationTarget(json) {
+                PushNotifications.shared.open(target, reply: reply)
+            }
+            done.call()
+        }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
@@ -239,4 +247,11 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         let silent = await MainActor.run { envelope.map { $0.kind != .tool && (PushNotifications.shared.suppressesPresentation?($0) ?? false) } ?? false }
         return silent ? [] : [.banner, .sound, .list]
     }
+}
+
+/// Hands a system completion handler to the main actor (it is not `Sendable`, but is called exactly once).
+private final class CompletionBox: @unchecked Sendable {
+    private var handler: (() -> Void)?
+    init(_ handler: @escaping () -> Void) { self.handler = handler }
+    func call() { handler?(); handler = nil }
 }
