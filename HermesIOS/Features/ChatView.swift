@@ -113,6 +113,7 @@ struct ChatView: View {
                 }
             }
             .onChange(of: model.selected?.storedID) { _, _ in pinnedToBottom = true; toolsExpanded = false }
+            .onChange(of: model.composerFocusRequest) { _, _ in if sheet == nil { focused = true } }
             .task(id: model.pendingVoiceLaunch) {
                 guard model.pendingVoiceLaunch else { return }
                 model.pendingVoiceLaunch = false

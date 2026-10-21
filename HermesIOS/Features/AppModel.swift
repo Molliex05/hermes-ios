@@ -116,6 +116,8 @@ final class AppModel {
     var botMode = true
     var opening = false
     var sending = false
+    /// Changes when the chat should put the cursor in the composer (a notification opened the conversation).
+    var composerFocusRequest = UUID()
     var demo = false
     var hasBooted = false
     /// True until the saved connections are read: no onboarding flash on a cold start.
@@ -312,7 +314,31 @@ final class AppModel {
         navigationRevision = UUID()
         let row: JSONValue = ["id": .string(target.sessionID), "title": "Conversation"]
         await openConversation(Conversation(row, profile: target.profile))
-        if !Task.isCancelled { PushNotifications.shared.opened(target) }
+        guard !Task.isCancelled else { return }
+        if let reply = PushNotifications.shared.takeReply(for: target) { await sendNotificationReply(reply, target: target) }
+        else { composerFocusRequest = UUID() }         // ready to write: the keyboard opens on the conversation
+        PushNotifications.shared.opened(target)
+    }
+
+    /// The text typed on a notification's « Répondre » field goes to the conversation it came from, once that
+    /// conversation is open and idle. If it cannot be sent (agent still answering, connection down) it is left in the
+    /// composer, never lost and never sent to another conversation.
+    private func sendNotificationReply(_ text: String, target: NotificationTarget) async {
+        let previous = draft
+        for _ in 0..<40 {
+            if selected?.storedID == target.sessionID, state == .connected, !opening, !sending, !transcript.running { break }
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+        }
+        draft = text
+        if selected?.storedID == target.sessionID, canSend {
+            await send()
+            // Consumed: the reader's own draft comes back. Refused: the reply stays in front of them.
+            draft = draft.isEmpty ? previous : (previous.isEmpty ? draft : previous + "\n" + draft)
+        } else {
+            draft = previous.isEmpty ? text : previous + "\n" + text
+            notice = "Votre réponse est prête dans le champ : touchez Envoyer."
+            composerFocusRequest = UUID()
+        }
     }
 
     func addConnection(_ connection: SavedConnection, username: String, password: String, token: String) async throws {

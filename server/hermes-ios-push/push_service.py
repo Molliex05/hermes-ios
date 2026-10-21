@@ -156,6 +156,9 @@ def thread_id(row) -> str:
     return hashlib.sha256((base + (f':{row["session"]}' if row["session"] else "")).encode()).hexdigest()
 
 
+REPLY_CATEGORY = "hermes.reply"
+
+
 def notification_payload(row):
     """APNs JSON for an outbox row. `enc` (when present) is already sealed for the target device."""
     enc, kind = row.get("enc"), row.get("kind") or "turn"
@@ -169,6 +172,7 @@ def notification_payload(row):
     hermes = {"version": 1, "connection_id": row["connection"], "profile": row["profile"]}
     if row["session"]:
         hermes["session_id"] = row["session"]
+        aps["category"] = REPLY_CATEGORY        # the app registers it: a « Répondre » text action
     hermes.update({"event_id": row["event"], "kind": kind})
     if enc:
         aps["mutable-content"] = 1
