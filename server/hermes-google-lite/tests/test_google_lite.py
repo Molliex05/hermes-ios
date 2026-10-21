@@ -43,8 +43,9 @@ class Fake:
             {"id": "maxime@gmail.com", "summary": "Maxime", "primary": True, "accessRole": "owner", "selected": True},
             {"id": "work@corp.com", "summary": "Travail", "accessRole": "reader", "selected": True},
             {"id": "old@x.com", "summary": "Ancien", "accessRole": "reader", "selected": False},
-            {"id": "fr.canadian#holiday@group.v.calendar.google.com", "summary": "Jours fériés", "accessRole": "reader", "selected": True}]})
-        if "/calendars/primary/events/" in path:
+            {"id": "police@group.calendar.google.com", "summary": "Police", "accessRole": "owner", "selected": False},
+            {"id": "fr.canadian#holiday@group.v.calendar.google.com", "summary": "Jours fériés", "accessRole": "reader", "selected": True}] + getattr(self, "calendars_extra", [])})
+        if "/events/" in path:
             if method == "GET": return Resp(200, self.event)
             if method == "PATCH": return Resp(200, {**self.event, **kw["json"]})
             if method == "DELETE": return Resp(204)
@@ -62,6 +63,7 @@ class Base(unittest.TestCase):
         for window in plugin._recent.values(): window.clear()
         api._env = lambda name: {"GOOGLE_CLIENT_ID": "cid", "GOOGLE_CLIENT_SECRET": "sec", "GOOGLE_REFRESH_TOKEN": "rt"}.get(name, "")
         plugin._env_platform = lambda: "desktop"
+        plugin._in_cron = lambda: False         # a test that simulates an unattended run must not leak into the next one
         self.tools = {}
         outer = self
         class Ctx:
@@ -203,14 +205,32 @@ class Calendar(Base):
         self.assertIn("Aucun agenda", self.call("agenda_lister", calendrier="inconnu")["error"])
     def test_calendar_list_tool(self):
         names = [c["nom"] for c in self.call("agenda_calendriers")["agendas"]]
-        self.assertEqual(names, ["Maxime", "Travail", "Ancien", "Jours fériés"])
-    def test_writes_stay_on_primary(self):
+        self.assertEqual(names, ["Maxime", "Travail", "Ancien", "Police", "Jours fériés"])
+    def posts(self): return [c[1] for c in self.fake.api_calls() if c[0] == "POST" and c[1].endswith("/events")]
+    def test_writes_default_to_the_main_calendar(self):
         self.call("agenda_creer", titre="Test", debut="2026-10-22T09:30")
-        posts = [c[1] for c in self.fake.api_calls() if c[0] == "POST" and c[1].endswith("/events")]
-        self.assertTrue(all("/calendars/primary/events" in u for u in posts))
-        for url in (f"{api.CALENDAR}/calendars/work%40corp.com/events", f"{api.CALENDAR}/calendars/work%40corp.com/events/e9"):
-            with self.assertRaises(api.GoogleError): api.request("POST", url)
-        with self.assertRaises(api.GoogleError): api.request("DELETE", f"{api.CALENDAR}/calendars/work%40corp.com/events/e9")
+        self.assertTrue(self.posts()[-1].endswith("/calendars/primary/events"))
+    def test_writes_can_target_an_owned_calendar(self):
+        r = self.call("agenda_creer", titre="Quart de nuit", debut="2026-10-23T19:00", fin="2026-10-24T07:00", calendrier="Police")
+        self.assertTrue(r["ok"]); self.assertTrue(self.posts()[-1].endswith("/calendars/police%40group.calendar.google.com/events"))
+        self.assertTrue(self.call("agenda_modifier", id="e1", titre="Quart (déplacé)", calendrier="police")["ok"])
+        patch = [c for c in self.fake.api_calls() if c[0] == "PATCH"][-1][1]
+        self.assertIn("/calendars/police%40group.calendar.google.com/events/e1", patch)
+        self.assertTrue(self.call("agenda_supprimer", id="e1", calendrier="Police")["ok"])
+        self.assertIn("/calendars/police%40group.calendar.google.com/events/e1", [c[1] for c in self.fake.api_calls() if c[0] == "DELETE"][-1])
+    def test_read_only_calendars_refuse_every_write(self):
+        for tool, args in (("agenda_creer", {"titre": "x", "debut": "2026-10-23T09:00"}), ("agenda_modifier", {"id": "e9", "titre": "x"}), ("agenda_supprimer", {"id": "e9"})):
+            for name in ("Travail", "Jours fériés"):
+                self.assertIn("lecture seule", self.call(tool, calendrier=name, **args)["error"], f"{tool} {name}")
+        self.assertIn("Aucun agenda", self.call("agenda_creer", titre="x", debut="2026-10-23T09:00", calendrier="Inconnu")["error"])
+        self.assertEqual([c for c in self.fake.api_calls() if c[0] in ("POST", "PATCH", "DELETE")], [])
+    def test_unattended_runs_only_write_to_the_main_calendar(self):
+        plugin._in_cron = lambda: True
+        self.assertIn("Personnel", self.call("agenda_creer", titre="x", debut="2026-10-23T09:00", calendrier="Police")["error"])
+        self.assertTrue(self.call("agenda_creer", titre="x", debut="2026-10-23T09:00")["ok"])
+    def test_ambiguous_name_asks_for_precision(self):
+        self.fake.calendars_extra = [{"id": "p2@x.com", "summary": "Police bis", "accessRole": "owner", "selected": False}]
+        self.assertIn("Plusieurs agendas", self.call("agenda_creer", titre="x", debut="2026-10-23T09:00", calendrier="pol")["error"])
     def test_modify_keeps_duration_and_notifies_nobody(self):
         r = self.call("agenda_modifier", id="e1", debut="2026-10-22T10:00", titre="Dentiste (déplacé)")
         self.assertTrue(r["ok"]); self.assertEqual(r["titre"], "Dentiste (déplacé)")
@@ -227,8 +247,7 @@ class Calendar(Base):
         self.assertTrue(r["ok"]); self.assertEqual(r["titre"], "Dentiste"); self.assertEqual(r["participants"], 1); self.assertIn("30 jours", r["note"])
         delete = [c for c in self.fake.api_calls() if c[0] == "DELETE"][0]
         self.assertTrue(delete[1].endswith("/calendars/primary/events/e1")); self.assertEqual(delete[2]["params"], {"sendUpdates": "none"})
-        for url in (f"{api.CALENDAR}/calendars/work%40corp.com/events/e9", f"{api.CALENDAR}/calendars/primary"):
-            with self.assertRaises(api.GoogleError): api.request("DELETE", url)
+        with self.assertRaises(api.GoogleError): api.request("DELETE", f"{api.CALENDAR}/calendars/primary")      # not an event path
         self.assertIn("invalide", self.call("agenda_supprimer", id="a/b")["error"])
     def test_removal_rate_limit(self):
         for _ in range(plugin.REMOVALS_PER_HOUR): self.assertTrue(self.call("agenda_supprimer", id="e1")["ok"])

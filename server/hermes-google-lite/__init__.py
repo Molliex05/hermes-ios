@@ -32,9 +32,9 @@ DESCRIPTIONS = {
     "gmail_dossiers": "Liste les dossiers (étiquettes) qui existent déjà dans le Gmail de Maxime, pour réutiliser la même arborescence.",
     "agenda_lister": "Liste les événements des agendas Google de Maxime (personnel, travail, partagés : tous ceux affichés dans son Google Agenda) entre deux dates, fusionnés par heure, avec le nom de l'agenda de chacun. Par défaut les 7 prochains jours. Dates ISO : 2026-10-21 ou 2026-10-21T14:00. Passe `calendrier` (nom ou partie du nom, ex. « travail ») pour un seul agenda.",
     "agenda_calendriers": "Liste les agendas Google que le compte de Maxime peut voir (nom, rôle, affiché ou non), pour savoir lequel interroger.",
-    "agenda_modifier": "Modifie un événement de l'agenda PRINCIPAL de Maxime (titre, début, fin, lieu, description), sans prévenir personne. Passe seulement ce qui change ; sans `fin`, la durée est conservée. Les événements d'autres agendas (travail, partagés : `modifiable` à false) ne sont pas modifiables.",
-    "agenda_supprimer": "Supprime un événement de l'agenda PRINCIPAL de Maxime, sans prévenir personne (Google le garde 30 jours dans la corbeille de l'agenda). Dis à Maxime ce que tu supprimes. Les événements d'autres agendas ne sont pas supprimables.",
-    "agenda_creer": "Crée un événement dans l'agenda PRINCIPAL de Maxime (jamais dans un agenda de travail ou partagé), sans inviter personne. Date seule = journée entière ; date et heure = événement horaire (1 h par défaut).",
+    "agenda_modifier": "Modifie un événement d'un agenda de Maxime (titre, début, fin, lieu, description), sans prévenir personne. Passe seulement ce qui change ; sans `fin`, la durée est conservée. `calendrier` = l'agenda de l'événement (le nom renvoyé par agenda_lister, ex. « Police ») ; « Personnel » par défaut. Un agenda en lecture seule (`modifiable` à false, ex. jours fériés) est refusé.",
+    "agenda_supprimer": "Supprime un événement d'un agenda de Maxime, sans prévenir personne (Google le garde 30 jours dans la corbeille de l'agenda). `calendrier` = l'agenda de l'événement (ex. « Police ») ; « Personnel » par défaut. Dis à Maxime ce que tu supprimes. Un agenda en lecture seule est refusé.",
+    "agenda_creer": "Crée un événement dans un agenda de Maxime, sans inviter personne. `calendrier` = l'agenda cible (ex. « Police » pour un quart de travail, « Workout » pour l'entraînement) ; « Personnel » par défaut. Date seule = journée entière ; date et heure = événement horaire (1 h par défaut).",
 }
 
 _str = lambda d, **kw: {"type": "string", "description": d, **kw}
@@ -59,11 +59,13 @@ SCHEMAS = {
     "gmail_dossiers": {"type": "object", "properties": {}, "additionalProperties": False},
     "agenda_calendriers": {"type": "object", "properties": {}, "additionalProperties": False},
     "agenda_modifier": {"type": "object", "properties": {
+        "calendrier": _str("Agenda cible (nom ou partie du nom, ex. « Police »), facultatif ; « Personnel » par défaut.", maxLength=100),
         "id": _str("Id renvoyé par agenda_lister.", maxLength=100), "titre": _str("Nouveau titre.", maxLength=200),
         "debut": _str("Nouveau début (ISO)."), "fin": _str("Nouvelle fin (ISO)."),
         "description": _str("Nouvelle description (vide pour l'effacer).", maxLength=2000), "lieu": _str("Nouveau lieu (vide pour l'effacer).", maxLength=200)},
         "required": ["id"], "additionalProperties": False},
-    "agenda_supprimer": {"type": "object", "properties": {"id": _str("Id renvoyé par agenda_lister.", maxLength=100)},
+    "agenda_supprimer": {"type": "object", "properties": {"id": _str("Id renvoyé par agenda_lister.", maxLength=100),
+        "calendrier": _str("Agenda de l'événement (nom renvoyé par agenda_lister), facultatif ; « Personnel » par défaut.", maxLength=100)},
                          "required": ["id"], "additionalProperties": False},
     "agenda_lister": {"type": "object", "properties": {
         "calendrier": _str("Nom (ou partie du nom) d'un agenda, facultatif ; tous les agendas affichés par défaut.", maxLength=100),
@@ -71,6 +73,7 @@ SCHEMAS = {
         "requete": _str("Mot-clé, facultatif.", maxLength=200), "max": {"type": "integer", "minimum": 1, "maximum": 50, "default": 20}},
         "additionalProperties": False},
     "agenda_creer": {"type": "object", "properties": {
+        "calendrier": _str("Agenda cible (nom ou partie du nom, ex. « Police »), facultatif ; « Personnel » par défaut.", maxLength=100),
         "titre": _str("Titre.", maxLength=200), "debut": _str("Début (ISO)."), "fin": _str("Fin (ISO), facultatif."),
         "description": _str("Description, facultatif.", maxLength=2000), "lieu": _str("Lieu, facultatif.", maxLength=200)},
         "required": ["titre", "debut"], "additionalProperties": False},
@@ -134,6 +137,8 @@ def _run(name: str, args: Dict[str, Any]) -> str:
         return _json({"error": "Cet outil n'est pas disponible sur cette plateforme."})
     if name in CRON_BLOCKED and _in_cron():
         return _json({"error": "Non disponible dans une tâche automatique : signale-le à Maxime plutôt."})
+    if name == "agenda_creer" and args.get("calendrier") and _in_cron():
+        return _json({"error": "Dans une tâche automatique, tu n'écris que dans « Personnel » : laisse `calendrier` vide."})
     if not api.configured():
         return _json({"error": "Google n'est pas encore configuré pour ce profil. Dis à Maxime de terminer l'autorisation Google."})
     if name == "gmail_chercher":
@@ -176,7 +181,7 @@ def _run(name: str, args: Dict[str, Any]) -> str:
     if name == "agenda_supprimer":
         if not _budget("remove", REMOVALS_PER_HOUR):
             return _json({"error": f"Limite atteinte : {REMOVALS_PER_HOUR} suppressions par heure."})
-        removed = api.calendar_delete(str(args.get("id") or ""))
+        removed = api.calendar_delete(str(args.get("id") or ""), str(args.get("calendrier") or ""))
         return _json({"ok": True, **removed, "note": "Supprimé sans prévenir personne ; récupérable 30 jours dans la corbeille de Google Agenda."})
     if name == "agenda_modifier":
         patch: Dict[str, Any] = {}
@@ -186,7 +191,7 @@ def _run(name: str, args: Dict[str, Any]) -> str:
             if field in args:
                 patch[key] = str(args.get(field) or "")
         if args.get("debut") or args.get("fin"):
-            current = api.calendar_get(str(args.get("id") or ""))
+            current = api.calendar_get(str(args.get("id") or ""), str(args.get("calendrier") or ""))
             cur_start, cur_end = current.get("start") or {}, current.get("end") or {}
             if "dateTime" in cur_start:
                 begin = datetime.fromisoformat(cur_start["dateTime"].replace("Z", "+00:00"))
@@ -215,7 +220,7 @@ def _run(name: str, args: Dict[str, Any]) -> str:
             return _json({"error": "Rien à modifier : indique au moins un champ."})
         if not _budget("edit", EDITS_PER_HOUR):
             return _json({"error": f"Limite atteinte : {EDITS_PER_HOUR} modifications par heure."})
-        return _json({"ok": True, **api.calendar_update(str(args.get("id") or ""), patch), "note": "Événement modifié sans prévenir personne."})
+        return _json({"ok": True, **api.calendar_update(str(args.get("id") or ""), patch, str(args.get("calendrier") or "")), "note": "Événement modifié sans prévenir personne."})
     if name == "agenda_creer":
         title = str(args.get("titre") or "").strip()
         if not title:
@@ -233,7 +238,7 @@ def _run(name: str, args: Dict[str, Any]) -> str:
             if isinstance(finish, date) and not isinstance(finish, datetime) or finish <= start:
                 return _json({"error": "La fin doit être une date-heure après le début."})
             span = ({"dateTime": start.isoformat(), "timeZone": str(tz)}, {"dateTime": finish.isoformat(), "timeZone": str(tz)})
-        created = api.calendar_create(title, span[0], span[1], str(args.get("description") or ""), str(args.get("lieu") or ""))
+        created = api.calendar_create(title, span[0], span[1], str(args.get("description") or ""), str(args.get("lieu") or ""), str(args.get("calendrier") or ""))
         return _json({"ok": True, **created, "note": "Événement créé sans invitation envoyée."})
     return _json({"error": "Outil inconnu."})
 
