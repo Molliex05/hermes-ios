@@ -26,9 +26,9 @@ These tests execute the **official, unmodified Hermes backend** with a new isola
 ```sh
 mkdir -p outputs/integration
 git clone https://github.com/NousResearch/hermes-agent.git outputs/integration/upstream
-git -C outputs/integration/upstream checkout b7b35a84b7fbe1aa2e223a6ce726a2471300d0a4
-python3.11 -m venv outputs/integration/venv
-outputs/integration/venv/bin/pip install -e outputs/integration/upstream
+git -C outputs/integration/upstream checkout 71d34bad1045610252eda02ee79549436896e784   # Hermes 0.21.7
+python3.14 -m venv outputs/integration/venv
+outputs/integration/venv/bin/pip install -e outputs/integration/upstream httpx websockets aiortc pyyaml
 
 # Leave running in a terminal; --home must be new and empty:
 outputs/integration/venv/bin/python scripts/integration_server.py \
@@ -70,7 +70,7 @@ With the isolated fixture running, select `HermesIOSIntegration` and run `testNa
 
 Use the same disposable fixture with Hermes 0.21.3. `check_management_contract.py` verifies partial configuration writes and profile isolation, toolsets, skill content, native project/file operations, history archives/search, cron editing, Kanban comments/status, Bot metadata revision conflicts and group administration.
 
-`check_interactive_contract.py` requests a real `clarify` tool call from the deterministic model. It answers one question, reconnects, verifies the accepted answer in `open_requests`, answers the remaining question, and checks that a late answer expires. `check_speech_stream_contract.py` verifies PCM arrives before text completion and checks two profile voices.
+`check_interactive_contract.py` requests a real `clarify` tool call from the deterministic model. It answers one question, reconnects, verifies the accepted answer in `open_requests`, answers the remaining question, and checks that a late answer expires. `check_speech_stream_contract.py` sends text first (Hermes 0.21.7 emits `start` with the first PCM chunk), verifies PCM arrives before text completion, checks two profile voices, and checks that `transcribe-stream` immediately reports a provider without live STT so the client falls back to the upload. Since 0.21.7 every contract client declares `client.capabilities {server_requests: true}`, and the fixture writes provider keys to each profile's `.env` (secrets are profile-scoped). `check_routine_navigation_contract.py` warns, instead of failing, when a deleted job no longer lists its runs (0.21.7 behavior); the stored conversation still resumes.
 
 ```sh
 python scripts/check_management_contract.py
@@ -123,3 +123,35 @@ Start a disposable fixture with a new home, `--port 19149 --model-port 19250`. R
 The DEBUG-only `--voice-fixture` requires a loopback connection and replaces microphone samples/transcription input, while exercising the actual iOS PCM converter/player, native Hermes requests and server execution. `--voice-quiet-fixture` and `--voice-barge-fixture` only affect this fixture. They do not prove physical echo rejection, microphone sensitivity or Bluetooth routing. Validate those manually on the physical iPhone: let Hermès speak on the speaker, interrupt with a full phrase, repeat with headphones, mute/unmute and disconnect the headphones. An incoming call or backgrounding should stop local recording/playback; an admitted agent turn remains in the chat.
 
 `testVoiceAccessibilityAndDismissal` covers the largest accessibility text size and reachable bottom controls. The audio-only animation is bounded to 24 fps and respects Reduce Motion. Core tests exercise native preference parsing, short-noise rejection, long silence, confirmed pre-roll handoff, interruption grace and disabled barge-in.
+
+
+## GPT-Live native WebRTC (2026-09-27)
+
+Use Xcode's Swift toolchain (`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`); the older Command Line Tools compiler does not compile some existing voice-window initializers. Core tests include delegation deduplication, transient voice context, bounded Unicode commentary, startup history and incremental reply cursors.
+
+The provider-only fixture needs `aiortc==1.15.0` in an isolated test environment. It negotiates a real WebRTC peer, consumes microphone audio without recording it, emits transcript/delegation events (including a duplicate), and reflects received commentary into output transcript events. Hermes' gateway code is unmodified. No real provider key is needed. Use a **new empty** home directory:
+
+```sh
+python scripts/integration_server.py --home outputs/gpt-live-test/hermes-home --port 19159 --model-port 19260 --live-fixture --upstream-root /path/to/current/hermes-agent
+HERMES_TEST_BASE=http://127.0.0.1:19159 python scripts/check_voice_live_contract.py
+```
+
+The checkout must include native `/api/audio/voice-live/status` and `/api/audio/voice-live/session` (tested at `7d7fe0043e`, routes unchanged in 0.21.7). The contract probe checks authentication, secret-free status/SDP responses, partial Stone configuration updates, real WebRTC events and native Hermes turns for research and studio profiles. It does not prove the real OpenAI service's quality or latency.
+
+`testNativeGPTLiveDelegationAndReopen` in `HermesIOSIntegration` connects to port 19159 on a dedicated simulator. Grant microphone access to `org.hermesios.HermesIOS` with `simctl privacy <simulator-id> grant microphone org.hermesios.HermesIOS`. The DEBUG-only `--live-transport-fixture` flag disables WebRTC hardware audio only for a loopback connection, avoiding the iOS 27 simulator audio-device initialization failure. SDP and the data channel remain real; microphone/speaker behavior is not established by this fixture. Release has no such flag. It verifies captions, delegated reply, duplicate suppression, mute, preserved typed draft and immediate close after reopening. Do not run concurrent UI tests on that simulator.
+
+`HermesIOSVoiceTests/VoiceLiveTransportTests` is an app-hosted integration test for the native WebRTC transport without UI automation. It uses the same loopback fixture and silent hardware boundary, checks audio/data SDP sections and CRLF, waits for session.started and delegation, exchanges commentary, then verifies mute and idempotent close. It is only included in HermesIOSIntegration.
+
+## GPT-Live spoken progress (2026-09-28)
+
+Core tests use a monotonic test clock to cover a delayed acknowledgement, GPT-Live's own acknowledgement, recent user speech, active versus completed/unknown tools, rate limiting, per-delegation reset, and suppression after a reply or completion. Spoken progress uses `session.commentary.append`; raw activity remains quiet context. No tool arguments or reasoning are added to spoken status.
+
+For the physical phone check, ask the selected Hermes profile for a request that takes more than ten seconds. Expect a brief acknowledgement if GPT-Live has not already spoken, then an occasional relevant status. There are at most three injected announcements per delegation, at least eight seconds between updates, and only one generic waiting message. Partial replies suppress further injected progress. Also test a fast response (no late waiting message), speaking during the wait, changing the request, and closing voice before the result. Transcript-based quiet detection is a heuristic; the real provider owns audio scheduling and interruption. This does not reduce backend reasoning time.
+
+## GPT-Live delivery and delegation recovery (2026-10-02)
+
+Core coverage now includes overlapping user/assistant fragments, delegation before transcript delivery, queued requests with distinct timeline offsets, duplicate delegations for an already submitted utterance, correlated context receipts, timeout and incomplete-injection errors. The fixture emits delayed append receipts; the native WebRTC test waits for the matching receipt before succeeding.
+
+Requests are retained in order while Hermes works. A new delegation no longer automatically interrupts the previous backend turn. This does not implement mid-execution editing/cancellation of actions; use the existing chat controls when an in-progress action must be stopped. Missing transcript or delivery errors are surfaced rather than replaying a possibly executed request. Closing voice/profile changes still invalidate local relay work.
+
+The `org.hermesios.HermesIOS` / `VoiceLive` OSLog category records stage names and elapsed milliseconds, without conversation text or credentials: delegation, admission, first Hermes text/result, append receipt, output transcript and errors. Include informational messages when collecting these logs. Output transcript activity establishes model speech generation, not verified physical playback or semantic completeness. A 12-second watchdog detects a completely silent result after context delivery; it does not automatically resend the result.

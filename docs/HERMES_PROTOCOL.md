@@ -1,6 +1,8 @@
 # Hermes protocol research
 
-Research date: **2026-09-12**. Source revision: [`b7b35a84b7fbe1aa2e223a6ce726a2471300d0a4`](https://github.com/NousResearch/hermes-agent/tree/b7b35a84b7fbe1aa2e223a6ce726a2471300d0a4), package version **0.21.2**.
+Research date: **2026-09-12**, re-audited **2026-10-13** against Hermes **0.21.7**, commit [`71d34bad1045610252eda02ee79549436896e784`](https://github.com/NousResearch/hermes-agent/tree/71d34bad1045610252eda02ee79549436896e784) (the deployed version). The original research used [`b7b35a8`](https://github.com/NousResearch/hermes-agent/tree/b7b35a84b7fbe1aa2e223a6ce726a2471300d0a4) (0.21.2).
+
+Since 0.21, the wire is declared in Python (`tui_gateway/contracts/`): every method has typed `Params`/`Result` models with **unknown keys rejected** (`4000`), every server→client request and every event has a typed payload. The re-audit compared every call, event and request the app uses against that catalog.
 
 The official [full documentation corpus](https://hermes-agent.nousresearch.com/docs/llms-full.txt) was downloaded and indexed: 214 source pages, 82,956 lines, 4,284,592 bytes. Detailed implementation review focused on the sections relevant to a mobile client, then checked each wire contract against official source. The large reference checkout and corpus are local research outputs, excluded from this repository.
 
@@ -22,16 +24,17 @@ The official [full documentation corpus](https://hermes-agent.nousresearch.com/d
 | Password login | `POST /auth/password-login {provider:"basic",username,password}` → native cookies | `hermes_cli/dashboard_auth/routes.py` |
 | WebSocket authorization | `POST /api/auth/ws-ticket` → 30-second, single-use ticket | `hermes_cli/dashboard_auth/routes.py`, `ws_tickets.py` |
 | Native socket | `/api/ws?ticket=…`; newline-delimited JSON-RPC text envelopes, potentially several per WS message | `hermes_cli/web_routers/chat_ws.py`, `tui_gateway/ws.py` |
-| Liveness | `ping`; `gateway.ready` advertises epoch/change events | `tui_gateway/methods_voice.py`, `ws.py` |
+| Handshake | `gateway.ready` (first frame: `replay_epoch`, `change_events`), then **`client.capabilities {server_requests: true}` once per connection** | `tui_gateway/ws.py`, `methods_voice.py`, `server_requests.py` |
+| Liveness | `ping` every 15 s (45 s deadline), plus a quick probe after a network path change | `tui_gateway/methods_voice.py` |
 | Profiles | `profiles.list`, `.create`, `.describe`, `.configure` | `tui_gateway/methods_profiles.py` |
 | Sessions | `session.list`, `.create`, `.resume`, `.history`, `.title`, `.interrupt` | `tui_gateway/methods_session.py` |
-| Turn | `prompt.submit {session_id,text}`; `message.start/delta/interim/complete` | `tui_gateway/methods_prompt.py`, `prompt_turn.py` |
+| Turn | `prompt.submit {session_id,text}` (+ `voice_turn`, `interrupted`, or `surface: "voice-live"` + `voice_context`); `message.start/delta/interim/complete` | `tui_gateway/methods_prompt.py`, `contracts/prompt_voice.py` |
 | Replay | `session.events.since {session_id,last_seen}` → `{events,latest_seq,truncated,epoch}` | `tui_gateway/event_replay.py`, `methods_session.py` |
-| User decisions | `approval.respond`, `clarify.respond`, `sudo.respond`, `secret.respond` | `tui_gateway/methods_prompt.py`, `server.py` |
+| User decisions | Server→client requests `approval`, `clarify`, `sudo`, `secret`, `vault.code`, `vault.unlock_prompt` (string `srq-…` ids), answered with `request.answer {id,result}`; batch clarify locks each answer with `clarify.lock {request_id,question_id,answer}`; `request.cancel` withdraws one. A queue entry restored by `session.resume` (`pending_approval`) is answered with `approval.respond` (`resolved` is a count) and cleared by `approval.cancelled` | `tui_gateway/server_requests.py`, `contracts/server_requests.py`, `server.py` |
 | Routines | `cron.manage {profile,action,…}`; list uses `job_id`, not internal DB `id` | `tui_gateway/methods_tools.py`, `tools/cronjob_job_args.py` |
 | Groups | `groups.capabilities/list/create/log/send/stop`; log uses `since_seq`, send uses `event_id` and `{text,thread_id}` | `tui_gateway/methods_groups.py`, `gateway/hosted_room_discussion.py` |
 
-All source paths above refer to the [pinned official repository](https://github.com/NousResearch/hermes-agent/tree/b7b35a84b7fbe1aa2e223a6ce726a2471300d0a4). This is a compatibility record, not a promise that upstream private wire shapes are permanently stable.
+Source paths refer to the [audited revision](https://github.com/NousResearch/hermes-agent/tree/71d34bad1045610252eda02ee79549436896e784). This is a compatibility record, not a promise that upstream private wire shapes are permanently stable.
 
 ## Identity and protocol details that matter
 
@@ -42,6 +45,10 @@ All source paths above refer to the [pinned official repository](https://github.
 - Native auth middleware can rotate cookies during an authenticated request. Hermès iOS persists updated cookies without storing the password.
 - Batch clarification answers use **`question_id`**, while the individual question is advertised with **`qid`**.
 - `cron.manage list` confirms its owner through `scoped`; Hermès iOS refuses profile management when an older backend does not prove that scope.
+- **Without `client.capabilities {server_requests: true}`**, Hermes treats a WebSocket client as a build that predates server→client requests: approvals are withdrawn at once (not denied) and clarify/sudo/secret prompts are never sent. Builds before this audit did not declare it; the legacy `approval.request`/`clarify.request`/`*.expire` events and `clarify.respond`/`sudo.respond`/`secret.respond` methods no longer exist.
+- `session.history` carries only `{count, messages}`; live state (`running`, `inflight`, `pending_approval`, `open_requests`) comes from `session.resume`/`session.events.since`. `session.reclaimed` means the runtime id is gone: re-attach.
+- Methods without a `profile` param (e.g. `plugins.list`, `model.save_key`, `reload.env`, `tools.list`) must not receive one.
+- Provider secrets are scoped to each profile's `.env`; the process environment no longer reaches profiles.
 - Group orchestration is hosted by Hermes. Older desktop-local group machinery is not recreated in Hermès iOS. The current mobile surface is limited to the native same-gateway hosted protocol.
 
 ## Why not the OpenAI-compatible API?
@@ -56,10 +63,14 @@ The `/v1/*` integration is useful for OpenAI-compatible clients but is not the d
 | Models | GET `/api/model/options`, POST `/api/model/set` | Profile scoped; `scope: main`; applies to new sessions; honor `confirm_required` before retrying with `confirm_expensive_model` |
 | Workspace | RPC `projects.list` | Profile scoped; projects include `folders`, `primary_path`, `board_slug` |
 | Kanban | GET `/api/plugins/kanban/boards`, `/board`, `/tasks/{id}`; POST `/tasks` | Explicit `board` query; shared board data; task creation uses `triage: true` and a retained `idempotency_key` |
-| Voice transcription | POST `/api/audio/transcribe` | Profile scoped JSON `data_url` + `mime_type: audio/mp4`; result `transcript` |
-| Speech playback | POST `/api/audio/speak` | Profile scoped `{text}`; result base64 `data_url`; provider credentials remain on Hermes |
+| Live transcription | WS `/api/audio/transcribe-stream?profile=` | `{"sample_rate":16000}`, binary s16le mono PCM while speaking, `{"eos":true}`; server sends `partial`, `final` or `error` (immediately when the provider has no live STT, e.g. Groq) |
+| Voice transcription (fallback) | POST `/api/audio/transcribe` | Profile scoped JSON `data_url` (16 kHz WAV) + `mime_type`; result `transcript` |
+| Streaming speech | WS `/api/audio/speak-stream?profile=` | Client sends `{text}` deltas then `{done}` (or `{stop}`); the server sends `{"type":"start"}` **with the first PCM chunk**, binary PCM, then `end` or `fallback` |
+| Speech playback (fallback) | POST `/api/audio/speak` | Profile scoped `{text}`; result base64 `data_url`; provider credentials remain on Hermes |
+| Settings | GET `/api/config`, `/api/config/schema`, `/api/config/defaults`; PUT `/api/config {config: patch}` (deep merge) | Profile scoped; mirrors the desktop settings pages |
+| Credentials | GET/PUT/DELETE `/api/env` | Per-profile `.env`; only `is_set` flags are read back, values are never displayed |
 
-These contracts come from `hermes_cli/web_routers/{skills,models,audio}.py`, `tui_gateway/methods_projects.py`, `plugins/kanban/dashboard/plugin_api.py` and the official desktop Kanban client. The server’s `voice.record` captures the **server** microphone, so it is deliberately not used for iPhone recording. The mobile voice screen chains transcription → `prompt.submit` → profile speech playback → listening. It reads `config.get {key: "full", profile}` over the existing native RPC connection for silence/stop-phrase settings and `voice.voice_chat_mode`. Standard voice does not depend on `/api/config` or the optional `/api/audio/voice-live/status` route. Missing required transcription/speech endpoints produce an explicit compatibility message; authentication failures remain authentication errors. `/api/audio/tts-lease` is acquired per call and released on exit. It does not fetch `/api/audio/voice-config`, which exposes client-direct provider credentials. GPT-Live/WebRTC and automatic barge-in remain unsupported; a configured GPT-Live profile is offered an explicit temporary standard-voice call.
+These contracts come from `hermes_cli/web_routers/{skills,models,audio}.py`, `tui_gateway/methods_projects.py`, `plugins/kanban/dashboard/plugin_api.py` and the official desktop Kanban client. The server’s `voice.record` captures the **server** microphone, so it is deliberately not used for iPhone recording. The mobile voice screen chains transcription → `prompt.submit` → profile speech playback → listening. It reads `config.get {key: "full", profile}` over the existing native RPC connection for silence/stop-phrase settings and `voice.voice_chat_mode`. Standard voice does not depend on `/api/config` or the optional `/api/audio/voice-live/status` route. Missing required transcription/speech endpoints produce an explicit compatibility message; authentication failures remain authentication errors. `/api/audio/tts-lease` is acquired per call and released on exit. It does not fetch `/api/audio/voice-config`, which exposes client-direct provider credentials: all audio goes through the relay routes. Chained turns send `voice_turn: true` (Hermes routes them to `auxiliary.voice_chat`, reasoning off by default) and `interrupted: true` after a barge-in. GPT-Live uses `/api/audio/voice-live/status` and `/api/audio/voice-live/session` (WebRTC SDP exchange; the OpenAI key stays on Hermes).
 
 ## Media attachments
 
