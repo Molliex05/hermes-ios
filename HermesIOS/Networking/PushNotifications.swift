@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 import UIKit
-import UserNotifications
+@preconcurrency import UserNotifications
 
 @MainActor @Observable
 final class PushNotifications {

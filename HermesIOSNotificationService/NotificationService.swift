@@ -1,4 +1,4 @@
-import UserNotifications
+@preconcurrency import UserNotifications
 
 /// Decrypts the end-to-end encrypted preview. No networking, no UI, no logging:
 /// on any failure the generic fallback content is delivered unchanged.
