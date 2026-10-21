@@ -2,6 +2,17 @@ import Foundation
 @preconcurrency import AVFoundation
 import Accelerate
 
+extension AVAudioSession.CategoryOptions {
+    /// Hands-free Bluetooth for calls: `.allowBluetoothHFP` in the iOS 26 SDK, `.allowBluetooth` before it (same behavior).
+    static var bluetoothCall: AVAudioSession.CategoryOptions {
+        #if compiler(>=6.2)
+        .allowBluetoothHFP
+        #else
+        .allowBluetooth
+        #endif
+    }
+}
+
 /// One duplex graph for the whole voice conversation. AVAudioSession, graph mutations,
 /// conversion and file decoding stay off MainActor. The input tap measures each buffer
 /// (timestamped `VoiceLevel`), converts it once to 16 kHz mono and feeds bounded storage
@@ -240,7 +251,7 @@ final class VoiceAudioEngine: @unchecked Sendable {
         let session = AVAudioSession.sharedInstance()
         do {
             Self.sessionOwner = self
-            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .allowBluetoothHFP])
+            try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.defaultToSpeaker, .bluetoothCall])
             try? session.setPreferredSampleRate(48000)
             try? session.setPreferredIOBufferDuration(0.02)
             try session.setActive(true)

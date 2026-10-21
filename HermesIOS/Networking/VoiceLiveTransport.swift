@@ -60,7 +60,7 @@ final class VoiceLiveTransport: NSObject {
         let audio = RTCAudioSession.sharedInstance()
         audio.lockForConfiguration()
         let settings = RTCAudioSessionConfiguration.webRTC()
-        settings.categoryOptions = [.defaultToSpeaker, .allowBluetoothHFP]
+        settings.categoryOptions = [.defaultToSpeaker, .bluetoothCall]
         do { try audio.setConfiguration(settings) }
         catch { audio.unlockForConfiguration(); throw error }
         audio.unlockForConfiguration()
