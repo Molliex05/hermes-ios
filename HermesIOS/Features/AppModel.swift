@@ -1447,6 +1447,10 @@ final class AppModel {
         let text = draft; draft = ""
         transcript.messages.append(.init(role: "user", text: text))
         transcript.running = true
+        #if DEBUG
+        // Keeps the reply running long enough to look at the header's working state.
+        if ProcessInfo.processInfo.arguments.contains("--demo-long-reply") { try? await Task.sleep(for: .seconds(12)) }
+        #endif
         for word in "Ceci est un aperçu d’Hermès iOS. Connectez votre agent Hermes pour retrouver vos conversations, vos profils et vos outils.".split(separator: " ") {
             try? await Task.sleep(for: .milliseconds(60))
             transcript.apply(["type": "message.delta", "payload": ["text": .string(String(word) + " ")]])

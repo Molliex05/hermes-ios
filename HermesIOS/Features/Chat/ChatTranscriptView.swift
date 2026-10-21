@@ -270,6 +270,8 @@ struct EmptyChatView: View, Equatable {
     let suggest: (String) -> Void
     var agentName = "default"
     var agentTitle = "Hermes"
+    @State private var appeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.agentName == rhs.agentName && lhs.agentTitle == rhs.agentTitle }
 
@@ -299,17 +301,27 @@ struct EmptyChatView: View, Equatable {
                     Spacer(minLength: 24)
                     VStack(spacing: 14) {
                         OrbView(phase: .idle, breathesWhenIdle: true).frame(width: 104, height: 104)
+                            .scaleEffect(appeared || reduceMotion ? 1 : 0.8).opacity(appeared || reduceMotion ? 1 : 0)
+                            .animation(.spring(response: 0.7, dampingFraction: 0.78), value: appeared)
                         Text(greeting).font(.system(size: 34, weight: .regular, design: .serif)).tracking(-0.8)
+                            .opacity(appeared || reduceMotion ? 1 : 0).offset(y: appeared || reduceMotion ? 0 : 10)
+                            .animation(.easeOut(duration: 0.5).delay(0.12), value: appeared)
                         Text("Que puis-je faire pour vous ?").font(.title3).foregroundStyle(.secondary)
+                            .opacity(appeared || reduceMotion ? 1 : 0).offset(y: appeared || reduceMotion ? 0 : 10)
+                            .animation(.easeOut(duration: 0.5).delay(0.2), value: appeared)
                     }.multilineTextAlignment(.center)
                     Spacer(minLength: 24)
-                    VStack(spacing: 8) {
-                        ForEach(ideas) { idea in suggestion(idea) }
+                    VStack(spacing: 10) {
+                        ForEach(Array(ideas.enumerated()), id: \.element.id) { index, idea in
+                            suggestion(idea)
+                                .opacity(appeared || reduceMotion ? 1 : 0).offset(y: appeared || reduceMotion ? 0 : 18)
+                                .animation(.spring(response: 0.55, dampingFraction: 0.82).delay(0.28 + 0.08 * Double(index)), value: appeared)
+                        }
                     }
                 }.padding(.horizontal, 18).padding(.bottom, 10)
                     .frame(minHeight: geometry.size.height).frame(maxWidth: 640).frame(maxWidth: .infinity)
             }.scrollDismissesKeyboard(.interactively).scrollBounceBehavior(.basedOnSize)
-        }
+        }.onAppear { appeared = true }
     }
 
     private func suggestion(_ idea: Idea) -> some View {
@@ -322,9 +334,10 @@ struct EmptyChatView: View, Equatable {
                 }
                 Spacer(minLength: 4)
             }.padding(.horizontal, 16).padding(.vertical, 13)
-                .background(AppTheme.surface.opacity(0.78), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(AppTheme.line))
-        }.buttonStyle(.plain)
+                .softShadow(0.7)
+        }.buttonStyle(PressableStyle())
     }
 }
 
@@ -365,6 +378,8 @@ struct MessageView: View, Equatable {
     let message: ChatMessage
     let agent: String
     private var user: Bool { message.role == "user" }
+    /// Your bubble keeps a small corner at its tail, like a speech bubble.
+    private static let bubble = UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 22, bottomTrailingRadius: 7, topTrailingRadius: 22, style: .continuous)
     var body: some View {
         HStack(alignment: .top) {
             if user { Spacer(minLength: 42) }
@@ -378,8 +393,8 @@ struct MessageView: View, Equatable {
                 }
                     .textSelection(.enabled)
                     .padding(user ? 17 : 0)
-                    .background(user ? AppTheme.surface : .clear, in: RoundedRectangle(cornerRadius: 21))
-                    .overlay(RoundedRectangle(cornerRadius: 21).strokeBorder(user ? AppTheme.line : .clear))
+                    .background(user ? AppTheme.userBubble : .clear, in: Self.bubble)
+                    .overlay(Self.bubble.strokeBorder(user ? AppTheme.userBubbleLine : .clear))
                 if message.delivery != .confirmed {
                     Text(message.delivery == .sending ? "Envoi…" : message.delivery == .uncertain ? "Réception à vérifier dans l’historique" : "Non envoyé · copiez pour réessayer")
                         .font(.caption2).foregroundStyle(message.delivery == .sending ? Color.secondary : AppTheme.accent)

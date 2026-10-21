@@ -75,6 +75,7 @@ struct ChatHeader: View, Equatable {
             }
             HeaderCircle(symbol: "square.and.pencil", label: "Nouvelle conversation", id: "new-chat", tint: AppTheme.accent) { Haptics.select(); newChat() }
         }.padding(.horizontal, 14).padding(.top, 6).padding(.bottom, 10)
+            .overlay(alignment: .bottom) { HeaderProgress(running: running) }
     }
 
     /// The agent, as a pill: tap to switch. The conversation (or the connection) is its second line.
@@ -97,10 +98,16 @@ struct ChatHeader: View, Equatable {
                 }.frame(alignment: .leading)
                 Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold)).foregroundStyle(.secondary).accessibilityHidden(true)
             }.padding(.leading, 8).padding(.trailing, 12).frame(minHeight: 44)
-                .background(AppTheme.surface, in: Capsule())
-                .overlay(Capsule().strokeBorder(AppTheme.line))
+                .background {
+                    Capsule().fill(AppTheme.surface)
+                    // A faint wash of the agent's own color, so each agent has its own pill.
+                    Capsule().fill(LinearGradient(colors: [AppTheme.color(agentName).opacity(0.09), .clear], startPoint: .leading, endPoint: .trailing))
+                }
+                .overlay { if running { RunningRing() } else { Capsule().strokeBorder(AppTheme.line) } }
+                .softShadow()
                 .contentShape(Capsule())
-        }.buttonStyle(.plain).accessibilityLabel("Changer d’agent : \(agentTitle)").accessibilityIdentifier("switch-profile")
+                .animation(.easeInOut(duration: 0.3), value: running)
+        }.buttonStyle(PressableStyle()).accessibilityLabel("Changer d’agent : \(agentTitle)").accessibilityIdentifier("switch-profile")
     }
 }
 
@@ -113,6 +120,7 @@ private struct HeaderCircleLabel: View {
             .frame(width: 40, height: 40)
             .background(AppTheme.surface, in: Circle())
             .overlay(Circle().strokeBorder(AppTheme.line))
+            .softShadow(0.8)
             .overlay(alignment: .topTrailing) {
                 if badge { Circle().fill(AppTheme.accent).frame(width: 9, height: 9).overlay(Circle().strokeBorder(AppTheme.background, lineWidth: 2)).accessibilityHidden(true) }
             }
@@ -130,6 +138,52 @@ private struct HeaderCircle: View {
 
     var body: some View {
         Button(action: action) { HeaderCircleLabel(symbol: symbol, badge: badge, tint: tint) }
-            .buttonStyle(.plain).accessibilityLabel(label).accessibilityIdentifier(id)
+            .buttonStyle(PressableStyle()).accessibilityLabel(label).accessibilityIdentifier(id)
+    }
+}
+
+/// While a reply runs, a light travels around the agent's pill.
+private struct RunningRing: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        if reduceMotion {
+            Capsule().strokeBorder(AppTheme.accent.opacity(0.6), lineWidth: 1.5)
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                let turn = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.6) / 2.6
+                Capsule().strokeBorder(
+                    AngularGradient(colors: [AppTheme.accent.opacity(0.05), AppTheme.accent.opacity(0.05), AppTheme.accent, AppTheme.accent.opacity(0.05)],
+                                    center: .center, angle: .degrees(turn * 360)),
+                    lineWidth: 1.8)
+            }
+        }
+    }
+}
+
+/// The header's lower edge: a fine line at rest, a moving light while the agent works.
+private struct HeaderProgress: View {
+    let running: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            Rectangle().fill(AppTheme.line.opacity(0.7)).frame(height: 0.5)
+            if running {
+                GeometryReader { geometry in
+                    if reduceMotion {
+                        Rectangle().fill(AppTheme.accent.opacity(0.5)).frame(height: 2)
+                    } else {
+                        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                            let phase = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.5) / 1.5
+                            let width = geometry.size.width * 0.38
+                            LinearGradient(colors: [AppTheme.accent.opacity(0), AppTheme.accent, AppTheme.accent.opacity(0)], startPoint: .leading, endPoint: .trailing)
+                                .frame(width: width, height: 2)
+                                .offset(x: -width + (geometry.size.width + width) * phase)
+                        }
+                    }
+                }.frame(height: 2).clipped().transition(.opacity)
+            }
+        }.frame(height: 2).animation(.easeInOut(duration: 0.3), value: running).allowsHitTesting(false)
     }
 }

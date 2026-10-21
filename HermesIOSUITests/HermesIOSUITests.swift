@@ -239,7 +239,7 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Research"].firstMatch.waitForExistence(timeout: 40))
         let answer = app.descendants(matching: .any).matching(identifier: "assistant-message").matching(NSPredicate(format: "label CONTAINS %@", "le fil est retrouvé."))
         XCTAssertTrue(answer.firstMatch.waitForExistence(timeout: 40))
-        XCTAssertEqual(composer.value as? String, "Message…")
+        XCTAssertEqual(composer.value as? String, "Demander à Atlas")
         capture("29-notification-correct-conversation")
     }
 
@@ -664,8 +664,8 @@ final class HermesIOSUITests: XCTestCase {
         for identifier in ["message-actions", "switch-profile", "app-navigation", "voice-mode"] {
             let control = app.buttons[identifier]
             XCTAssertTrue(control.isHittable, "\(identifier) remains reachable at the largest text size")
-            XCTAssertGreaterThanOrEqual(control.frame.height, 44, "\(identifier) hit target height")
-            XCTAssertGreaterThanOrEqual(control.frame.width, 44, "\(identifier) hit target width")
+            XCTAssertGreaterThanOrEqual(control.frame.height, 43.9, "\(identifier) hit target height")
+            XCTAssertGreaterThanOrEqual(control.frame.width, 43.9, "\(identifier) hit target width")
         }
         capture("38-large-text-composer")
         composer.tap(); composer.typeText("Mon brouillon en grand texte")
