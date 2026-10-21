@@ -156,6 +156,9 @@ struct VoiceLiveProgress {
     private var spoken: Set<String> = []
     private var hasReply = false
 
+    /// Explicit: the memberwise initializer is private on older toolchains because of the private members.
+    init(startedAt: TimeInterval) { self.startedAt = startedAt }
+
     mutating func next(now: TimeInterval, lastSpeechAt: TimeInterval, lastOutputAt: TimeInterval,
                        running: Bool, receivedReply: Bool, tools: [Transcript.ToolStep]) -> String? {
         hasReply = hasReply || receivedReply
