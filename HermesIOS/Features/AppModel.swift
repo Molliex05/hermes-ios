@@ -1398,6 +1398,22 @@ final class AppModel {
             .init(role: "user", text: "J’aimerais une journée un peu plus légère."),
             .init(role: "assistant", text: "On fait de la place.\n\nChoisis **une seule chose** qui rendrait ta journée satisfaisante. Le reste peut attendre.\n\nQu’est-ce qui compte le plus pour toi aujourd’hui ?")
         ]
+        #if DEBUG
+        // A long history of rows with very different heights (headings, lists, code), like a real conversation.
+        if ProcessInfo.processInfo.arguments.contains("--demo-long-history") {
+            var many: [ChatMessage] = []
+            for index in 0..<120 {
+                many.append(.init(role: "user", text: String(repeating: "Question \(index) ", count: 1 + index % 5)))
+                let body = (0..<(1 + index % 6)).map { part in
+                    "Paragraphe \(part) de la réponse \(index). " + String(repeating: "Un peu de texte pour varier la hauteur. ", count: 1 + (part + index) % 4)
+                }.joined(separator: "\n\n")
+                let list = index % 3 == 0 ? "\n\n- point un\n- point deux\n- point trois" : ""
+                let code = index % 4 == 0 ? "\n\n```\nlet valeur = \(index)\nprint(valeur)\n```" : ""
+                many.append(.init(role: "assistant", text: "## Réponse \(index)\n\n" + body + list + code))
+            }
+            transcript.messages = many
+        }
+        #endif
         sessions = []
         // Preview history uses the same rows and navigation as a connected profile.
         for agent in profiles {

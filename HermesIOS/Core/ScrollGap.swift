@@ -1,14 +1,14 @@
 import Foundation
 
-/// Detects a chat list scrolled past its own end: a blank band under the last message while the content is taller than
-/// the screen (a keyboard closing or a late row-height estimate can leave it there). A short conversation sits at the
-/// top by design and is never a gap.
+/// Measures how far a chat list sits from its real end, from the scroll view's own numbers (content size, offset, insets).
+/// A positive distance means more content below; a clearly negative one means the list was scrolled past its end and
+/// shows a blank band (a keyboard closing or a wrong row-height estimate can leave it there). A short conversation that
+/// does not fill the screen is never past its end.
 enum ScrollGap {
-    /// - Parameters, all in the scroll view's coordinate space:
-    ///   - contentTop: where the content starts (negative once scrolled).
-    ///   - endMarker: the bottom of the last row; at the true end it sits `bottomInset` above the viewport's bottom.
-    static func isBlank(contentTop: Double, endMarker: Double, viewport: Double,
-                        bottomInset: Double = 20, tolerance: Double = 40) -> Bool {
-        viewport > 0 && contentTop < -tolerance && endMarker < viewport - bottomInset - tolerance
+    static func distanceFromEnd(contentHeight: Double, insetTop: Double, insetBottom: Double, contentOffset: Double, container: Double) -> Double {
+        let farthest = max(0, contentHeight + insetTop + insetBottom - container)     // the largest offset the content allows
+        return farthest - (contentOffset + insetTop)
     }
+
+    static func isPastEnd(_ distance: Double, tolerance: Double = 40) -> Bool { distance < -tolerance }
 }

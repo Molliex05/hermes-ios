@@ -63,6 +63,28 @@ final class HermesIOSUITests: XCTestCase {
         }
     }
 
+    /// A long conversation of rows with very different heights: after sending, the new message must be on screen.
+    func testSendInALongConversationShowsTheNewMessage() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-long-history", "--demo-slow-send"]
+        app.launch()
+        let composer = app.textFields["chat-composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        let surface = app.otherElements["composer-surface"]
+        Thread.sleep(forTimeInterval: 1.5)
+        for round in 1...3 {
+            composer.tap()
+            composer.typeText("Message de test numéro \(round) dans une longue conversation.")
+            app.buttons["send-message"].tap()
+            for delay in [0.6, 1.5, 3.0] {
+                Thread.sleep(forTimeInterval: delay)
+                let mine = app.descendants(matching: .any).matching(identifier: "user-message").matching(NSPredicate(format: "label CONTAINS %@", "numéro \(round) ")).firstMatch
+                XCTAssertTrue(mine.exists, "round \(round): my message is not in the visible list after \(delay)s")
+                if mine.exists { XCTAssertLessThanOrEqual(mine.frame.maxY, surface.frame.minY + 1, "round \(round): hidden behind the composer at \(delay)s") }
+            }
+        }
+    }
+
     func testAttachmentsMenuAndVoicePreserveDraft() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--demo"]
