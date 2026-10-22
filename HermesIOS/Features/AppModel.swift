@@ -116,6 +116,8 @@ final class AppModel {
     var botMode = true
     var opening = false
     var sending = false
+    /// Changes when the chat should put the cursor in the composer (a notification opened the conversation).
+    var composerFocusRequest = UUID()
     var demo = false
     var hasBooted = false
     /// True until the saved connections are read: no onboarding flash on a cold start.
@@ -312,7 +314,31 @@ final class AppModel {
         navigationRevision = UUID()
         let row: JSONValue = ["id": .string(target.sessionID), "title": "Conversation"]
         await openConversation(Conversation(row, profile: target.profile))
-        if !Task.isCancelled { PushNotifications.shared.opened(target) }
+        guard !Task.isCancelled else { return }
+        if let reply = PushNotifications.shared.takeReply(for: target) { await sendNotificationReply(reply, target: target) }
+        else { composerFocusRequest = UUID() }         // ready to write: the keyboard opens on the conversation
+        PushNotifications.shared.opened(target)
+    }
+
+    /// The text typed on a notification's « Répondre » field goes to the conversation it came from, once that
+    /// conversation is open and idle. If it cannot be sent (agent still answering, connection down) it is left in the
+    /// composer, never lost and never sent to another conversation.
+    private func sendNotificationReply(_ text: String, target: NotificationTarget) async {
+        let previous = draft
+        for _ in 0..<40 {
+            if selected?.storedID == target.sessionID, state == .connected, !opening, !sending, !transcript.running { break }
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+        }
+        draft = text
+        if selected?.storedID == target.sessionID, canSend {
+            await send()
+            // Consumed: the reader's own draft comes back. Refused: the reply stays in front of them.
+            draft = draft.isEmpty ? previous : (previous.isEmpty ? draft : previous + "\n" + draft)
+        } else {
+            draft = previous.isEmpty ? text : previous + "\n" + text
+            notice = "Votre réponse est prête dans le champ : touchez Envoyer."
+            composerFocusRequest = UUID()
+        }
     }
 
     func addConnection(_ connection: SavedConnection, username: String, password: String, token: String) async throws {
@@ -1372,6 +1398,22 @@ final class AppModel {
             .init(role: "user", text: "J’aimerais une journée un peu plus légère."),
             .init(role: "assistant", text: "On fait de la place.\n\nChoisis **une seule chose** qui rendrait ta journée satisfaisante. Le reste peut attendre.\n\nQu’est-ce qui compte le plus pour toi aujourd’hui ?")
         ]
+        #if DEBUG
+        // A long history of rows with very different heights (headings, lists, code), like a real conversation.
+        if ProcessInfo.processInfo.arguments.contains("--demo-long-history") {
+            var many: [ChatMessage] = []
+            for index in 0..<120 {
+                many.append(.init(role: "user", text: String(repeating: "Question \(index) ", count: 1 + index % 5)))
+                let body = (0..<(1 + index % 6)).map { part in
+                    "Paragraphe \(part) de la réponse \(index). " + String(repeating: "Un peu de texte pour varier la hauteur. ", count: 1 + (part + index) % 4)
+                }.joined(separator: "\n\n")
+                let list = index % 3 == 0 ? "\n\n- point un\n- point deux\n- point trois" : ""
+                let code = index % 4 == 0 ? "\n\n```\nlet valeur = \(index)\nprint(valeur)\n```" : ""
+                many.append(.init(role: "assistant", text: "## Réponse \(index)\n\n" + body + list + code))
+            }
+            transcript.messages = many
+        }
+        #endif
         sessions = []
         // Preview history uses the same rows and navigation as a connected profile.
         for agent in profiles {
@@ -1414,9 +1456,17 @@ final class AppModel {
     }
 
     private func demoReply() async {
+        #if DEBUG
+        // Emulates the network round trip before a real message shows up (session creation, persistence).
+        if ProcessInfo.processInfo.arguments.contains("--demo-slow-send") { try? await Task.sleep(for: .milliseconds(220)) }
+        #endif
         let text = draft; draft = ""
         transcript.messages.append(.init(role: "user", text: text))
         transcript.running = true
+        #if DEBUG
+        // Keeps the reply running long enough to look at the header's working state.
+        if ProcessInfo.processInfo.arguments.contains("--demo-long-reply") { try? await Task.sleep(for: .seconds(12)) }
+        #endif
         for word in "Ceci est un aperçu d’Hermès iOS. Connectez votre agent Hermes pour retrouver vos conversations, vos profils et vos outils.".split(separator: " ") {
             try? await Task.sleep(for: .milliseconds(60))
             transcript.apply(["type": "message.delta", "payload": ["text": .string(String(word) + " ")]])

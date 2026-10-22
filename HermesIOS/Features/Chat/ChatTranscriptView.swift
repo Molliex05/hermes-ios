@@ -12,6 +12,8 @@ struct ChatTranscriptView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Not observed: drag state and scroll throttling must not re-render anything.
     @State private var follower = ScrollFollower()
+    /// The list's position, measured by SwiftUI from the real content size (not from a marker under estimated row heights).
+    @State private var position = ScrollPosition(edge: .bottom)
 
     var body: some View {
         let transcript = model.transcript
@@ -30,95 +32,92 @@ struct ChatTranscriptView: View {
         // on every flush and the 500-row ForEach is not diffed again.
         let live = transcript.messages.last.flatMap { $0.streaming ? $0 : nil }
         let history = live == nil ? transcript.messages : Array(transcript.messages.dropLast())
-        return GeometryReader { geo in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 27) {
-                        LazyVStack(alignment: .leading, spacing: 27) {
-                            MessageHistory(messages: history, agent: agent)
-                            // Its own identity namespace: reusing the message id here would make the
-                            // lazy stack keep this row once the message settles into the history, and
-                            // a completed turn recovered in one batch would stay at its first token.
-                            if let live { MessageView(message: live, agent: agent).equatable().id("live:" + live.id) }
-                            if let activity = transcript.activity, transcript.running {
-                                ActivityRow(
-                                    title: activityTitle(activity, steps: transcript.toolSteps),
-                                    sending: model.sending,
-                                    connected: model.state == .connected,
-                                    // Same rule as Transcript.isWaitingForResponse(at:), evaluated once
-                                    // per change; the row's timeline only compares dates.
-                                    waitingFrom: transcript.isWaitingForResponse(at: .distantFuture)
-                                        ? transcript.lastActivityAt.addingTimeInterval(15) : nil
-                                ).equatable()
-                            }
-                            if !transcript.toolSteps.isEmpty {
-                                ToolActivityView(steps: transcript.toolSteps, expanded: toolsExpanded) { toolsExpanded.toggle() }.equatable()
-                            }
-                            if let failure = transcript.failure, !failure.isEmpty {
-                                Label(failure, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(AppTheme.accent)
-                            }
-                            if let approval = transcript.approval {
-                                ApprovalCard(payload: approval, model: model).equatable().id(approval["rpc_id"].string + approval["request_id"].string)
-                            }
-                            if let clarification = transcript.clarification, ClarificationCard.hasPendingQuestions(clarification) {
-                                ClarificationCard(payload: clarification, model: model).equatable().id(clarification["rpc_id"].string + clarification["request_id"].string)
-                            }
-                            if let credential = transcript.credential {
-                                CredentialCard(payload: credential, model: model).equatable().id(credential["rpc_id"].string + credential["request_id"].string)
-                            }
-                        }
-                        // Outside the lazy stack so it always reports its position, even far from the end.
-                        Color.clear.frame(height: 1).id("bottom").background(GeometryReader { marker in
-                            Color.clear.preference(key: BottomPreference.self, value: marker.frame(in: .named("chat-scroll")).maxY)
-                        })
-                    }.padding(.horizontal, 26).padding(.top, 14).padding(.bottom, 20).frame(maxWidth: 720).frame(maxWidth: .infinity)
-                }
-                .coordinateSpace(name: "chat-scroll")
-                .scrollDismissesKeyboard(.interactively)
-                .chatScrollAnchors()
-                .simultaneousGesture(DragGesture(minimumDistance: 5)
-                    .onChanged { value in
-                        guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                        follower.dragging = true
-                        if value.translation.height > 5, pinnedToBottom { pinnedToBottom = false }
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 27) {
+                LazyVStack(alignment: .leading, spacing: 27) {
+                    MessageHistory(messages: history, agent: agent)
+                    // Its own identity namespace: reusing the message id here would make the
+                    // lazy stack keep this row once the message settles into the history, and
+                    // a completed turn recovered in one batch would stay at its first token.
+                    if let live { MessageView(message: live, agent: agent).equatable().id("live:" + live.id) }
+                    if let activity = transcript.activity, transcript.running {
+                        ActivityRow(
+                            title: activityTitle(activity, steps: transcript.toolSteps),
+                            sending: model.sending,
+                            connected: model.state == .connected,
+                            // Same rule as Transcript.isWaitingForResponse(at:), evaluated once
+                            // per change; the row's timeline only compares dates.
+                            waitingFrom: transcript.isWaitingForResponse(at: .distantFuture)
+                                ? transcript.lastActivityAt.addingTimeInterval(15) : nil
+                        ).equatable()
                     }
-                    .onEnded { _ in
-                        follower.dragging = false
-                        if bottomVisible, !pinnedToBottom { pinnedToBottom = true }
-                    })
-                .onPreferenceChange(BottomPreference.self) { y in
-                    bottomMoved(y, height: geo.size.height, proxy: proxy)
-                }
-                .onChange(of: transcript.messages.count) { _, _ in
-                    if pinnedToBottom {
-                        follower.didScroll()
-                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                    if !transcript.toolSteps.isEmpty {
+                        ToolActivityView(steps: transcript.toolSteps, expanded: toolsExpanded) { toolsExpanded.toggle() }.equatable()
+                    }
+                    if let failure = transcript.failure, !failure.isEmpty {
+                        Label(failure, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(AppTheme.accent)
+                    }
+                    if let approval = transcript.approval {
+                        ApprovalCard(payload: approval, model: model).equatable().id(approval["rpc_id"].string + approval["request_id"].string)
+                    }
+                    if let clarification = transcript.clarification, ClarificationCard.hasPendingQuestions(clarification) {
+                        ClarificationCard(payload: clarification, model: model).equatable().id(clarification["rpc_id"].string + clarification["request_id"].string)
+                    }
+                    if let credential = transcript.credential {
+                        CredentialCard(payload: credential, model: model).equatable().id(credential["rpc_id"].string + credential["request_id"].string)
                     }
                 }
-                .overlay(alignment: .bottomTrailing) {
-                    if !pinnedToBottom {
-                        RoundButton(symbol: "arrow.down", label: "Dernier message") {
-                            pinnedToBottom = true
-                            follower.didScroll()
-                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
-                        }.padding(18)
-                    }
-                }
+            }.padding(.horizontal, 26).padding(.top, 14).padding(.bottom, 20).frame(maxWidth: 720).frame(maxWidth: .infinity)
+        }
+        .scrollPosition($position)
+        .scrollDismissesKeyboard(.interactively)
+        .chatScrollAnchors()
+        .simultaneousGesture(DragGesture(minimumDistance: 5)
+            .onChanged { value in
+                guard abs(value.translation.height) > abs(value.translation.width) else { return }
+                follower.dragging = true
+                if value.translation.height > 5, pinnedToBottom { pinnedToBottom = false }
+            }
+            .onEnded { _ in
+                follower.dragging = false
+                if bottomVisible, !pinnedToBottom { pinnedToBottom = true }
+            })
+        // The distance to the real end of the content, from the scroll view's own geometry. It drives following the stream
+        // and putting the list back when it ends up past its end.
+        .onScrollGeometryChange(for: Double.self) { geometry in
+            ScrollGap.distanceFromEnd(contentHeight: geometry.contentSize.height, insetTop: geometry.contentInsets.top,
+                                      insetBottom: geometry.contentInsets.bottom, contentOffset: geometry.contentOffset.y,
+                                      container: geometry.containerSize.height)
+        } action: { _, distance in
+            scrolled(distance: distance)
+        }
+        .onChange(of: transcript.messages.count) { _, _ in
+            if pinnedToBottom { follower.didScroll(); position.scrollTo(edge: .bottom) }
+        }
+        .onChange(of: model.selected?.storedID) { _, _ in position.scrollTo(edge: .bottom) }
+        .overlay(alignment: .bottomTrailing) {
+            if !pinnedToBottom {
+                RoundButton(symbol: "arrow.down", label: "Dernier message") {
+                    pinnedToBottom = true
+                    follower.didScroll()
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { position.scrollTo(edge: .bottom) }
+                }.padding(18)
             }
         }
     }
 
-    /// Runs after layout whenever the end marker moves. State is written only when a value
-    /// flips, and following the stream goes through one throttled scroll (at most one per
-    /// stream flush) instead of scrolling from both layout and text changes.
-    private func bottomMoved(_ y: CGFloat, height: CGFloat, proxy: ScrollViewProxy) {
-        let visible = y <= height + 55
+    /// Runs whenever the scroll geometry changes. State is written only when a value flips, and following the stream goes
+    /// through one throttled scroll (at most one per stream flush).
+    private func scrolled(distance: Double) {
+        follower.distance = distance
+        let visible = distance <= 55
         if bottomVisible != visible { bottomVisible = visible }
-        var pinned = pinnedToBottom
-        if !follower.dragging, visible, !pinned { pinnedToBottom = true; pinned = true }
-        guard pinned, !follower.dragging, y > height + 1 else { return }
+        if !follower.dragging, visible, !pinnedToBottom { pinnedToBottom = true }
+        let target = $position
+        if ScrollGap.isPastEnd(distance) { follower.heal { target.wrappedValue.scrollTo(edge: .bottom) } }
+        guard pinnedToBottom, !follower.dragging, distance > 1 else { return }
         follower.follow { [pinnedBinding = $pinnedToBottom] in
-            if pinnedBinding.wrappedValue { proxy.scrollTo("bottom", anchor: .bottom) }
+            if pinnedBinding.wrappedValue { target.wrappedValue.scrollTo(edge: .bottom) }
         }
     }
 
@@ -131,11 +130,29 @@ struct ChatTranscriptView: View {
 /// Coalesces follow-the-stream scrolls to the stream's flush cadence (~30 fps).
 @MainActor final class ScrollFollower {
     var dragging = false
+    /// Last distance to the real end of the content (see `ScrollGap`).
+    var distance = 0.0
+    private var healing = false
     private var scheduled = false
     private var last = Date.distantPast
     private static let interval: TimeInterval = 1.0 / 30
 
     func didScroll() { last = Date() }
+
+    /// Brings the list back to its end when it stays scrolled past it. Waits a moment and re-checks, so a normal
+    /// overscroll bounce or a keyboard still moving never fights the user.
+    func heal(_ scroll: @escaping @MainActor () -> Void) {
+        guard !healing else { return }
+        healing = true
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(160))
+            guard let self else { return }
+            self.healing = false
+            guard !self.dragging, ScrollGap.isPastEnd(self.distance) else { return }
+            self.last = Date()
+            scroll()
+        }
+    }
 
     func follow(_ scroll: @escaping @MainActor () -> Void) {
         guard !scheduled else { return }
@@ -151,11 +168,6 @@ struct ChatTranscriptView: View {
             scroll()
         }
     }
-}
-
-private struct BottomPreference: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 /// Settled messages. Compared element-wise (cheap: unchanged strings share storage), so a
@@ -238,6 +250,8 @@ struct EmptyChatView: View, Equatable {
     let suggest: (String) -> Void
     var agentName = "default"
     var agentTitle = "Hermes"
+    @State private var appeared = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.agentName == rhs.agentName && lhs.agentTitle == rhs.agentTitle }
 
@@ -267,17 +281,27 @@ struct EmptyChatView: View, Equatable {
                     Spacer(minLength: 24)
                     VStack(spacing: 14) {
                         OrbView(phase: .idle, breathesWhenIdle: true).frame(width: 104, height: 104)
+                            .scaleEffect(appeared || reduceMotion ? 1 : 0.8).opacity(appeared || reduceMotion ? 1 : 0)
+                            .animation(.spring(response: 0.7, dampingFraction: 0.78), value: appeared)
                         Text(greeting).font(.system(size: 34, weight: .regular, design: .serif)).tracking(-0.8)
+                            .opacity(appeared || reduceMotion ? 1 : 0).offset(y: appeared || reduceMotion ? 0 : 10)
+                            .animation(.easeOut(duration: 0.5).delay(0.12), value: appeared)
                         Text("Que puis-je faire pour vous ?").font(.title3).foregroundStyle(.secondary)
+                            .opacity(appeared || reduceMotion ? 1 : 0).offset(y: appeared || reduceMotion ? 0 : 10)
+                            .animation(.easeOut(duration: 0.5).delay(0.2), value: appeared)
                     }.multilineTextAlignment(.center)
                     Spacer(minLength: 24)
-                    VStack(spacing: 8) {
-                        ForEach(ideas) { idea in suggestion(idea) }
+                    VStack(spacing: 10) {
+                        ForEach(Array(ideas.enumerated()), id: \.element.id) { index, idea in
+                            suggestion(idea)
+                                .opacity(appeared || reduceMotion ? 1 : 0).offset(y: appeared || reduceMotion ? 0 : 18)
+                                .animation(.spring(response: 0.55, dampingFraction: 0.82).delay(0.28 + 0.08 * Double(index)), value: appeared)
+                        }
                     }
                 }.padding(.horizontal, 18).padding(.bottom, 10)
                     .frame(minHeight: geometry.size.height).frame(maxWidth: 640).frame(maxWidth: .infinity)
             }.scrollDismissesKeyboard(.interactively).scrollBounceBehavior(.basedOnSize)
-        }
+        }.onAppear { appeared = true }
     }
 
     private func suggestion(_ idea: Idea) -> some View {
@@ -290,9 +314,10 @@ struct EmptyChatView: View, Equatable {
                 }
                 Spacer(minLength: 4)
             }.padding(.horizontal, 16).padding(.vertical, 13)
-                .background(AppTheme.surface.opacity(0.78), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(AppTheme.line))
-        }.buttonStyle(.plain)
+                .softShadow(0.7)
+        }.buttonStyle(PressableStyle())
     }
 }
 
@@ -333,6 +358,8 @@ struct MessageView: View, Equatable {
     let message: ChatMessage
     let agent: String
     private var user: Bool { message.role == "user" }
+    /// Your bubble keeps a small corner at its tail, like a speech bubble.
+    private static let bubble = UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 22, bottomTrailingRadius: 7, topTrailingRadius: 22, style: .continuous)
     var body: some View {
         HStack(alignment: .top) {
             if user { Spacer(minLength: 42) }
@@ -346,8 +373,8 @@ struct MessageView: View, Equatable {
                 }
                     .textSelection(.enabled)
                     .padding(user ? 17 : 0)
-                    .background(user ? AppTheme.surface : .clear, in: RoundedRectangle(cornerRadius: 21))
-                    .overlay(RoundedRectangle(cornerRadius: 21).strokeBorder(user ? AppTheme.line : .clear))
+                    .background(user ? AppTheme.userBubble : .clear, in: Self.bubble)
+                    .overlay(Self.bubble.strokeBorder(user ? AppTheme.userBubbleLine : .clear))
                 if message.delivery != .confirmed {
                     Text(message.delivery == .sending ? "Envoi…" : message.delivery == .uncertain ? "Réception à vérifier dans l’historique" : "Non envoyé · copiez pour réessayer")
                         .font(.caption2).foregroundStyle(message.delivery == .sending ? Color.secondary : AppTheme.accent)

@@ -105,6 +105,7 @@
 		B8683193F9756EE676D1E4DB /* NotificationEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = E42A71A430869150B40B16D6 /* NotificationEnvelope.swift */; };
 		B9769A1645106A420D44BF99 /* web.wav in Resources */ = {isa = PBXBuildFile; fileRef = 79C37338BEC56A3322AAC1CF /* web.wav */; };
 		B9DA3EA44216ED0D80BEA3F7 /* WidgetSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2978808F5B483F1D8D9CD9D6 /* WidgetSnapshot.swift */; };
+		BA6318803D1A3C27303451A8 /* ScrollGap.swift in Sources */ = {isa = PBXBuildFile; fileRef = F422B4D6EFE7EBEF4D11C54C /* ScrollGap.swift */; };
 		BA651A22F5C0CF5320C4E383 /* RoutinesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B015E03D9D8F60B51C9F3C89 /* RoutinesView.swift */; };
 		BACC5A498A68882663AD5B37 /* VoiceMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C40E207DFACCFAA12FE387 /* VoiceMetrics.swift */; };
 		BDE7E9AD8486B77176875B30 /* ConversationIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5045723AB4101C15BB122A44 /* ConversationIndex.swift */; };
@@ -318,6 +319,7 @@
 		EEB3EDB5A972E8E368140A40 /* ProvidersSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProvidersSettingsView.swift; sourceTree = "<group>"; };
 		F25C8AEBDE66DBDA9B9AF8D4 /* VoiceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSettingsView.swift; sourceTree = "<group>"; };
 		F3D4CA639A161E5614648C6E /* manteau.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = manteau.wav; sourceTree = "<group>"; };
+		F422B4D6EFE7EBEF4D11C54C /* ScrollGap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollGap.swift; sourceTree = "<group>"; };
 		F836B8FAB56D3E5A0BBD6BD2 /* WorkspaceFilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFilesView.swift; sourceTree = "<group>"; };
 		F9CE976027FBF5395EF1C01C /* HermesIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HermesIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FAE26FF8CAD8052D3A341332 /* NotificationTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationTarget.swift; sourceTree = "<group>"; };
@@ -566,6 +568,7 @@
 				E8BBC0720EC796E9C661E8B0 /* NotificationKeyStore.swift */,
 				FAE26FF8CAD8052D3A341332 /* NotificationTarget.swift */,
 				A35FCE467300937D0131D0EF /* RoutineSchedule.swift */,
+				F422B4D6EFE7EBEF4D11C54C /* ScrollGap.swift */,
 				2C0675CE4216DC70C01FAB81 /* ServerRequests.swift */,
 				EB26E0333D8D564B91C7D21F /* SettingsCatalog.swift */,
 				45F8C117680E3093D826D5D3 /* SlashInput.swift */,
@@ -868,6 +871,7 @@
 				7C605C008BB1D4C4E09FCBE0 /* RoutineDetailView.swift in Sources */,
 				37BB64226AC32B511406CC0A /* RoutineSchedule.swift in Sources */,
 				BA651A22F5C0CF5320C4E383 /* RoutinesView.swift in Sources */,
+				BA6318803D1A3C27303451A8 /* ScrollGap.swift in Sources */,
 				2B026ECDD1205EBD9E38FD62 /* ServerRequests.swift in Sources */,
 				3D6A1F7AFED4B023479B8E9A /* SettingsCatalog.swift in Sources */,
 				2995C37CAC738935C3CB0A6C /* SettingsView.swift in Sources */,
@@ -1037,7 +1041,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 0.1.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -1208,7 +1212,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				MARKETING_VERSION = 0.1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;

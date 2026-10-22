@@ -2,7 +2,7 @@
 import PackageDescription
 let package = Package(
     name: "HermesIOSCore",
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v14), .iOS(.v18)],
     products: [.library(name: "HermesIOSCore", targets: ["HermesIOSCore"])],
     targets: [
         .target(name: "HermesIOSCore", path: "HermesIOS/Core"),

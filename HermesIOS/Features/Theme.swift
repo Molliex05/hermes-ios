@@ -2,10 +2,14 @@ import SwiftUI
 
 enum AppTheme {
     static let accent = Color(red: 0.81, green: 0.29, blue: 0.19)
-    static let background = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.075, green: 0.08, blue: 0.08, alpha: 1) : UIColor(red: 0.973, green: 0.965, blue: 0.947, alpha: 1) })
-    static let surface = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.13, alpha: 1) : .white })
+    /// A warm stone that sits clearly below the white cards, so surfaces read as raised (the old cream was a hair from white).
+    static let background = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.055, green: 0.058, blue: 0.062, alpha: 1) : UIColor(red: 0.929, green: 0.914, blue: 0.886, alpha: 1) })
+    static let surface = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.15, alpha: 1) : .white })
     static let muted = Color.secondary
-    static let line = Color.primary.opacity(0.08)
+    static let line = Color.primary.opacity(0.11)
+    /// Your messages: a soft wash of the accent with a fine accent edge, instead of one more white card.
+    static let userBubble = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.81, green: 0.29, blue: 0.19, alpha: 0.24) : UIColor(red: 0.81, green: 0.29, blue: 0.19, alpha: 0.12) })
+    static let userBubbleLine = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(red: 0.81, green: 0.29, blue: 0.19, alpha: 0.38) : UIColor(red: 0.81, green: 0.29, blue: 0.19, alpha: 0.24) })
     static let colors: [Color] = [accent, Color(red: 0.3, green: 0.43, blue: 0.35), Color(red: 0.44, green: 0.39, blue: 0.59), Color(red: 0.38, green: 0.48, blue: 0.62)]
     static func color(_ name: String) -> Color { colors[name.utf8.reduce(0) { ($0 + Int($1)) % colors.count }] }
 
@@ -14,6 +18,30 @@ enum AppTheme {
         let base = UIFont.preferredFont(forTextStyle: .largeTitle)
         guard let serif = base.fontDescriptor.withDesign(.serif)?.withSymbolicTraits(.traitBold) ?? base.fontDescriptor.withDesign(.serif) else { return }
         UINavigationBar.appearance().largeTitleTextAttributes = [.font: UIFont(descriptor: serif, size: 0)]
+    }
+}
+
+/// A soft two-layer lift for floating surfaces (pills, circles, the composer).
+struct SoftShadow: ViewModifier {
+    var strength = 1.0
+    @Environment(\.colorScheme) private var scheme
+    func body(content: Content) -> some View {
+        content
+            .shadow(color: .black.opacity((scheme == .dark ? 0.45 : 0.09) * strength), radius: 12, y: 4)
+            .shadow(color: .black.opacity((scheme == .dark ? 0.30 : 0.06) * strength), radius: 1.5, y: 0.5)
+    }
+}
+
+extension View {
+    func softShadow(_ strength: Double = 1) -> some View { modifier(SoftShadow(strength: strength)) }
+}
+
+/// A gentle press: the control sinks a little and springs back.
+struct PressableStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.94 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.65), value: configuration.isPressed)
     }
 }
 
