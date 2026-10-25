@@ -37,10 +37,18 @@ log what was eaten so far. Reminders for creatine and upcoming meals wait until 
 
 ```bash
 hermes -p personnel cron create --name "Résumé de la journée" --deliver bot-chat:personnel --continuity \
-  "0 8,15 * * *" "$(cat resume-journee.prompt.fr.txt)"
+  "0 8 * * *" "$(cat resume-journee.prompt.fr.txt)"
 # then, with the job API: enabled_toolsets = ["memory", "noryv", "google_perso", "meteo"]
 ```
 
-Read-only. It runs at 8 h, and again at 15 h only when a night shift ended after 6 h (the 8 h run stays silent while Maxime
-sleeps), and gathers the schedule, the weather, the training plan and the nutrition against his targets into one short message
+Read-only. It runs once a day at 8 h (silent only when a night shift ended after 6 h and Maxime sleeps), and gathers the schedule, the weather, the training plan and the nutrition against his targets into one short message
 delivered in the agent's Bot Chat. The agent's rules (`SOUL.md`) relay it nearly as is instead of cutting it to three sentences.
+
+## Status (2026-10-24): proactive jobs paused
+
+After two days of use the heartbeat, the separate creatine reminder and the email watcher's notifications were judged more noise
+than value, and switched off (paused, or delivered `local` for the email watcher, which keeps filing mail silently). Why it was
+noisy: every output delivered to the Bot Chat becomes a second model turn and a notification, so silence depends on the model
+writing exactly `[SILENT]`; it wrote `[ S I L E N T ]` and "nothing urgent" variants that Hermes does not treat as silence. A
+heartbeat also has nothing to say without data that Maxime does not log. A sturdier design would make a notification an explicit
+tool call (never a side effect of a delivery). Only the daily summary stays.
