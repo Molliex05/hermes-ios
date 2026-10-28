@@ -1399,6 +1399,77 @@ final class AppModel {
             .init(role: "assistant", text: "On fait de la place.\n\nChoisis **une seule chose** qui rendrait ta journée satisfaisante. Le reste peut attendre.\n\nQu’est-ce qui compte le plus pour toi aujourd’hui ?")
         ]
         #if DEBUG
+        // Every kind of rich card, to look at them (and for the UI tests).
+        if ProcessInfo.processInfo.arguments.contains("--demo-cards") {
+            let fence = "```"
+            transcript.messages = [
+                .init(role: "user", text: "Trouve-moi des maisons à Saint-Constant sous 500 000 $"),
+                .init(role: "assistant", text: """
+                J’ai trouvé quatre maisons qui collent à ton budget. La deuxième a le plus grand terrain.
+
+                \(fence)ui
+                {"type":"carousel","title":"Maisons à vendre · Saint-Constant","items":[
+                {"title":"Cottage rénové, 3 chambres","subtitle":"Rue des Érables · garage double","price":"479 000 $","image":"https://picsum.photos/seed/maison-erables/600/400","url":"https://www.apple.com","badges":["3 ch.","2 sdb","Garage"]},
+                {"title":"Plain-pied avec grand terrain","subtitle":"Montée Saint-Régis · 9 800 pi²","price":"449 900 $","image":"https://picsum.photos/seed/maison-terrain/600/400","url":"https://www.apple.com","badges":["3 ch.","1 sdb"]},
+                {"title":"Jumelé récent","subtitle":"Secteur Le Petit-Village","price":"499 000 $","image":"https://picsum.photos/seed/maison-jumele/600/400","url":"https://www.apple.com","badges":["4 ch.","2 sdb"],"rating":4.6},
+                {"title":"Bungalow à rafraîchir","subtitle":"Près de la gare · idéal premier achat","price":"399 000 $","image":"https://picsum.photos/seed/maison-bungalow/600/400","url":"https://www.apple.com","badges":["2 ch.","1 sdb"]}]}
+                \(fence)
+
+                \(fence)ui
+                {"type":"choices","options":["Planifie des visites","Seulement avec garage","Élargis à Candiac"]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Un bon barbier près de chez moi ?"),
+                .init(role: "assistant", text: """
+                Trois barbiers bien notés à moins de 10 minutes :
+
+                \(fence)ui
+                {"type":"places","title":"Barbiers près de Saint-Constant","items":[
+                {"name":"Barbier du Village","address":"Rue Saint-Pierre, Saint-Constant","lat":45.3706,"lon":-73.5653,"note":"Sans rendez-vous le samedi","phone":"450 555 0101"},
+                {"name":"Studio Coupe Delson","address":"Boulevard Georges-Gagné, Delson","lat":45.3727,"lon":-73.5466,"note":"Ouvert jusqu’à 20 h"},
+                {"name":"La Lame Candiac","address":"Chemin Saint-François-Xavier, Candiac","lat":45.3836,"lon":-73.5199,"note":"Réservation en ligne"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Il fera quoi cette semaine ?"),
+                .init(role: "assistant", text: """
+                Frais et assez ensoleillé, avec de la pluie jeudi.
+
+                \(fence)ui
+                {"type":"weather","place":"Saint-Constant","now":{"temp":7,"condition":"Partiellement nuageux","feels":4},"days":[
+                {"day":"Mer","high":9,"low":2,"condition":"Soleil"},{"day":"Jeu","high":8,"low":4,"condition":"Pluie"},
+                {"day":"Ven","high":11,"low":3,"condition":"Nuageux"},{"day":"Sam","high":13,"low":5,"condition":"Ensoleillé"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Où en est Noriven ce mois-ci ?"),
+                .init(role: "assistant", text: """
+                Un bon mois : le revenu monte et les dépenses restent stables.
+
+                \(fence)ui
+                {"type":"metrics","title":"Noriven · octobre","items":[{"label":"Revenu","value":"12 400 $","delta":"+8 %"},{"label":"Dépenses","value":"4 150 $","delta":"+1 %","trend":"flat"},{"label":"Profit","value":"8 250 $","delta":"+12 %"},{"label":"MRR","value":"3 900 $","delta":"-2 %"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Ajoute le barbier jeudi à 17 h"),
+                .init(role: "assistant", text: """
+                C’est noté dans ton agenda Personnel, sans conflit avec ton quart.
+
+                \(fence)ui
+                {"type":"event","title":"Barbier du Village","start":"2026-10-29T17:00","end":"2026-10-29T17:45","location":"Rue Saint-Pierre, Saint-Constant","calendar":"Personnel"}
+                \(fence)
+                """),
+                .init(role: "user", text: "Et l’annonce d’Apple ?"),
+                .init(role: "assistant", text: """
+                Tout est ici : https://www.apple.com/newsroom/
+
+                \(fence)ui
+                {"type":"choices","options":["Résume-la","Autre chose"]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Merci"),
+                .init(role: "assistant", text: "Avec plaisir.")
+            ]
+        }
+        #endif
+        #if DEBUG
         // A long history of rows with very different heights (headings, lists, code), like a real conversation.
         if ProcessInfo.processInfo.arguments.contains("--demo-long-history") {
             var many: [ChatMessage] = []

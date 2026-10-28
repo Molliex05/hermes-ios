@@ -7,6 +7,8 @@ enum ChatMarkdown {
         case paragraph(String), heading(Int, String), quote(String)
         case item(depth: Int, marker: String, text: String, checked: Bool?)
         case code(language: String, text: String), table([[String]]), rule
+        /// A ```ui fence: a rich card described in JSON (see `ChatCard`). `complete` is false while it still streams.
+        case card(String, complete: Bool)
     }
 
     /// A point where parsing can resume from scratch: the UTF-8 offset of a line that follows a
@@ -44,12 +46,14 @@ enum ChatMarkdown {
             if let fence = fenceStart(line) {
                 flush(); i += 1
                 var code: [String] = []
+                var closed = false
                 while i < lines.count {
                     let candidate = lines[i].trimmingCharacters(in: .whitespaces)
-                    if candidate.count >= fence.count && candidate.allSatisfy({ $0 == fence.character }) { break }
+                    if candidate.count >= fence.count && candidate.allSatisfy({ $0 == fence.character }) { closed = true; break }
                     code.append(lines[i]); i += 1
                 }
-                blocks.append(.code(language: fence.language, text: code.joined(separator: "\n")))
+                if ChatCard.isCardFence(fence.language) { blocks.append(.card(code.joined(separator: "\n"), complete: closed)) }
+                else { blocks.append(.code(language: fence.language, text: code.joined(separator: "\n"))) }
                 if i < lines.count { i += 1 }
                 continue
             }

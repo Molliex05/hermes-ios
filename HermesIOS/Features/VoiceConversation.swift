@@ -61,6 +61,8 @@ final class VoiceConversation {
     @ObservationIgnored private var reply = VoiceReplyText()
     @ObservationIgnored private let localSpeech = LocalSpeech()
     @ObservationIgnored private var replyOpen = false
+    /// Keeps cards and code out of what is spoken.
+    @ObservationIgnored private var spokenFilter = SpokenTextFilter()
     @ObservationIgnored private var replyStatus: String?
     @ObservationIgnored private var liveDelegation: String?
     @ObservationIgnored private var liveCursor = VoiceLiveReplyCursor()
@@ -368,7 +370,7 @@ final class VoiceConversation {
             if transcript.running || tools.app.sending || awaitingUser { idleSince = nil }
             else if let since = idleSince, now - since >= 1.5 {
                 // Completed without a live `message.complete` (reconnect, replay).
-                speechStream.send(reply.finish(assistantText(after: message)))
+                speechStream.send(spokenFilter.feed(reply.finish(assistantText(after: message))) + spokenFilter.finish())
                 speechStream.finish(); answer = reply.display
                 break
             } else if idleSince == nil { idleSince = now }
@@ -401,7 +403,7 @@ final class VoiceConversation {
         VoiceMetrics.shared.note("ttsWhy", text: "unavailable=\(speechStream.unavailable) fallback=\(speechStream.fallback) failure=\(speechStream.failure ?? "-") audio=\(speechStream.hasAudio) ended=\(speechStream.ended)")
         speechStream.stop()
         let speech: String
-        do { speech = try await voiceAPI.speech(text) }
+        do { speech = try await voiceAPI.speech(SpokenTextFilter.strip(text)) }
         catch is CancellationError { throw CancellationError() }
         catch {
             try validate(attempt)
@@ -426,7 +428,7 @@ final class VoiceConversation {
     /// The server's voice refused the reply: the iPhone reads it, so the call keeps talking. The text is in the chat anyway.
     private func speakLocally(_ text: String, attempt: UUID) async throws {
         notice = Self.localVoiceNotice
-        guard let rendered = await localSpeech.render(text) else {
+        guard let rendered = await localSpeech.render(SpokenTextFilter.strip(text)) else {
             throw VoiceTurnIssue("La voix du serveur est indisponible. La réponse reste dans le chat.")
         }
         try validate(attempt)
@@ -459,9 +461,9 @@ final class VoiceConversation {
     }
 
     private func openReply(seed: String = "") {
-        reply = VoiceReplyText(seed: seed); replyStatus = nil; replyOpen = true
+        reply = VoiceReplyText(seed: seed); replyStatus = nil; replyOpen = true; spokenFilter = SpokenTextFilter()
         answer = seed
-        if !isLive { speechStream.send(seed) }
+        if !isLive { speechStream.send(spokenFilter.feed(seed)) }
     }
 
     private func closeTurn() {
@@ -475,7 +477,7 @@ final class VoiceConversation {
         case .delta(_, let text):
             VoiceMetrics.shared.mark(.firstDelta)
             let spoken = reply.append(text)
-            if isLive { emitLive(done: false) } else { if !spoken.isEmpty { VoiceMetrics.shared.mark(.firstTextToTTS) }; speechStream.send(spoken) }
+            if isLive { emitLive(done: false) } else { let said = spokenFilter.feed(spoken); if !said.isEmpty { VoiceMetrics.shared.mark(.firstTextToTTS) }; speechStream.send(said) }
             answer = reply.display
         case .complete(_, let text, let status):
             VoiceMetrics.shared.mark(.replyComplete)
@@ -484,7 +486,7 @@ final class VoiceConversation {
             let rest = reply.finish(status == "error" ? "" : text)
             if isLive { emitLive(done: true) }
             else {
-                if status != "error" { speechStream.send(rest) }
+                if status != "error" { speechStream.send(spokenFilter.feed(rest) + spokenFilter.finish()) }
                 speechStream.finish()
             }
             answer = reply.display

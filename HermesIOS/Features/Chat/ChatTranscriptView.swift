@@ -379,16 +379,47 @@ struct MessageView: View, Equatable {
                     Text(message.delivery == .sending ? "Envoi…" : message.delivery == .uncertain ? "Réception à vérifier dans l’historique" : "Non envoyé · copiez pour réessayer")
                         .font(.caption2).foregroundStyle(message.delivery == .sending ? Color.secondary : AppTheme.accent)
                 }
+                if !user && !message.streaming {
+                    // Pages the reply points to, as previews (the agent need not do anything for these).
+                    let links = ChatCard.links(in: message.text, limit: 2)
+                    if !links.isEmpty {
+                        VStack(spacing: 8) { ForEach(links, id: \.self) { LinkPreviewRow(url: $0) } }
+                    }
+                    MessageActions(text: ChatCard.stripCards(message.text))
+                }
             }
             if !user { Spacer(minLength: 5) }
         }
         .appContextMenu {
-            AppMenuButton("Copier", systemImage: "doc.on.doc") { UIPasteboard.general.string = message.text }
-            ShareLink(item: message.text) {
+            AppMenuButton("Copier", systemImage: "doc.on.doc") { UIPasteboard.general.string = ChatCard.stripCards(message.text) }
+            ShareLink(item: ChatCard.stripCards(message.text)) {
                 AppMenuLabel(title: "Partager", systemImage: "square.and.arrow.up").padding(.horizontal, 16).frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
             }.buttonStyle(.plain)
         }
-        .accessibilityElement(children: .combine)
+        // A reply with cards keeps its buttons reachable (VoiceOver, taps); plain text reads as one element.
+        .accessibilityElement(children: !user && ChatCard.hasCards(message.text) ? .contain : .combine)
         .accessibilityIdentifier(user ? "user-message" : "assistant-message")
+    }
+}
+
+/// Copy and share under a finished reply: always at hand, never in the way.
+private struct MessageActions: View {
+    let text: String
+    @State private var copied = false
+    var body: some View {
+        HStack(spacing: 2) {
+            Button {
+                UIPasteboard.general.string = text; Haptics.select(); copied = true
+            } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc").contentTransition(.symbolEffect(.replace))
+                    .frame(width: 34, height: 30).contentShape(Rectangle())
+            }.accessibilityLabel(copied ? "Copié" : "Copier la réponse")
+            ShareLink(item: text) {
+                Image(systemName: "square.and.arrow.up").frame(width: 34, height: 30).contentShape(Rectangle())
+            }.accessibilityLabel("Partager la réponse")
+        }
+        .font(.footnote.weight(.medium)).foregroundStyle(.secondary).buttonStyle(.plain)
+        .padding(.leading, -8)
+        .task(id: copied) { if copied { try? await Task.sleep(for: .seconds(1.6)); if !Task.isCancelled { copied = false } } }
     }
 }

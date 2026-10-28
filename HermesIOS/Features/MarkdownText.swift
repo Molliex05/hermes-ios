@@ -57,6 +57,7 @@ private struct MarkdownBlockView: View, Equatable {
             }.background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                 .clipShape(RoundedRectangle(cornerRadius: 14)).accessibilityIdentifier("markdown-table")
         case .rule: Divider().padding(.vertical, 5)
+        case .card(let json, let complete): RichCardView(json: json, complete: complete).equatable()
         }
     }
 

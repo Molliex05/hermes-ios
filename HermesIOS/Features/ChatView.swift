@@ -24,6 +24,8 @@ struct ChatView: View {
     @State private var pinnedToBottom = true
     @State private var bottomVisible = true
     @State private var toolsExpanded = false
+    /// A web page opened from a reply, shown in the in-app browser.
+    @State private var webPage: WebPage?
     @FocusState private var focused: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -36,6 +38,14 @@ struct ChatView: View {
                                    toolsExpanded: $toolsExpanded, suggest: { model.draft = $0; focused = true })
             }
             .background { ChatBackdrop(model: model) }
+            // Links in replies open in the in-app browser; quick-reply cards answer as if typed.
+            .environment(\.openURL, OpenURLAction { url in
+                guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return .systemAction }
+                webPage = WebPage(url: url)
+                return .handled
+            })
+            .environment(\.chatReply, ChatReplyAction { text in reply(text) })
+            .sheet(item: $webPage) { page in SafariView(url: page.url).ignoresSafeArea() }
             // Tapping the chat closes the « + » panel; the composer below stays live.
             .overlay {
                 if attachOpen {
@@ -152,6 +162,19 @@ struct ChatView: View {
                 try await model.addAttachment(data: jpeg, name: name, mimeType: "image/jpeg", context: context)
             } catch is CancellationError { }
             catch { model.chatError = error.localizedDescription }
+        }
+    }
+
+    /// A quick reply from a card: sent at once when the agent is free, otherwise left ready in the field.
+    private func reply(_ text: String) {
+        let previous = model.draft
+        model.draft = text
+        if model.canSend {
+            pinnedToBottom = true
+            Task { await model.send(); if !previous.isEmpty, model.draft.isEmpty { model.draft = previous } }
+        } else {
+            model.draft = previous.isEmpty ? text : previous + " " + text
+            focused = true
         }
     }
 
