@@ -97,6 +97,8 @@ def decrypt_content(key: bytes, event_id: str, enc: str) -> dict:
 
 def strip_markdown(text) -> str:
     t = str(text or "")
+    # Rich cards (```ui JSON fences, drawn natively by the app) never reach a notification.
+    t = re.sub(r"(?ms)^[ \t]*(```|~~~)[ \t]*(?:ui|hermes-ui|card|carte)[ \t]*\n.*?(?:^[ \t]*\1[ \t]*$|\Z)", " ", t)
     t = re.sub(r"```[^\n]*\n?", " ", t)                          # fence markers (keep the code text)
     t = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", t)              # images -> alt
     t = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", t)               # links -> label
