@@ -54,6 +54,7 @@
 		59F6414EAF16F5E0369B5342 /* ProvidersSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EEB3EDB5A972E8E368140A40 /* ProvidersSettingsView.swift */; };
 		5BBB627A0B67FE2F04FBD140 /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03771C2DF46F958CA751A93C /* JSONValue.swift */; };
 		5CC1A8995D0FA687FF648279 /* HermesIOSWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = BFB1DB514EF6A36E1A2334FF /* HermesIOSWidgetsBundle.swift */; };
+		5F43FC5FB21C3D63A134BB60 /* VoiceEnvironmentSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77DEDAE25F2DCE8DA3DB84F4 /* VoiceEnvironmentSettings.swift */; };
 		5FD563394AA5347A5CB87C77 /* ModelSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD17FA2A027A1EE3C4D37805 /* ModelSettingsView.swift */; };
 		6012B19D16F654C72930481B /* memoire.wav in Resources */ = {isa = PBXBuildFile; fileRef = 362C9954B7F70E3D5BFA2C9F /* memoire.wav */; };
 		6280C12547142CB59236AA0C /* FinanceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A115C0D0A171E6BD05F89DB5 /* FinanceViews.swift */; };
@@ -131,6 +132,7 @@
 		EDFED7945B1D19ACE1FDBC32 /* NotificationTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = FAE26FF8CAD8052D3A341332 /* NotificationTarget.swift */; };
 		EEF0B72EEC204B07A6808D5A /* BackgroundLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA19D67E64E6BC861BA6083F /* BackgroundLease.swift */; };
 		EF0DD292C9B23D63C8EC931B /* Skeleton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5129C2C9C5CCE39CD9C692C0 /* Skeleton.swift */; };
+		F54AE1A9CC08DBFCBBFDE842 /* VoiceBandFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4AB6902CDC3145E8E242E03 /* VoiceBandFilter.swift */; };
 		F6F4E6CC72851994C165964E /* NativeVoiceAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B104A4361ECD7B91A321759C /* NativeVoiceAPI.swift */; };
 		F73FD30D37068473C02A68C4 /* NotificationCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC12C319AE764336787C8A1 /* NotificationCrypto.swift */; };
 		F78C38E621878F2516DBF4C8 /* StoredCookie.swift in Sources */ = {isa = PBXBuildFile; fileRef = D13C6E169393755487F106D2 /* StoredCookie.swift */; };
@@ -257,6 +259,7 @@
 		7494750F87AE1DE4FCD29840 /* AppChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppChrome.swift; sourceTree = "<group>"; };
 		753087B8E41F0A5AED4D3DC0 /* VoiceSamples.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSamples.swift; sourceTree = "<group>"; };
 		76ACDEB64D082DA4095A0544 /* AgentToolsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentToolsView.swift; sourceTree = "<group>"; };
+		77DEDAE25F2DCE8DA3DB84F4 /* VoiceEnvironmentSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceEnvironmentSettings.swift; sourceTree = "<group>"; };
 		79C37338BEC56A3322AAC1CF /* web.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = web.wav; sourceTree = "<group>"; };
 		7A87F904778F7AD694B573F1 /* HermesSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesSocket.swift; sourceTree = "<group>"; };
 		7C4FC914201C38D1A165638D /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
@@ -320,6 +323,7 @@
 		F25C8AEBDE66DBDA9B9AF8D4 /* VoiceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSettingsView.swift; sourceTree = "<group>"; };
 		F3D4CA639A161E5614648C6E /* manteau.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = manteau.wav; sourceTree = "<group>"; };
 		F422B4D6EFE7EBEF4D11C54C /* ScrollGap.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollGap.swift; sourceTree = "<group>"; };
+		F4AB6902CDC3145E8E242E03 /* VoiceBandFilter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceBandFilter.swift; sourceTree = "<group>"; };
 		F836B8FAB56D3E5A0BBD6BD2 /* WorkspaceFilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFilesView.swift; sourceTree = "<group>"; };
 		F9CE976027FBF5395EF1C01C /* HermesIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = HermesIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FAE26FF8CAD8052D3A341332 /* NotificationTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationTarget.swift; sourceTree = "<group>"; };
@@ -539,6 +543,7 @@
 				23406111A6D8CD5FE59A411C /* Theme.swift */,
 				2717CCF90B5F1FC42676E709 /* VoiceBench.swift */,
 				436419B2A934B9610E3BD3DD /* VoiceConversation.swift */,
+				77DEDAE25F2DCE8DA3DB84F4 /* VoiceEnvironmentSettings.swift */,
 				E1F3CDA374E42BBFCE84A4F6 /* VoiceFiller.swift */,
 				D3C40E207DFACCFAA12FE387 /* VoiceMetrics.swift */,
 				753087B8E41F0A5AED4D3DC0 /* VoiceSamples.swift */,
@@ -575,6 +580,7 @@
 				D13C6E169393755487F106D2 /* StoredCookie.swift */,
 				0133611339BB4310770DF600 /* Transcript.swift */,
 				0B1ABEA9AE1C021FC85A2204 /* VoiceActivity.swift */,
+				F4AB6902CDC3145E8E242E03 /* VoiceBandFilter.swift */,
 				BD8B320D314E6D15DCC251E2 /* VoiceBargeIn.swift */,
 				5FFBB999CB80F593A702DC86 /* VoiceLiveProtocol.swift */,
 				92A2BB106302AD38E8FB4767 /* VoiceNoiseFloor.swift */,
@@ -884,10 +890,12 @@
 				87CF654D7D7185292175380D /* Transcript.swift in Sources */,
 				9772E0457C80C9E24FB69D1B /* VoiceActivity.swift in Sources */,
 				A860795CE92E02D458FCD7F9 /* VoiceAudioEngine.swift in Sources */,
+				F54AE1A9CC08DBFCBBFDE842 /* VoiceBandFilter.swift in Sources */,
 				CE079D497EBE915D4F454CF1 /* VoiceBargeIn.swift in Sources */,
 				0BED67CD4A587DA4DCD37D66 /* VoiceBench.swift in Sources */,
 				FF1E18FC1887E5EA90E89A5F /* VoiceConversation.swift in Sources */,
 				B2C665BB05FF342AF14A2213 /* VoiceDiagnostics.swift in Sources */,
+				5F43FC5FB21C3D63A134BB60 /* VoiceEnvironmentSettings.swift in Sources */,
 				28423163919A6E21C7FB224D /* VoiceFiller.swift in Sources */,
 				A9067A76C700ABE1CBC373E9 /* VoiceLiveProtocol.swift in Sources */,
 				ECBF5ACD960F55A35F1DA570 /* VoiceLiveTransport.swift in Sources */,
