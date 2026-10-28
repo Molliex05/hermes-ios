@@ -120,6 +120,36 @@ enum ChatCard: Equatable {
         let gauges: [Gauge]
         let items: [Check]
     }
+    /// A news article, as the `nouvelles` tool returns it (French keys accepted).
+    struct Article: Equatable, Identifiable {
+        let id: Int
+        let title: String, source: String, time: String, summary: String
+        let url: URL?, image: URL?
+    }
+    enum BriefKind: String, Equatable { case agenda, training, nutrition, email, news, health, money, tasks, weather, note }
+    struct BriefLine: Equatable, Identifiable {
+        let id: Int
+        let time: String, text: String, detail: String
+        let url: URL?
+        let reply: String
+    }
+    struct BriefSection: Equatable, Identifiable {
+        let id: Int
+        let kind: BriefKind
+        let title: String, text: String
+        let lines: [BriefLine]
+        let articles: [Article]
+    }
+    struct BriefWeather: Equatable {
+        let temperature: Double?, high: Double?, low: Double?
+        let condition: String
+    }
+    /// The morning summary: a greeting, the weather, the sections the agent chose that day, one thing to keep in mind.
+    struct Brief: Equatable {
+        let greeting: String, date: String, focus: String
+        let weather: BriefWeather?
+        let sections: [BriefSection]
+    }
 
     case carousel(title: String, items: [Item])
     case places(title: String, items: [Place])
@@ -135,6 +165,8 @@ enum ChatCard: Equatable {
     case workout(Workout)
     case route(Route)
     case status(Status)
+    case news(title: String, items: [Article])
+    case brief(Brief)
 
     static let maxItems = 12
     /// Lists and agendas are read through, so they hold more (a week of shifts, a month of expenses).
@@ -269,6 +301,30 @@ enum ChatCard: Equatable {
                 points = (0..<maxRoutePoints).map { points[Int((Double($0) * step).rounded())] }
             }
             return points.count < 2 ? nil : .route(Route(title: title, stats: stats(json["stats"]), points: points))
+        case "news":
+            let items = articles(json["items"].isNull ? json["articles"] : json["items"], limit: 8)
+            return items.isEmpty ? nil : .news(title: title, items: items)
+        case "brief":
+            let sections = list(json["sections"], limit: 7).enumerated().compactMap { index, value -> BriefSection? in
+                let kind = briefKind(value["kind"].string)
+                let heading = clean(value["title"].string, 40), text = clean(value["text"].string, 280)
+                let news = kind == .news ? articles(value["items"], limit: 4) : []
+                let lines = kind == .news ? [] : list(value["items"], limit: 6).enumerated().compactMap { index, line -> BriefLine? in
+                    let words = clean(line.string.isEmpty ? line["text"].string : line.string, 160)
+                    guard !words.isEmpty else { return nil }
+                    return BriefLine(id: index, time: clean(display(line["time"]), 12), text: words, detail: clean(display(line["detail"]), 60),
+                                     url: webURL(line["url"].string), reply: clean(line["reply"].string, 120))
+                }
+                guard !text.isEmpty || !lines.isEmpty || !news.isEmpty else { return nil }
+                return BriefSection(id: index, kind: kind, title: heading, text: text, lines: lines, articles: news)
+            }
+            let sky = json["weather"]
+            let weather = sky.object.isEmpty ? nil
+                : BriefWeather(temperature: number(sky["temp"]) ?? number(sky["temperature"]), high: number(sky["high"]), low: number(sky["low"]),
+                               condition: clean(sky["condition"].string, 40))
+            let brief = Brief(greeting: clean(json["greeting"].string.isEmpty ? json["title"].string : json["greeting"].string, 60),
+                              date: clean(json["date"].string, 40), focus: clean(json["focus"].string, 200), weather: weather, sections: sections)
+            return sections.isEmpty && brief.focus.isEmpty ? nil : .brief(brief)
         case "status":
             let gauges = list(json["gauges"]).enumerated().compactMap { index, value -> Gauge? in
                 let label = clean(value["label"].string, 20), unit = clean(value["unit"].string, 8)
@@ -309,8 +365,36 @@ enum ChatCard: Equatable {
         case "agenda", "schedule", "horaire", "journee", "journée", "planning", "timeline": "agenda"
         case "workout", "entrainement", "entraînement", "seance", "séance", "training": "workout"
         case "route", "parcours", "trace", "tracé", "course", "run": "route"
-        case "status", "etat", "état", "serveur", "server", "vps", "sante", "santé", "health", "services", "monitoring": "status"
+        case "status", "etat", "état", "serveur", "server", "vps", "services", "monitoring": "status"
+        case "news", "nouvelles", "actualites", "actualités", "articles", "presse": "news"
+        case "brief", "matin", "morning", "resume", "résumé", "digest", "bulletin": "brief"
         default: ""
+        }
+    }
+
+    private static func articles(_ value: JSONValue, limit: Int) -> [Article] {
+        Array(list(value, limit: limit).enumerated().compactMap { index, item -> Article? in
+            let title = clean(item["title"].string.isEmpty ? item["titre"].string : item["title"].string, 160)
+            guard !title.isEmpty, let url = webURL(item["url"].string) else { return nil }
+            let time = item["time"].string.isEmpty ? item["il_y_a"].string : item["time"].string
+            let summary = item["summary"].string.isEmpty ? item["resume"].string : item["summary"].string
+            return Article(id: index, title: title, source: clean(item["source"].string, 40), time: clean(time, 24),
+                           summary: clean(summary, 240), url: url, image: webURL(item["image"].string))
+        })
+    }
+
+    private static func briefKind(_ raw: String) -> BriefKind {
+        switch raw.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "agenda", "calendrier", "calendar", "journee", "journée", "aujourd'hui", "quart": .agenda
+        case "training", "entrainement", "entraînement", "workout", "sport", "séance", "seance": .training
+        case "nutrition", "nourriture", "repas", "food", "alimentation": .nutrition
+        case "email", "emails", "courriels", "courriel", "mail": .email
+        case "news", "nouvelles", "actualites", "actualités", "presse": .news
+        case "health", "sante", "santé", "sommeil", "sleep", "poids": .health
+        case "money", "finances", "finance", "argent", "budget": .money
+        case "tasks", "taches", "tâches", "rappels", "todo": .tasks
+        case "weather", "meteo", "météo": .weather
+        default: .note
         }
     }
 

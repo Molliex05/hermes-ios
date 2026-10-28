@@ -754,3 +754,229 @@ private struct GaugeRing: View {
         }
     }
 }
+
+// MARK: - News (hermes-nouvelles)
+
+struct NewsCard: View {
+    let title: String
+    let articles: [ChatCard.Article]
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            CardTitle(text: title, symbol: "newspaper")
+            VStack(spacing: 0) {
+                if let lead = articles.first {
+                    Button { open(lead) } label: {
+                        ZStack(alignment: .bottomLeading) {
+                            CardImage(image: lead.image, page: lead.url).frame(height: 190).frame(maxWidth: .infinity).clipped()
+                            LinearGradient(colors: [.clear, .black.opacity(0.78)], startPoint: .center, endPoint: .bottom)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(lead.title).font(.headline).foregroundStyle(.white).lineLimit(3).multilineTextAlignment(.leading)
+                                ArticleByline(article: lead).foregroundStyle(.white.opacity(0.85))
+                            }
+                            .padding(14)
+                        }
+                    }
+                    .buttonStyle(PressableStyle())
+                    .articleMenu(lead)
+                }
+                ForEach(articles.dropFirst()) { article in
+                    Divider().padding(.leading, 84)
+                    ArticleRow(article: article)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: CardStyle.radius, style: .continuous))
+            .cardSurface()
+        }
+        .accessibilityIdentifier("card-news")
+    }
+
+    private func open(_ article: ChatCard.Article) {
+        guard let url = article.url else { return }
+        Haptics.select(); openURL(url)
+    }
+}
+
+/// « Radio-Canada · il y a 2 h »
+private struct ArticleByline: View {
+    let article: ChatCard.Article
+    var body: some View {
+        Text([article.source, article.time].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption.weight(.medium)).lineLimit(1)
+    }
+}
+
+/// One article: a picture (the page's own when the feed has none), its title, source and age. Opens in the in-app browser.
+struct ArticleRow: View {
+    let article: ChatCard.Article
+    @Environment(\.openURL) private var openURL
+    var body: some View {
+        Button { if let url = article.url { Haptics.select(); openURL(url) } } label: {
+            HStack(spacing: 12) {
+                CardImage(image: article.image, page: article.url).frame(width: 58, height: 58)
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(article.title).font(.subheadline.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
+                    ArticleByline(article: article).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle())
+        .articleMenu(article)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private extension View {
+    func articleMenu(_ article: ChatCard.Article) -> some View {
+        contextMenu {
+            if let url = article.url {
+                Button { UIPasteboard.general.url = url } label: { Label("Copier le lien", systemImage: "link") }
+                ShareLink(item: url) { Label("Partager", systemImage: "square.and.arrow.up") }
+            }
+        }
+    }
+}
+
+// MARK: - Morning summary
+
+struct BriefCard: View {
+    let brief: ChatCard.Brief
+    @Environment(\.colorScheme) private var scheme
+
+    /// Sunrise in the morning, daylight at noon, dusk at night: the card follows the hour it is read.
+    private var sky: [Color] {
+        let hour = Calendar.current.component(.hour, from: .now), dark = scheme == .dark
+        switch hour {
+        case 5..<11: return dark ? [Color(red: 0.55, green: 0.27, blue: 0.22), Color(red: 0.32, green: 0.18, blue: 0.3)]
+                                 : [Color(red: 0.99, green: 0.68, blue: 0.47), Color(red: 0.9, green: 0.45, blue: 0.47)]
+        case 11..<17: return dark ? [Color(red: 0.13, green: 0.3, blue: 0.5), Color(red: 0.08, green: 0.17, blue: 0.33)]
+                                  : [Color(red: 0.38, green: 0.66, blue: 0.94), Color(red: 0.25, green: 0.47, blue: 0.84)]
+        default: return dark ? [Color(red: 0.2, green: 0.17, blue: 0.4), Color(red: 0.1, green: 0.08, blue: 0.22)]
+                             : [Color(red: 0.42, green: 0.36, blue: 0.75), Color(red: 0.25, green: 0.2, blue: 0.5)]
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(brief.greeting.isEmpty ? "Bonjour" : brief.greeting).font(.system(.title2, design: .rounded).weight(.bold))
+                    if !brief.date.isEmpty { Text(brief.date).font(.subheadline.weight(.medium)).opacity(0.85) }
+                }
+                Spacer(minLength: 8)
+                if let weather = brief.weather {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Image(systemName: ChatCard.weatherSymbol(weather.condition)).symbolRenderingMode(.multicolor).font(.title2)
+                            if let temperature = weather.temperature { Text("\(Int(temperature.rounded()))°").font(.system(.title, design: .rounded).weight(.semibold)) }
+                        }
+                        if let high = weather.high, let low = weather.low {
+                            Text("↑\(Int(high.rounded()))°  ↓\(Int(low.rounded()))°").font(.caption.weight(.semibold)).opacity(0.85)
+                        } else if !weather.condition.isEmpty {
+                            Text(weather.condition).font(.caption.weight(.medium)).opacity(0.85).lineLimit(1)
+                        }
+                    }
+                }
+            }
+            .foregroundStyle(.white)
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LinearGradient(colors: sky, startPoint: .topLeading, endPoint: .bottomTrailing),
+                        in: UnevenRoundedRectangle(topLeadingRadius: CardStyle.radius, topTrailingRadius: CardStyle.radius, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(brief.sections.enumerated()), id: \.element.id) { index, section in
+                    if index > 0 { Divider().padding(.leading, 52) }
+                    BriefSectionView(section: section)
+                }
+                if !brief.focus.isEmpty {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "scope").font(.subheadline.weight(.bold)).foregroundStyle(AppTheme.accent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("À retenir").font(.caption.weight(.bold)).foregroundStyle(AppTheme.accent).textCase(.uppercase)
+                            Text(brief.focus).font(.subheadline.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(12)
+                    .background(AppTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .padding(12)
+                }
+            }
+            .padding(.vertical, 4)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: CardStyle.radius, style: .continuous))
+        .cardSurface()
+        .accessibilityIdentifier("card-brief")
+    }
+}
+
+private struct BriefSectionView: View {
+    let section: ChatCard.BriefSection
+    @Environment(\.openURL) private var openURL
+    @Environment(\.chatReply) private var reply
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: Self.symbol(section.kind)).font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+                    .frame(width: 28, height: 28).background(Self.color(section.kind), in: Circle())
+                Text(section.title.isEmpty ? Self.title(section.kind) : section.title).font(.subheadline.weight(.bold))
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                if !section.text.isEmpty {
+                    Text(section.text).font(.subheadline).foregroundStyle(Color.primary.opacity(0.88)).fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(section.lines) { line in lineView(line) }
+            }
+            .padding(.leading, 38)
+            if !section.articles.isEmpty {
+                VStack(spacing: 0) { ForEach(section.articles) { ArticleRow(article: $0) } }
+                    .padding(.horizontal, -14).padding(.leading, 38).padding(.vertical, -6)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+    }
+
+    @ViewBuilder private func lineView(_ line: ChatCard.BriefLine) -> some View {
+        let row = HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if !line.time.isEmpty { Text(line.time).font(.subheadline.weight(.semibold)).monospacedDigit().foregroundStyle(Self.color(section.kind)) }
+            Text(line.text).font(.subheadline).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 6)
+            if !line.detail.isEmpty { Text(line.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            if line.url != nil || (!line.reply.isEmpty && reply != nil) { Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(.tertiary) }
+        }
+        if let url = line.url {
+            Button { Haptics.select(); openURL(url) } label: { row.contentShape(Rectangle()) }.buttonStyle(PressableStyle())
+        } else if !line.reply.isEmpty, let reply {
+            Button { Haptics.send(); reply.send(line.reply) } label: { row.contentShape(Rectangle()) }.buttonStyle(PressableStyle())
+        } else {
+            row
+        }
+    }
+
+    static func symbol(_ kind: ChatCard.BriefKind) -> String {
+        switch kind {
+        case .agenda: "calendar"; case .training: "dumbbell.fill"; case .nutrition: "fork.knife"; case .email: "envelope.fill"
+        case .news: "newspaper.fill"; case .health: "heart.fill"; case .money: "dollarsign"; case .tasks: "checklist"
+        case .weather: "cloud.sun.fill"; case .note: "sparkles"
+        }
+    }
+    static func color(_ kind: ChatCard.BriefKind) -> Color {
+        switch kind {
+        case .agenda: CardPalette.colors[2]; case .training: AppTheme.accent; case .nutrition: CardPalette.colors[1]
+        case .email: CardPalette.colors[3]; case .news: CardPalette.colors[4]; case .health: .pink; case .money: CardPalette.colors[1]
+        case .tasks: CardPalette.colors[5]; case .weather: CardPalette.colors[2]; case .note: .gray
+        }
+    }
+    static func title(_ kind: ChatCard.BriefKind) -> String {
+        switch kind {
+        case .agenda: "Aujourd’hui"; case .training: "Entraînement"; case .nutrition: "Nourriture"; case .email: "Courriels"
+        case .news: "Nouvelles"; case .health: "Santé"; case .money: "Finances"; case .tasks: "À faire"; case .weather: "Météo"; case .note: "À noter"
+        }
+    }
+}

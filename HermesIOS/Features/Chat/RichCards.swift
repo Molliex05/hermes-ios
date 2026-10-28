@@ -28,6 +28,8 @@ struct RichCardView: View, Equatable {
             case .workout(let workout): WorkoutCard(workout: workout)
             case .route(let route): RouteCard(route: route)
             case .status(let status): StatusCard(status: status)
+            case .news(let title, let items): NewsCard(title: title, articles: items)
+            case .brief(let brief): BriefCard(brief: brief)
             }
         }
     }
@@ -156,7 +158,7 @@ private struct CarouselItemCard: View {
 }
 
 /// The picture of a card: the given image, else the page's own preview picture, else a soft placeholder.
-private struct CardImage: View {
+struct CardImage: View {
     let image: URL?
     let page: URL?
     @State private var preview: UIImage?

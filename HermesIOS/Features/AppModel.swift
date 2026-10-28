@@ -1459,6 +1459,31 @@ final class AppModel {
                 {"type":"metrics","title":"Noriven · octobre","items":[{"label":"Revenu","value":"12 400 $","delta":"+8 %"},{"label":"Dépenses","value":"4 150 $","delta":"+1 %","trend":"flat"},{"label":"Profit","value":"8 250 $","delta":"+12 %"},{"label":"MRR","value":"3 900 $","delta":"-2 %"}]}
                 \(fence)
                 """),
+                .init(role: "assistant", text: """
+                Résumé du jour : quart de jour jusqu’à 15 h, barbier à 17 h, ciel gris et 7°. Hier, protéines un peu basses.
+
+                \(fence)ui
+                {"type":"brief","greeting":"Bonjour Maxime","date":"Jeudi 29 octobre","weather":{"temp":7,"condition":"Nuageux","high":9,"low":2},
+                "sections":[{"kind":"agenda","title":"Aujourd’hui","items":[{"time":"06:45","text":"Quart de jour","detail":"jusqu’à 15 h"},{"time":"17:00","text":"Barbier du Village"},{"time":"18:30","text":"Souper chez Julie"}]},
+                {"kind":"training","items":[{"text":"Pull · dos et biceps","detail":"45 min"}]},
+                {"kind":"nutrition","text":"Hier : 2 150 kcal sur 2 400 et 128 g de protéines sur 160. Vise un dîner riche en protéines."},
+                {"kind":"email","items":[{"text":"Facture AWS d’octobre","detail":"84,20 $","reply":"Montre-moi la facture AWS"},{"text":"2 courriels classés dans Infolettres"}]},
+                {"kind":"news","items":[{"titre":"Pont Mercier, Jacques-Cartier : nos ponts arrivent-ils en fin de vie?","source":"Le Reflet","url":"https://www.lereflet.qc.ca/","il_y_a":"il y a 4 h"},
+                {"titre":"iPhone Duo could capture nearly 30% of foldable market in 2027","source":"9to5Mac","url":"https://9to5mac.com/","image":"https://picsum.photos/seed/iphone-duo/300/300","il_y_a":"il y a 45 min"}]}],
+                "focus":"Une seule chose : 20 minutes de mobilité après le quart."}
+                \(fence)
+                """),
+                .init(role: "user", text: "Quoi de neuf dans les nouvelles ?"),
+                .init(role: "assistant", text: """
+                Trois titres ce soir, dont un près de chez toi.
+
+                \(fence)ui
+                {"type":"news","title":"À la une","items":[
+                {"titre":"Pont Mercier, Jacques-Cartier : nos ponts arrivent-ils en fin de vie?","source":"Le Reflet","url":"https://www.lereflet.qc.ca/","image":"https://picsum.photos/seed/pont-mercier/800/450","il_y_a":"il y a 4 h"},
+                {"titre":"Ottawa instaure de nouvelles amendes visant les conseils frauduleux","source":"Le Devoir","url":"https://www.ledevoir.com/","il_y_a":"il y a 49 min"},
+                {"titre":"iPhone Duo could capture nearly 30% of foldable market in 2027","source":"9to5Mac","url":"https://9to5mac.com/","image":"https://picsum.photos/seed/iphone-duo/300/300","il_y_a":"il y a 45 min"}]}
+                \(fence)
+                """),
                 .init(role: "user", text: "Et le MRR de Glutax sur six mois ?"),
                 .init(role: "assistant", text: """
                 Il monte depuis mai ; l’objectif de 4 000 $ est en vue.

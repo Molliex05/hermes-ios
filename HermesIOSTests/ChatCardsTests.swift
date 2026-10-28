@@ -204,6 +204,31 @@ final class ChatCardsTests: XCTestCase {
         XCTAssertEqual(route.points.count, 2)
     }
 
+    func testNewsAcceptsTheToolsOwnKeysAndTheBriefKeepsItsSections() {
+        let news = """
+        {"type":"nouvelles","title":"À la une","articles":[{"titre":"Nos ponts arrivent-ils en fin de vie?","source":"Le Reflet","url":"https://www.lereflet.qc.ca/a","image":"https://img.example/p.jpg","il_y_a":"il y a 4 h","resume":"Le pont Mercier…"},
+         {"title":"Sans lien"},{"title":"Lien http","url":"http://example.com"}]}
+        """
+        guard case .news(let title, let articles)? = ChatCard.parse(news) else { return XCTFail() }
+        XCTAssertEqual(title, "À la une"); XCTAssertEqual(articles.map(\.title), ["Nos ponts arrivent-ils en fin de vie?", "Lien http"], "an article needs a web link")
+        XCTAssertEqual(articles[0].source, "Le Reflet"); XCTAssertEqual(articles[0].time, "il y a 4 h"); XCTAssertEqual(articles[0].summary, "Le pont Mercier…")
+
+        let brief = """
+        {"type":"matin","greeting":"Bonjour Maxime","date":"Jeudi 29 octobre","weather":{"temp":7,"condition":"Nuageux","high":9,"low":2},
+         "focus":"Une seule chose : la mobilité après le quart.",
+         "sections":[{"kind":"quart","title":"Aujourd’hui","items":[{"time":"06:45","text":"Quart de jour","detail":"jusqu’à 15 h"},"Barbier à 17 h"]},
+                     {"kind":"nouvelles","items":[{"titre":"Article","url":"https://example.com/a"}]},
+                     {"kind":"courriels","text":"Trois à lire, dont la facture AWS."},
+                     {"kind":"inconnu"}]}
+        """
+        guard case .brief(let morning)? = ChatCard.parse(brief) else { return XCTFail() }
+        XCTAssertEqual(morning.greeting, "Bonjour Maxime"); XCTAssertEqual(morning.weather?.high, 9)
+        XCTAssertEqual(morning.sections.map(\.kind), [.agenda, .news, .email], "an empty section is dropped")
+        XCTAssertEqual(morning.sections[0].lines.map(\.text), ["Quart de jour", "Barbier à 17 h"], "a line may be a plain string")
+        XCTAssertEqual(morning.sections[0].lines[0].time, "06:45"); XCTAssertEqual(morning.sections[1].articles.count, 1)
+        XCTAssertNil(ChatCard.parse("{\"type\":\"brief\",\"greeting\":\"Bonjour\"}"), "a greeting alone is not a summary")
+    }
+
     func testStatusDerivesTheWholeFromItsParts() {
         let json = """
         {"type":"vps","title":"noriven-prod","gauges":[{"label":"CPU","value":9,"unit":"%"},{"label":"Mémoire","value":2.1,"max":7.8,"unit":"Go"},{"label":"Disque","value":28},{"label":"","value":1,"max":2}],
