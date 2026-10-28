@@ -509,6 +509,7 @@ private final class VoiceAudioState: @unchecked Sendable {
     private var status = VoiceAudioEngine.Snapshot()
     private var muted = false
     private var resampler = VoicePCMResampler(sourceRate: 48000)
+    private var bandFilter = VoiceBandFilter(sampleRate: 48000)
     private var samples: [Int16] = []
     private var maximum = 120 * rate
     private var preRoll: [Int16] = []
@@ -539,6 +540,7 @@ private final class VoiceAudioState: @unchecked Sendable {
         lock.withLock {
             guard token == generation else { return }
             resampler = VoicePCMResampler(sourceRate: sampleRate)
+            bandFilter = VoiceBandFilter(sampleRate: sampleRate)
             sourceRate = sampleRate
             preRoll = [Int16](repeating: 0, count: Self.rate)
             ringIndex = 0; ringCount = 0
@@ -649,7 +651,9 @@ private final class VoiceAudioState: @unchecked Sendable {
         vDSP_svesq(channel, 1, &energy, vDSP_Length(count))
         let rms = sqrt(Double(energy) / Double(count))
         let time = when.isHostTimeValid ? AVAudioTime.seconds(forHostTime: when.hostTime) : ProcessInfo.processInfo.systemUptime
-        let level = VoiceLevel(time: time, duration: Double(count) / buffer.format.sampleRate, rms: rms * 32767)
+        // The level of the speech band alone: a car's rumble hardly registers there (see `VoiceBandFilter`).
+        let band = lock.withLock { bandFilter.rms(of: UnsafeBufferPointer(start: channel, count: count)) }
+        let level = VoiceLevel(time: time, duration: Double(count) / buffer.format.sampleRate, rms: rms * 32767, band: band * 32767)
         let delivery: (AsyncStream<VoiceLevel>.Continuation?, AsyncStream<Data>.Continuation?, Data?) = lock.withLock {
             guard token == generation, status.monitoring, !muted, !preRoll.isEmpty else {
                 diagTap(rms: rms * 32767, gate: "token=\(token == generation) monitoring=\(status.monitoring) muted=\(muted) preRollEmpty=\(preRoll.isEmpty)")

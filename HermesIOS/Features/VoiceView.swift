@@ -8,6 +8,8 @@ struct VoiceView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var typeSize
     @State private var startedAt = Date()
+    @State private var interruption = VoiceInterruptionSetting.mode
+    @State private var environment = VoiceEnvironmentSetting.mode
 
     init(app: AppModel, returnToChat: @escaping () -> Void) {
         self.app = app; self.returnToChat = returnToChat
@@ -56,6 +58,18 @@ struct VoiceView: View {
                         AppMenuButton("GPT-Live · Stone · français") { conversation.chooseLive() }
                             .accessibilityIdentifier("voice-use-live")
                         AppMenuButton("Voix standard pour cet appel") { conversation.chooseStandard() }
+                        // Where you are: a car's noise should neither cut the agent off nor pass for your voice.
+                        AppMenuButton("Mode voiture (bruit de moteur)", systemImage: "car", selected: environment == .car) {
+                            environment = environment == .car ? .auto : .car
+                            VoiceEnvironmentSetting.set(environment)
+                        }.accessibilityIdentifier("voice-car-mode")
+                        AppMenuButton("Te couper la parole à la voix", systemImage: "waveform.badge.mic", selected: interruption == .auto) {
+                            interruption = interruption == .auto ? .off : .auto
+                            VoiceInterruptionSetting.set(interruption)
+                        }.accessibilityIdentifier("voice-interruption")
+                        AppMenuButton("Mode du micro (isolation de la voix)", systemImage: "mic.badge.plus") {
+                            AVCaptureDevice.showSystemUserInterface(.microphoneModes)
+                        }
                     } label: {
                         Label(conversation.isLive ? "GPT-Live" : "Mode vocal", systemImage: "slider.horizontal.3")
                     }.disabled(app.demo).accessibilityIdentifier("voice-engine")

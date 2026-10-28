@@ -41,7 +41,14 @@ final class VoiceConversation {
     @ObservationIgnored private var standardModeAccepted = false
     // Utterance pipeline (standard voice).
     @ObservationIgnored private var onset = VoiceActivity(threshold: 200, silenceDuration: 0.8)
+    /// The quiet-moment level, measured twice: over the whole spectrum (tells a noisy place from a quiet one) and in the speech
+    /// band only (the reference for hearing a voice once the place is noisy, such as a car).
     @ObservationIgnored private var ambient = VoiceNoiseFloor()
+    @ObservationIgnored private var ambientBand = VoiceNoiseFloor()
+    @ObservationIgnored private var noisyLatched = false
+    /// The setting or the audio route says « car »; looked at about every two seconds, not on every audio frame.
+    @ObservationIgnored private var forcedNoisy = false
+    @ObservationIgnored private var forcedCheckedAt = -Double.infinity
     @ObservationIgnored private var barge: VoiceBargeIn?
     @ObservationIgnored private var capture: Utterance?
     @ObservationIgnored private var finished: [Utterance] = []
@@ -155,10 +162,10 @@ final class VoiceConversation {
     private func runStandard(_ preferences: VoicePreferences, attempt: UUID) async throws {
         isLive = false
         requiresStandardMode = false
-        allowsBargeIn = preferences.bargeIn
+        allowsBargeIn = preferences.bargeIn && VoiceInterruptionSetting.mode != .off
         liveSTT = preferences.liveTranscription
         onset = VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.endpointSilence)
-        ambient = VoiceNoiseFloor()
+        ambient = VoiceNoiseFloor(); ambientBand = VoiceNoiseFloor(); noisyLatched = false
         try await audio.prepare(); try validate(attempt)
         audio.setInputMuted(inputMuted)
         tools.app.speechSink = { [weak self] event in self?.receiveSpeech(event, attempt: attempt) }
@@ -171,7 +178,7 @@ final class VoiceConversation {
            let message = tools.app.transcript.messages.last(where: { $0.role == "user" }) {
             heard = message.text
             turnActive = true; bargeRequested = false
-            barge = preferences.bargeIn ? VoiceBargeIn(preferences: preferences, noiseFloor: ambient.value) : nil
+            barge = makeBarge(preferences)
             speechStream.prepare(tools: tools)
             openReply(seed: assistantText(after: message.id))
             try await respond(to: message.id, attempt: attempt)
@@ -196,7 +203,7 @@ final class VoiceConversation {
             if VoiceActivity.isStop(pending, phrases: preferences.stopPhrases) { return }
             // From here on, speech interrupts (barge-in) instead of extending the request.
             turnActive = true; bargeRequested = false
-            barge = preferences.bargeIn ? VoiceBargeIn(preferences: preferences, noiseFloor: ambient.value) : nil
+            barge = makeBarge(preferences)
             let settled = try await settle(attempt)
             if bargeRequested { turnActive = false; continue }
             guard settled else {
@@ -507,6 +514,25 @@ final class VoiceConversation {
         }
     }
 
+    /// A noisy place (a car) is recognised by its steady loud floor, or told by the route (CarPlay) or the setting. Once noisy it
+    /// stays so until the floor has clearly dropped, so it does not flap at a red light.
+    private var noisyPlace: Bool {
+        if forcedNoisy { return true }
+        let floor = ambient.value
+        if noisyLatched { if floor < VoiceNoiseFloor.noisyLevel * 0.7 { noisyLatched = false } }
+        else if floor >= VoiceNoiseFloor.noisyLevel { noisyLatched = true }
+        return noisyLatched
+    }
+    /// The floor in the domain used to detect a voice: the speech band in a noisy place, the whole signal otherwise.
+    private var detectionFloor: Double { noisyPlace ? ambientBand.value : ambient.value }
+    private func detection(_ frame: VoiceLevel) -> VoiceLevel {
+        noisyPlace ? VoiceLevel(time: frame.time, duration: frame.duration, rms: frame.band) : frame
+    }
+    private func makeBarge(_ preferences: VoicePreferences) -> VoiceBargeIn? {
+        guard preferences.bargeIn, VoiceInterruptionSetting.mode != .off else { return nil }
+        return VoiceBargeIn(preferences: preferences, noiseFloor: ambient.value, environment: .init(noisy: noisyPlace, bandFloor: ambientBand.value))
+    }
+
     /// One meter frame, with its own duration: endpoint while capturing, onset while
     /// idle (or still transcribing), barge-in during the agent's turn.
     @ObservationIgnored private var diagFrames = 0
@@ -514,8 +540,9 @@ final class VoiceConversation {
     @ObservationIgnored private var diagSince = ProcessInfo.processInfo.systemUptime
     private func process(_ frame: VoiceLevel, attempt: UUID) {
         diagFrames += 1; diagMax = max(diagMax, frame.rms)
+        if frame.time - forcedCheckedAt >= 2 || frame.time < forcedCheckedAt { forcedCheckedAt = frame.time; forcedNoisy = VoiceEnvironmentSetting.isForced }
         if frame.time - diagSince >= 1 || diagFrames == 1 {
-            VoiceDiag.log("frames=\(diagFrames) maxRMS=\(Int(diagMax)) phase=\(phase) capture=\(capture != nil) muted=\(inputMuted) awaiting=\(awaitingUser) turn=\(turnActive) state=\(tools.app.state) onsetSpeech=\(onset.hasSpeech) threshold=\(Int(preferences.threshold)) floor=\(Int(ambient.value))")
+            VoiceDiag.log("frames=\(diagFrames) maxRMS=\(Int(diagMax)) phase=\(phase) capture=\(capture != nil) muted=\(inputMuted) awaiting=\(awaitingUser) turn=\(turnActive) state=\(tools.app.state) onsetSpeech=\(onset.hasSpeech) threshold=\(Int(preferences.threshold)) floor=\(Int(ambient.value)) band=\(Int(ambientBand.value)) noisy=\(noisyPlace)")
             diagFrames = 0; diagMax = 0; diagSince = frame.time
         }
         if tools.app.state != .connected {
@@ -528,13 +555,14 @@ final class VoiceConversation {
         guard !inputMuted else { return }
         if let utterance = capture {
             utterance.elapsed += frame.duration
-            if utterance.activity.sample(frame) || utterance.elapsed >= preferences.maxRecordingSeconds { endUtterance() }
+            if utterance.activity.sample(detection(frame)) || utterance.elapsed >= preferences.maxRecordingSeconds { endUtterance() }
             return
         }
         if !playing {
             // Learn only quiet input below the onset level; never speaker bleed.
             ambient.sample(rms: frame.rms, duration: frame.duration, multiplier: 2)
-            onset.adapt(noiseFloor: ambient.value)
+            ambientBand.sample(rms: frame.band, duration: frame.duration, multiplier: 2)
+            onset.adapt(noiseFloor: detectionFloor)
         }
         guard !awaitingUser else { return }
         if turnActive {
@@ -543,7 +571,7 @@ final class VoiceConversation {
             barge = detector
             if tripped { interruptForSpeech(attempt) }
         } else if phase != .ready {
-            _ = onset.sample(frame)
+            _ = onset.sample(detection(frame))
             if onset.hasSpeech { beginUtterance(barge: false, spoken: "", attempt: attempt) }
         }
     }
@@ -559,10 +587,10 @@ final class VoiceConversation {
             self.partial = text
         }
         let utterance = Utterance(activity: VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.endpointSilence,
-                                                          confirmedSpeech: true, noiseFloor: ambient.value),
+                                                          confirmedSpeech: true, noiseFloor: detectionFloor),
                                   barge: barge, spoken: spoken, transcriber: transcriber)
         capture = utterance
-        onset = VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.endpointSilence, noiseFloor: ambient.value)
+        onset = VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.endpointSilence, noiseFloor: detectionFloor)
         partial = ""; phase = .listening
         let audio = audio, maxSeconds = preferences.maxRecordingSeconds
         utterance.recording = Task {
@@ -903,8 +931,8 @@ final class VoiceConversation {
         } else {
             if inputMuted { dropCapture() }
             audio.setInputMuted(inputMuted)
-            onset = VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.endpointSilence, noiseFloor: ambient.value)
-            if barge != nil { barge = VoiceBargeIn(preferences: preferences, noiseFloor: ambient.value) }
+            onset = VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.endpointSilence, noiseFloor: detectionFloor)
+            if barge != nil { barge = makeBarge(preferences) }
         }
         if inputMuted { level = 0 }
     }
