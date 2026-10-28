@@ -66,8 +66,10 @@ struct ChatTranscriptView: View {
                     if let credential = transcript.credential {
                         CredentialCard(payload: credential, model: model).equatable().id(credential["rpc_id"].string + credential["request_id"].string)
                     }
+                    // Keeps the newest reply off the last row: a tall last row fell out of the accessibility tree.
+                    Color.clear.frame(height: 1).padding(.top, -26).accessibilityHidden(true)
                 }
-            }.padding(.horizontal, 26).padding(.top, 14).padding(.bottom, 20).frame(maxWidth: 720).frame(maxWidth: .infinity)
+            }.padding(.horizontal, 26).padding(.top, 14).frame(maxWidth: 720).frame(maxWidth: .infinity)   // the end row's spacing is the bottom margin
         }
         .scrollPosition($position)
         .scrollDismissesKeyboard(.interactively)

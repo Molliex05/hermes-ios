@@ -135,9 +135,10 @@ struct ConnectionIndicator: View {
 extension View {
     @ViewBuilder func chatScrollAnchors() -> some View {
         if #available(iOS 18.0, *) {
-            // No bottom anchor for the initial offset (the list's `ScrollPosition` already starts at its end): with it, a
-            // tall last row (a reply with a card) was dropped from the accessibility tree while still on screen.
-            self.defaultScrollAnchor(.bottom, for: .sizeChanges).defaultScrollAnchor(.top, for: .alignment)
+            // The bottom anchor for every role: anchoring only size changes made the list jump by hundreds of points while
+            // scrolling up through tall rows. The transcript ends on a 1-point row so a tall reply is never the last row
+            // (as the last row, it fell out of the accessibility tree).
+            self.defaultScrollAnchor(.bottom).defaultScrollAnchor(.top, for: .alignment)
         } else {
             self.defaultScrollAnchor(.bottom)
         }
