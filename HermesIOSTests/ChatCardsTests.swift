@@ -104,4 +104,122 @@ final class ChatCardsTests: XCTestCase {
         XCTAssertEqual(filter.feed("Il fera beau"), "Il fera beau", "text that cannot open a fence passes at once")
         XCTAssertEqual(filter.feed(" demain."), " demain.")
     }
+
+    func testChartReadsPointsInEveryShapeAndNeedsTwo() {
+        let json = """
+        {"type":"graphique","title":"MRR Glutax","style":"bar","unit":"$","delta":"+8 %","goal":"4 000",
+         "points":[{"label":"mai","value":3200},{"x":"juin","y":"3 450"},3600,{"label":"août"}]}
+        """
+        guard case .chart(let chart)? = ChatCard.parse(json) else { return XCTFail() }
+        XCTAssertTrue(chart.bars); XCTAssertEqual(chart.unit, "$"); XCTAssertEqual(chart.trend, .up); XCTAssertEqual(chart.goal, 4000)
+        XCTAssertEqual(chart.points.map(\.value), [3200, 3450, 3600], "a point without a value is dropped")
+        XCTAssertEqual(chart.points.map(\.label), ["mai", "juin", "3"], "a bare number is labelled by its position")
+        XCTAssertNil(ChatCard.parse("{\"type\":\"chart\",\"points\":[1]}"), "one point is not a chart")
+        let many = (0..<60).map(String.init).joined(separator: ",")
+        guard case .chart(let long)? = ChatCard.parse("{\"type\":\"chart\",\"points\":[\(many)]}") else { return XCTFail() }
+        XCTAssertEqual(long.points.count, ChatCard.maxPoints); XCTAssertFalse(long.bars)
+    }
+
+    func testProgressListAndAgenda() {
+        let goals = "{\"type\":\"macros\",\"items\":[{\"label\":\"Calories\",\"value\":1850,\"goal\":2400,\"unit\":\"kcal\"},{\"label\":\"Eau\",\"value\":1,\"goal\":0},{\"label\":\"Protéines\",\"value\":\"120\",\"target\":160}]}"
+        guard case .progress(_, let items)? = ChatCard.parse(goals) else { return XCTFail() }
+        XCTAssertEqual(items.map(\.label), ["Calories", "Protéines"], "a goal of zero is dropped")
+        XCTAssertEqual(items[0].progress, 1850.0 / 2400, accuracy: 0.0001)
+
+        let rows = """
+        {"type":"dépenses","title":"Octobre","items":[{"title":"AWS","value":"84,20 $","icon":"server.rack","tone":"negative","reply":"Détaille AWS"},
+         {"name":"Figma","icon":"<script>","tone":"bizarre","url":"https://figma.com"},{"subtitle":"sans titre"}],"total":{"value":"1 240 $"}}
+        """
+        guard case .list(let title, let list, let total)? = ChatCard.parse(rows) else { return XCTFail() }
+        XCTAssertEqual(title, "Octobre"); XCTAssertEqual(list.count, 2, "a row needs a title")
+        XCTAssertEqual(list[0].icon, "server.rack"); XCTAssertEqual(list[0].tone, .negative); XCTAssertEqual(list[0].reply, "Détaille AWS")
+        XCTAssertEqual(list[1].icon, "", "only an SF Symbol name is kept"); XCTAssertEqual(list[1].tone, .neutral); XCTAssertEqual(list[1].url?.host, "figma.com")
+        XCTAssertEqual(total, ChatCard.Stat(id: 0, label: "Total", value: "1 240 $"))
+
+        let day = "{\"type\":\"journée\",\"items\":[{\"title\":\"Quart de jour\",\"start\":\"2026-10-29T07:00\",\"end\":\"2026-10-29T19:00\",\"calendar\":\"Travail\"},{\"title\":\"Sans heure\"}]}"
+        guard case .agenda(_, let slots)? = ChatCard.parse(day) else { return XCTFail() }
+        XCTAssertEqual(slots.count, 1, "a slot needs a start")
+        XCTAssertEqual(ChatCard.minutes("2026-10-29T07:00"), 420)
+        XCTAssertEqual(ChatCard.minutes("2026-10-29 17:45:00"), 1065)
+        XCTAssertEqual(ChatCard.minutes("7 h 30"), 450); XCTAssertEqual(ChatCard.minutes("17h"), 1020)
+        XCTAssertNil(ChatCard.minutes("2026-10-29"), "a bare date has no time"); XCTAssertNil(ChatCard.minutes("jeudi")); XCTAssertNil(ChatCard.minutes("25:00"))
+    }
+
+    func testWorkoutAndRoute() {
+        let workout = """
+        {"type":"séance","title":"Push","stats":[{"label":"Volume","value":"8 450 kg"},{"label":"","value":"x"}],
+         "exercises":[{"name":"Développé couché","sets":"4 × 8","weight":"80 kg","done":true,"note":"Record"},{"name":"Dips","sets":3},{"sets":"3 × 10"}]}
+        """
+        guard case .workout(let session)? = ChatCard.parse(workout) else { return XCTFail() }
+        XCTAssertEqual(session.stats.map(\.value), ["8 450 kg"]); XCTAssertEqual(session.exercises.count, 2)
+        XCTAssertEqual(session.exercises[0].done, true); XCTAssertNil(session.exercises[1].done, "no flag means planned, not missed")
+        XCTAssertEqual(session.exercises[1].sets, "3")
+
+        let path = (0..<1_000).map { "[\(45.37 + Double($0) * 0.0001),-73.56]" }.joined(separator: ",")
+        guard case .route(let route)? = ChatCard.parse("{\"type\":\"parcours\",\"points\":[\(path),[200,0],{\"lat\":45.5,\"lon\":-73.5}]}") else { return XCTFail() }
+        XCTAssertEqual(route.points.count, ChatCard.maxRoutePoints, "a long track is sampled")
+        XCTAssertEqual(route.points.first, ChatCard.Coordinate(latitude: 45.37, longitude: -73.56), "the start is kept")
+        XCTAssertEqual(route.points.last, ChatCard.Coordinate(latitude: 45.5, longitude: -73.5), "the end is kept, the impossible point dropped")
+        XCTAssertNil(ChatCard.parse("{\"type\":\"route\",\"points\":[[45,-73]]}"))
+    }
+
+    func testReviewEdgeCases() {
+        // A long series keeps its newest points.
+        let series = (1...40).map { "{\"label\":\"j\($0)\",\"value\":\($0)}" }.joined(separator: ",")
+        guard case .chart(let chart)? = ChatCard.parse("{\"type\":\"chart\",\"points\":[\(series)]}") else { return XCTFail() }
+        XCTAssertEqual(chart.points.first?.label, "j10"); XCTAssertEqual(chart.points.last?.label, "j40")
+
+        // Times are read on the phone's clock, whatever the offset written.
+        let utc = "2026-10-29T10:45:00Z"
+        let local = Calendar.current.dateComponents([.hour, .minute], from: ISO8601DateFormatter().date(from: utc)!)
+        XCTAssertEqual(ChatCard.minutes(utc), local.hour! * 60 + local.minute!)
+        XCTAssertNotNil(ChatCard.date("2026-10-29T06:45:00.123456-04:00"), "fractions of a second")
+        XCTAssertEqual(ChatCard.minutes("07:00 - 15:00"), 420); XCTAssertEqual(ChatCard.minutes("8:00 (matin)"), 480)
+        XCTAssertEqual(ChatCard.minutes("5:30 PM"), 1050); XCTAssertEqual(ChatCard.minutes("12:15 am"), 15)
+        XCTAssertNil(ChatCard.minutes("7:5")); XCTAssertNil(ChatCard.minutes("25:00"))
+        XCTAssertEqual(ChatCard.day("2026-10-29T07:00"), "2026-10-29"); XCTAssertNil(ChatCard.day("07:00"))
+
+        // A shift that spans a meeting stays busy; free time starts at the latest end of the day.
+        let slots = [("Quart", "2026-10-29T06:45", "2026-10-29T15:00"), ("Réunion", "2026-10-29T10:00", "2026-10-29T10:30"),
+                     ("Dîner", "2026-10-29T12:00", "2026-10-29T13:00"), ("Barbier", "2026-10-29T17:00", "2026-10-29T17:45"),
+                     ("Nuit", "2026-10-30T19:00", "2026-10-31T07:00"), ("Tard", "2026-10-30T23:00", "")]
+            .enumerated().map { ChatCard.Slot(id: $0.offset, title: $0.element.0, start: $0.element.1, end: $0.element.2, location: "", calendar: "") }
+        XCTAssertEqual(ChatCard.freeTime(slots), [3: 120], "no free time inside the shift, none across days, none after a night shift")
+
+        // Numbers as people write them; a huge one never crashes.
+        let rows = "{\"type\":\"list\",\"items\":[{\"title\":\"A\",\"value\":1e300},{\"title\":\"B\",\"value\":10000000000000000000}],\"total\":{\"value\":12}}"
+        guard case .list(_, let list, let total)? = ChatCard.parse(rows) else { return XCTFail() }
+        XCTAssertEqual(list.count, 2); XCTAssertEqual(total?.value, "12")
+        let goals = """
+        {"type":"progress","items":[{"label":"Pas","value":"4,000","goal":"10,000"},{"label":"Budget","value":"1,234.56","goal":"2 000"},{"label":"Poids","value":"−5,2 kg","goal":"8,5"}]}
+        """
+        guard case .progress(_, let parsed)? = ChatCard.parse(goals) else { return XCTFail() }
+        XCTAssertEqual(parsed.map(\.value), [4000, 1234.56, 0], "a negative value is shown as nothing done")
+        XCTAssertEqual(parsed.map(\.goal), [10000, 2000, 8.5])
+        XCTAssertNil(ChatCard.parse("{\"type\":\"chart\",\"points\":[\"\(String(repeating: "9", count: 400))\",\"\(String(repeating: "9", count: 400))\"]}"),
+                     "infinite values are not points")
+
+        // A GPS dropout at 0,0 is not part of the run.
+        guard case .route(let route)? = ChatCard.parse("{\"type\":\"route\",\"points\":[[45.37,-73.56],[0,0],[45.38,-73.55]]}") else { return XCTFail() }
+        XCTAssertEqual(route.points.count, 2)
+    }
+
+    func testStatusDerivesTheWholeFromItsParts() {
+        let json = """
+        {"type":"vps","title":"noriven-prod","gauges":[{"label":"CPU","value":9,"unit":"%"},{"label":"Mémoire","value":2.1,"max":7.8,"unit":"Go"},{"label":"Disque","value":28},{"label":"","value":1,"max":2}],
+         "items":[{"name":"Glutax","state":"healthy"},{"name":"Minori","state":"running"},{"name":"Sauvegardes","state":"unchecked","detail":"Contrôle absent"},{"state":"ok"}]}
+        """
+        guard case .status(let status)? = ChatCard.parse(json) else { return XCTFail() }
+        XCTAssertEqual(status.gauges.map(\.label), ["CPU", "Mémoire"], "a gauge needs a label and a maximum (or a percentage)")
+        XCTAssertEqual(status.gauges[0].fraction, 0.09, accuracy: 0.0001)
+        XCTAssertEqual(status.items.map(\.state), [.ok, .ok, .unknown], "an item needs a name")
+        XCTAssertEqual(status.state, .warning, "something unchecked next to healthy services needs a look")
+        guard case .status(let down)? = ChatCard.parse("{\"type\":\"status\",\"items\":[{\"name\":\"API\",\"state\":\"unhealthy\"},{\"name\":\"Web\",\"state\":\"ok\"}]}") else { return XCTFail() }
+        XCTAssertEqual(down.state, .down)
+        guard case .status(let full)? = ChatCard.parse("{\"type\":\"status\",\"state\":\"ok\",\"gauges\":[{\"label\":\"Disque\",\"value\":95,\"max\":100}]}") else { return XCTFail() }
+        XCTAssertEqual(full.state, .ok, "the agent's own verdict wins")
+        guard case .status(let busy)? = ChatCard.parse("{\"type\":\"status\",\"gauges\":[{\"label\":\"Disque\",\"value\":120,\"max\":100}]}") else { return XCTFail() }
+        XCTAssertEqual(busy.state, .warning); XCTAssertEqual(busy.gauges[0].fraction, 1)
+        XCTAssertNil(ChatCard.parse("{\"type\":\"status\",\"title\":\"vide\"}"))
+    }
 }

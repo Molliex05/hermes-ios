@@ -21,6 +21,13 @@ struct RichCardView: View, Equatable {
             case .weather(let weather): WeatherCard(weather: weather)
             case .event(let event): EventCard(event: event)
             case .links(let title, let items): LinksCard(title: title, links: items)
+            case .chart(let chart): ChartCard(chart: chart)
+            case .progress(let title, let items): ProgressCard(title: title, goals: items)
+            case .list(let title, let items, let total): ListCard(title: title, rows: items, total: total)
+            case .agenda(let title, let items): AgendaCard(title: title, slots: items)
+            case .workout(let workout): WorkoutCard(workout: workout)
+            case .route(let route): RouteCard(route: route)
+            case .status(let status): StatusCard(status: status)
             }
         }
     }
@@ -28,11 +35,11 @@ struct RichCardView: View, Equatable {
 
 // MARK: - Shared pieces
 
-private enum CardStyle {
+enum CardStyle {
     static let radius: CGFloat = 20
 }
 
-private extension View {
+extension View {
     func cardSurface() -> some View {
         background(AppTheme.surface, in: RoundedRectangle(cornerRadius: CardStyle.radius, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: CardStyle.radius, style: .continuous).strokeBorder(AppTheme.line))
@@ -40,7 +47,7 @@ private extension View {
     }
 }
 
-private struct CardTitle: View {
+struct CardTitle: View {
     let text: String
     var symbol: String?
     var body: some View {
@@ -53,7 +60,7 @@ private struct CardTitle: View {
 }
 
 /// Where a card leaves the app: Plans, Calendar and the phone go to the system; web pages open in the in-app browser.
-@MainActor private func openOutside(_ url: URL) { UIApplication.shared.open(url) }
+@MainActor func openOutside(_ url: URL) { UIApplication.shared.open(url) }
 
 struct CardSkeleton: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -357,7 +364,7 @@ private struct ChoicesCard: View {
 }
 
 /// Wraps its children onto as many lines as needed.
-private struct FlowLayout: Layout {
+struct FlowLayout: Layout {
     var spacing: CGFloat = 8
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? .infinity
@@ -475,7 +482,7 @@ private extension WeatherCard {
 
 // MARK: - Event
 
-private struct EventCard: View {
+struct EventCard: View {
     let event: ChatCard.Event
     @Environment(\.openURL) private var openURL
     private var startDate: Date? { Self.date(event.start) }
@@ -533,17 +540,7 @@ private struct EventCard: View {
         return parts.url!
     }
 
-    static func date(_ raw: String) -> Date? {
-        let text = raw.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty else { return nil }
-        if let full = try? Date(text, strategy: .iso8601) { return full }
-        let local = DateFormatter(); local.locale = Locale(identifier: "en_US_POSIX"); local.timeZone = .current
-        for pattern in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd HH:mm", "yyyy-MM-dd"] {
-            local.dateFormat = pattern
-            if let date = local.date(from: text) { return date }
-        }
-        return nil
-    }
+    static func date(_ raw: String) -> Date? { ChatCard.date(raw) }
 }
 
 // MARK: - Links

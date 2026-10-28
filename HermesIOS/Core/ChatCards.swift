@@ -46,6 +46,80 @@ enum ChatCard: Equatable {
         let url: URL
         let title: String
     }
+    /// A label and a figure, as written by the agent (« Distance », « 8,2 km »).
+    struct Stat: Equatable, Identifiable {
+        let id: Int
+        let label: String, value: String
+    }
+    struct Point: Equatable, Identifiable {
+        let id: Int
+        let label: String
+        let value: Double
+    }
+    struct Chart: Equatable {
+        let title: String, unit: String, value: String, delta: String
+        let trend: Trend
+        let bars: Bool
+        let points: [Point]
+        let goal: Double?
+    }
+    struct Goal: Equatable, Identifiable {
+        let id: Int
+        let label: String, unit: String
+        let value: Double, goal: Double
+        var progress: Double { goal > 0 ? value / goal : 0 }
+    }
+    enum Tone: String, Equatable { case positive, negative, warning, neutral }
+    struct Row: Equatable, Identifiable {
+        let id: Int
+        let title: String, subtitle: String, value: String, badge: String, icon: String
+        let tone: Tone
+        let url: URL?
+        /// Sent as Maxime's message when the row is touched.
+        let reply: String
+    }
+    struct Slot: Equatable, Identifiable {
+        let id: Int
+        let title: String, start: String, end: String, location: String, calendar: String
+    }
+    struct Exercise: Equatable, Identifiable {
+        let id: Int
+        let name: String, sets: String, weight: String, note: String
+        let done: Bool?
+    }
+    struct Workout: Equatable {
+        let title: String, subtitle: String
+        let stats: [Stat]
+        let exercises: [Exercise]
+    }
+    struct Coordinate: Equatable {
+        let latitude: Double, longitude: Double
+    }
+    struct Route: Equatable {
+        let title: String
+        let stats: [Stat]
+        let points: [Coordinate]
+    }
+    enum Health: String, Equatable { case ok, warning, down, unknown }
+    /// A share of a whole: CPU, memory, disk.
+    struct Gauge: Equatable, Identifiable {
+        let id: Int
+        let label: String, unit: String
+        let value: Double, maximum: Double
+        var fraction: Double { maximum > 0 ? min(max(value / maximum, 0), 1) : 0 }
+    }
+    struct Check: Equatable, Identifiable {
+        let id: Int
+        let name: String, detail: String
+        let state: Health
+    }
+    /// A server, a service or anything that is up or down.
+    struct Status: Equatable {
+        let title: String, subtitle: String
+        let state: Health
+        let gauges: [Gauge]
+        let items: [Check]
+    }
 
     case carousel(title: String, items: [Item])
     case places(title: String, items: [Place])
@@ -54,8 +128,19 @@ enum ChatCard: Equatable {
     case weather(Weather)
     case event(Event)
     case links(title: String, items: [Link])
+    case chart(Chart)
+    case progress(title: String, items: [Goal])
+    case list(title: String, items: [Row], total: Stat?)
+    case agenda(title: String, items: [Slot])
+    case workout(Workout)
+    case route(Route)
+    case status(Status)
 
     static let maxItems = 12
+    /// Lists and agendas are read through, so they hold more (a week of shifts, a month of expenses).
+    static let maxRows = 30
+    static let maxPoints = 31
+    static let maxRoutePoints = 400
 
     static func isCardFence(_ language: String) -> Bool {
         ["ui", "hermes-ui", "card", "carte"].contains(language.trimmingCharacters(in: .whitespaces).lowercased())
@@ -121,6 +206,87 @@ enum ChatCard: Equatable {
                 return Link(id: index, url: url, title: clean(value["title"].string, 90))
             }
             return items.isEmpty ? nil : .links(title: title, items: items)
+        case "chart":
+            // Oldest to newest: a long series keeps its most recent points.
+            let points = Array(json["points"].array.prefix(400).enumerated().compactMap { index, value -> Point? in
+                guard let y = number(value["value"]) ?? number(value["y"]) ?? number(value) else { return nil }
+                let label = clean(display(value["label"]).isEmpty ? display(value["x"]) : display(value["label"]), 16)
+                return Point(id: index, label: label.isEmpty ? String(index + 1) : label, value: y)
+            }.suffix(maxPoints))
+            guard points.count >= 2 else { return nil }
+            let style = json["style"].string.lowercased()
+            return .chart(Chart(title: title, unit: clean(json["unit"].string, 12), value: clean(display(json["value"]), 30),
+                                delta: clean(display(json["delta"]), 24),
+                                trend: Trend(rawValue: json["trend"].string.lowercased()) ?? inferTrend(json["delta"]),
+                                bars: ["bar", "bars", "barres", "histogramme", "colonnes"].contains(style),
+                                points: points, goal: number(json["goal"]) ?? number(json["objectif"])))
+        case "progress":
+            let items = list(json["items"]).enumerated().compactMap { index, value -> Goal? in
+                let label = clean(value["label"].string, 30)
+                guard !label.isEmpty, let current = number(value["value"]), let goal = number(value["goal"]) ?? number(value["target"]), goal > 0 else { return nil }
+                return Goal(id: index, label: label, unit: clean(value["unit"].string, 10), value: max(0, current), goal: goal)
+            }
+            return items.isEmpty ? nil : .progress(title: title, items: Array(items.prefix(6)))
+        case "list":
+            let items = list(json["items"], limit: maxRows).enumerated().compactMap { index, value -> Row? in
+                let name = clean(value["title"].string.isEmpty ? value["name"].string : value["title"].string, 80)
+                guard !name.isEmpty else { return nil }
+                return Row(id: index, title: name, subtitle: clean(value["subtitle"].string, 120), value: clean(display(value["value"]), 24),
+                           badge: clean(value["badge"].string, 20), icon: symbolName(value["icon"].string),
+                           tone: Tone(rawValue: value["tone"].string.lowercased()) ?? .neutral,
+                           url: webURL(value["url"].string), reply: clean(value["reply"].string, 120))
+            }
+            let total = json["total"]
+            let summary = clean(display(total["value"]), 24).isEmpty ? nil
+                : Stat(id: 0, label: clean(total["label"].string.isEmpty ? "Total" : total["label"].string, 30), value: clean(display(total["value"]), 24))
+            return items.isEmpty ? nil : .list(title: title, items: items, total: summary)
+        case "agenda":
+            let items = list(json["items"], limit: maxRows).enumerated().compactMap { index, value -> Slot? in
+                let name = clean(value["title"].string, 80), start = clean(value["start"].string, 40)
+                guard !name.isEmpty, !start.isEmpty else { return nil }
+                return Slot(id: index, title: name, start: start, end: clean(value["end"].string, 40),
+                            location: clean(value["location"].string, 100), calendar: clean(value["calendar"].string, 40))
+            }
+            return items.isEmpty ? nil : .agenda(title: title, items: items)
+        case "workout":
+            let exercises = list(json["exercises"].isNull ? json["items"] : json["exercises"]).enumerated().compactMap { index, value -> Exercise? in
+                let name = clean(value["name"].string.isEmpty ? value["title"].string : value["name"].string, 60)
+                guard !name.isEmpty else { return nil }
+                let done: Bool? = if case .bool(let flag) = value["done"] { flag } else { nil }
+                return Exercise(id: index, name: name, sets: clean(display(value["sets"]), 24), weight: clean(display(value["weight"]), 20),
+                                note: clean(value["note"].string, 30), done: done)
+            }
+            let workout = Workout(title: title, subtitle: clean(json["subtitle"].string, 80), stats: stats(json["stats"]), exercises: exercises)
+            return exercises.isEmpty && workout.stats.isEmpty ? nil : .workout(workout)
+        case "route":
+            var points = json["points"].array.compactMap { value -> Coordinate? in
+                let lat = number(value.array.first ?? value["lat"]), lon = value.array.count > 1 ? number(value.array[1]) : number(value["lon"]) ?? number(value["lng"])
+                guard let lat, let lon, (-90...90).contains(lat), (-180...180).contains(lon), lat != 0 || lon != 0 else { return nil }
+                return Coordinate(latitude: lat, longitude: lon)
+            }
+            if points.count > maxRoutePoints {                       // keep the shape: evenly spaced samples, first and last kept
+                let step = Double(points.count - 1) / Double(maxRoutePoints - 1)
+                points = (0..<maxRoutePoints).map { points[Int((Double($0) * step).rounded())] }
+            }
+            return points.count < 2 ? nil : .route(Route(title: title, stats: stats(json["stats"]), points: points))
+        case "status":
+            let gauges = list(json["gauges"]).enumerated().compactMap { index, value -> Gauge? in
+                let label = clean(value["label"].string, 20), unit = clean(value["unit"].string, 8)
+                guard !label.isEmpty, let current = number(value["value"]) else { return nil }
+                let maximum = number(value["max"]) ?? (unit == "%" ? 100 : nil)
+                guard let maximum, maximum > 0 else { return nil }
+                return Gauge(id: index, label: label, unit: unit, value: max(0, current), maximum: maximum)
+            }
+            let items = list(json["items"]).enumerated().compactMap { index, value -> Check? in
+                let name = clean(value["name"].string.isEmpty ? value["title"].string : value["name"].string, 50)
+                return name.isEmpty ? nil : Check(id: index, name: name, detail: clean(display(value["detail"]), 60), state: health(value["state"].string))
+            }
+            guard !gauges.isEmpty || !items.isEmpty else { return nil }
+            let given = json["state"].string
+            let derived = items.isEmpty ? (gauges.contains { $0.fraction >= 0.9 } ? Health.warning : .ok) : worst(items.map(\.state))
+            return .status(Status(title: title, subtitle: clean(json["subtitle"].string, 100),
+                                  state: given.isEmpty ? derived : health(given),
+                                  gauges: Array(gauges.prefix(4)), items: items))
         default:
             return nil
         }
@@ -137,11 +303,105 @@ enum ChatCard: Equatable {
         case "weather", "meteo", "météo": "weather"
         case "event", "evenement", "événement", "rendez-vous": "event"
         case "links", "liens", "sources": "links"
+        case "chart", "graph", "graphique", "courbe", "barres", "series", "série", "tendance": "chart"
+        case "progress", "progression", "objectifs", "goals", "rings", "anneaux", "macros": "progress"
+        case "list", "liste", "rows", "lignes", "transactions", "depenses", "dépenses", "courriels", "emails", "inbox": "list"
+        case "agenda", "schedule", "horaire", "journee", "journée", "planning", "timeline": "agenda"
+        case "workout", "entrainement", "entraînement", "seance", "séance", "training": "workout"
+        case "route", "parcours", "trace", "tracé", "course", "run": "route"
+        case "status", "etat", "état", "serveur", "server", "vps", "sante", "santé", "health", "services", "monitoring": "status"
         default: ""
         }
     }
 
-    private static func list(_ value: JSONValue) -> [JSONValue] { Array(value.array.prefix(maxItems)) }
+    /// « healthy », « running », « en panne »…: the words a tool or the agent may use for a state.
+    static func health(_ raw: String) -> Health {
+        switch raw.trimmingCharacters(in: .whitespaces).lowercased() {
+        case "ok", "up", "healthy", "running", "online", "en ligne", "green", "vert", "success", "succès": .ok
+        case "warning", "warn", "degraded", "dégradé", "attention", "orange", "stale", "restarting", "starting": .warning
+        case "down", "error", "failed", "critical", "unhealthy", "exited", "dead", "panne", "en panne", "red", "rouge", "erreur": .down
+        default: .unknown
+        }
+    }
+
+    /// The state of the whole: one service down is a failure; something unchecked next to healthy services needs a look.
+    private static func worst(_ states: [Health]) -> Health {
+        if states.contains(.down) { return .down }
+        if states.contains(.warning) { return .warning }
+        if states.contains(.unknown) { return states.contains(.ok) ? .warning : .unknown }
+        return .ok
+    }
+
+    private static func list(_ value: JSONValue, limit: Int = maxItems) -> [JSONValue] { Array(value.array.prefix(limit)) }
+
+    private static func stats(_ value: JSONValue) -> [Stat] {
+        Array(list(value).enumerated().compactMap { index, item -> Stat? in
+            let label = clean(item["label"].string, 24), shown = clean(display(item["value"]), 24)
+            return label.isEmpty || shown.isEmpty ? nil : Stat(id: index, label: label, value: shown)
+        }.prefix(4))
+    }
+
+    /// An SF Symbol name as the agent may write it (« server.rack »); anything else is dropped and the row shows its initial.
+    private static func symbolName(_ raw: String) -> String {
+        let name = raw.trimmingCharacters(in: .whitespaces).lowercased()
+        return name.count <= 48 && !name.isEmpty && name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." }) ? name : ""
+    }
+
+    /// Minutes after midnight, on this phone's clock, for an ISO date and time (« …T10:45:00Z » is 06:45 in Montréal),
+    /// « 07:00 », « 7 h 30 », « 17h » or « 5:30 PM »; nil for a bare date.
+    static func minutes(_ raw: String) -> Int? {
+        let trimmed = raw.trimmingCharacters(in: .whitespaces), text = trimmed.lowercased()
+        if trimmed.count > 10, let moment = date(trimmed) {
+            let parts = Calendar.current.dateComponents([.hour, .minute], from: moment)
+            return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
+        }
+        guard let match = text.firstMatch(of: /(?:^|\D)(\d{1,2})\s*[:h]\s*(\d{2})?(?!\d)(\s*[ap]\.?\s?m\b)?/), var hour = Int(match.1) else { return nil }
+        let minute = match.2.flatMap { Int($0) } ?? 0
+        if let suffix = match.3 {
+            let afternoon = suffix.contains("p")
+            guard (1...12).contains(hour) else { return nil }
+            hour = hour % 12 + (afternoon ? 12 : 0)
+        }
+        return hour < 24 && minute < 60 ? hour * 60 + minute : nil
+    }
+
+    /// Free time before each slot, in minutes, keyed by slot id. It runs from the latest end so far that day, so a shift
+    /// that spans a meeting stays busy; a slot that ends past midnight keeps the rest of the day busy.
+    static func freeTime(_ slots: [Slot]) -> [Int: Int] {
+        var gaps: [Int: Int] = [:], latest: Int?, currentDay: String?
+        for slot in slots {
+            guard let start = minutes(slot.start) else { continue }
+            let slotDay = day(slot.start)
+            if slotDay != currentDay { latest = nil; currentDay = slotDay }
+            if let latest, start > latest { gaps[slot.id] = start - latest }
+            let end = minutes(slot.end).map { $0 >= start ? $0 : 24 * 60 } ?? start
+            latest = max(latest ?? end, end)
+        }
+        return gaps
+    }
+
+    /// The local day of an ISO date or date and time, as « 2026-10-29 »; nil without a date.
+    static func day(_ raw: String) -> String? {
+        let text = raw.trimmingCharacters(in: .whitespaces)
+        guard text.count >= 10, let moment = date(text) else { return nil }
+        let parts = Calendar.current.dateComponents([.year, .month, .day], from: moment)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+
+    /// An ISO date, with or without a time, an offset or fractions of a second. Without an offset the time is local.
+    static func date(_ raw: String) -> Date? {
+        let text = raw.trimmingCharacters(in: .whitespaces)
+        guard text.count >= 10, text.first?.isNumber == true else { return nil }
+        if let full = try? Date(text, strategy: .iso8601) { return full }
+        let precise = ISO8601DateFormatter(); precise.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let full = precise.date(from: text) { return full }
+        let local = DateFormatter(); local.locale = Locale(identifier: "en_US_POSIX"); local.timeZone = .current
+        for pattern in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd"] {
+            local.dateFormat = pattern
+            if let moment = local.date(from: text) { return moment }
+        }
+        return nil
+    }
 
     static func clean(_ value: String, _ limit: Int) -> String {
         let collapsed = value.split(whereSeparator: { $0.isNewline }).joined(separator: " ").trimmingCharacters(in: .whitespaces)
@@ -152,8 +412,13 @@ enum ChatCard: Equatable {
         switch value {
         case .number(let n): return n.isFinite ? n : nil
         case .string(let s):
-            let digits = s.replacingOccurrences(of: ",", with: ".").filter { "0123456789.-".contains($0) }
-            return Double(digits)
+            var text = s.replacingOccurrences(of: "\u{2212}", with: "-")
+            // « 1,234.56 » and « 4,000 » use the comma for thousands; « 8,2 » uses it for decimals.
+            if text.contains(".") || text.firstMatch(of: /\d,\d{3}(?!\d)/) != nil && text.firstMatch(of: /,\d{1,2}(?!\d)/) == nil {
+                text = text.replacingOccurrences(of: ",", with: "")
+            }
+            let digits = text.replacingOccurrences(of: ",", with: ".").filter { "0123456789.-".contains($0) }
+            return Double(digits).flatMap { $0.isFinite ? $0 : nil }
         default: return nil
         }
     }
@@ -161,7 +426,7 @@ enum ChatCard: Equatable {
     private static func display(_ value: JSONValue) -> String {
         switch value {
         case .string(let s): return s
-        case .number(let n): return n.rounded() == n ? String(Int(n)) : String(n)
+        case .number(let n): return n.rounded() == n && abs(n) < 1e15 ? String(Int(n)) : String(n)
         default: return ""
         }
     }

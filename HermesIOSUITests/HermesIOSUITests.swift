@@ -94,7 +94,7 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.descendants(matching: .any)["card-event"].waitForExistence(timeout: 5), "the agenda reply's event card")
         XCTAssertTrue(app.descendants(matching: .any)["link-preview"].waitForExistence(timeout: 5), "a link in the text gets a preview")
-        for _ in 0..<8 { app.swipeDown(velocity: .fast) }
+        for _ in 0..<16 { app.swipeDown(velocity: .fast) }
         for identifier in ["card-carousel", "card-choices"] {
             XCTAssertTrue(app.descendants(matching: .any)[identifier].waitForExistence(timeout: 5), identifier)
         }

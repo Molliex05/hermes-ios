@@ -1386,6 +1386,17 @@ final class AppModel {
         catch { notice = error.localizedDescription }
     }
 
+    #if DEBUG
+    /// A run of about 8 km around Saint-Constant, as `[lat,lon]` pairs for the demo route card.
+    private static var demoLoop: String {
+        (0..<48).map { step -> String in
+            let angle = Double(step) / 47 * 2 * .pi
+            return String(format: "[%.5f,%.5f]", 45.3706 + 0.0105 * sin(angle) + 0.0012 * sin(angle * 3),
+                          -73.5653 + 0.016 * (1 - cos(angle)) + 0.0015 * sin(angle * 2))
+        }.joined(separator: ",")
+    }
+    #endif
+
     func loadDemo() {
         demo = true; state = .connected; hasBotProtocol = true
         profiles = [
@@ -1446,6 +1457,79 @@ final class AppModel {
 
                 \(fence)ui
                 {"type":"metrics","title":"Noriven · octobre","items":[{"label":"Revenu","value":"12 400 $","delta":"+8 %"},{"label":"Dépenses","value":"4 150 $","delta":"+1 %","trend":"flat"},{"label":"Profit","value":"8 250 $","delta":"+12 %"},{"label":"MRR","value":"3 900 $","delta":"-2 %"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Et le MRR de Glutax sur six mois ?"),
+                .init(role: "assistant", text: """
+                Il monte depuis mai ; l’objectif de 4 000 $ est en vue.
+
+                \(fence)ui
+                {"type":"chart","title":"MRR Glutax","unit":"$","value":"3 900 $","delta":"+22 %","goal":4000,"points":[{"label":"mai","value":3200},{"label":"juin","value":3350},{"label":"juil.","value":3300},{"label":"août","value":3550},{"label":"sept.","value":3720},{"label":"oct.","value":3900}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "État du VPS ?"),
+                .init(role: "assistant", text: """
+                Tout tourne normalement. Seul le contrôle des sauvegardes ne répond pas : il cherche encore sur Google Drive.
+
+                \(fence)ui
+                {"type":"status","title":"noriven-prod","subtitle":"En ligne depuis 7 j 22 h · 14 conteneurs","gauges":[{"label":"CPU","value":9,"unit":"%"},{"label":"Mémoire","value":2.1,"max":7.8,"unit":"Go"},{"label":"Disque","value":27.6,"max":115,"unit":"Go"}],
+                "items":[{"name":"Noriven","state":"ok","detail":"4 services"},{"name":"Glutax","state":"ok","detail":"3 services"},{"name":"Minori","state":"ok","detail":"2 services"},{"name":"Authentification","state":"ok","detail":"3 services"},{"name":"Sauvegardes","state":"unknown","detail":"Contrôle absent"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Mes dépenses d’octobre ?"),
+                .init(role: "assistant", text: """
+                Six dépenses ce mois-ci, surtout l’hébergement.
+
+                \(fence)ui
+                {"type":"list","title":"Dépenses · octobre","items":[
+                {"title":"AWS","subtitle":"Hébergement · 12 oct.","value":"84,20 $","icon":"server.rack","tone":"negative","reply":"Détaille la facture AWS"},
+                {"title":"Hetzner","subtitle":"Serveur de prod · 1 oct.","value":"62,00 $","icon":"cpu","tone":"negative"},
+                {"title":"Apple Developer","subtitle":"Abonnement annuel","value":"129,00 $","icon":"apple.logo","badge":"Annuel","tone":"warning"},
+                {"title":"Figma","subtitle":"Design · 5 oct.","value":"20,00 $","icon":"paintpalette","tone":"negative"},
+                {"title":"Google Workspace","subtitle":"Courriels · 3 oct.","value":"8,40 $","icon":"envelope","tone":"negative"},
+                {"title":"Remboursement Stripe","subtitle":"Frais corrigés","value":"+12,00 $","icon":"arrow.uturn.backward","tone":"positive"},
+                {"title":"Domaine noriven.com","subtitle":"Renouvellement","value":"24,99 $","icon":"globe","tone":"negative"}],
+                "total":{"label":"Total du mois","value":"316,59 $"}}
+                \(fence)
+                """),
+                .init(role: "user", text: "Il me reste combien pour aujourd’hui ?"),
+                .init(role: "assistant", text: """
+                Il te reste 550 kcal et 40 g de protéines : un souper riche en protéines ferait la job.
+
+                \(fence)ui
+                {"type":"progress","title":"Aujourd’hui","items":[{"label":"Calories","value":1850,"goal":2400,"unit":"kcal"},{"label":"Protéines","value":120,"goal":160,"unit":"g"},{"label":"Glucides","value":190,"goal":260,"unit":"g"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "C’est quoi ma journée demain ?"),
+                .init(role: "assistant", text: """
+                Quart de jour, puis le barbier et un souper. Tu as une pause libre en fin de journée.
+
+                \(fence)ui
+                {"type":"agenda","title":"Jeudi 29 octobre","items":[
+                {"title":"Quart de jour","start":"2026-10-29T06:45","end":"2026-10-29T15:00","calendar":"Travail","location":"Poste de quartier"},
+                {"title":"Barbier du Village","start":"2026-10-29T17:00","end":"2026-10-29T17:45","calendar":"Personnel","location":"Rue Saint-Pierre"},
+                {"title":"Souper chez Julie","start":"2026-10-29T18:30","end":"2026-10-29T21:00","calendar":"Famille"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Ma séance d’hier ?"),
+                .init(role: "assistant", text: """
+                Belle séance : record au développé couché.
+
+                \(fence)ui
+                {"type":"workout","title":"Push · pectoraux","subtitle":"Mardi · 52 min","stats":[{"label":"Volume","value":"8 450 kg"},{"label":"Séries","value":"18"},{"label":"Durée","value":"52 min"}],
+                "exercises":[{"name":"Développé couché","sets":"4 × 8","weight":"82,5 kg","done":true,"note":"Record"},{"name":"Développé incliné haltères","sets":"3 × 10","weight":"30 kg","done":true},{"name":"Dips lestés","sets":"3 × 8","weight":"+10 kg","done":true},{"name":"Écarté à la poulie","sets":"3 × 12","weight":"15 kg","done":false}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Et ma course de ce matin ?"),
+                .init(role: "assistant", text: """
+                8,2 km à 5:02 du kilomètre, ton meilleur temps sur ce parcours.
+
+                \(fence)ui
+                {"type":"route","title":"Course du matin","stats":[{"label":"Distance","value":"8,2 km"},{"label":"Allure","value":"5:02 /km"},{"label":"Durée","value":"41:20"}],"points":[\(Self.demoLoop)]}
+                \(fence)
+
+                \(fence)ui
+                {"type":"chart","title":"Kilomètres par semaine","style":"bar","unit":"km","delta":"+14 %","points":[{"label":"S38","value":18},{"label":"S39","value":22},{"label":"S40","value":15},{"label":"S41","value":24},{"label":"S42","value":21},{"label":"S43","value":26}]}
                 \(fence)
                 """),
                 .init(role: "user", text: "Ajoute le barbier jeudi à 17 h"),

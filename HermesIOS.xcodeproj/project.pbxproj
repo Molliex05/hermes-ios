@@ -127,6 +127,7 @@
 		D673AF44E66D90BFC2648926 /* HermesSocket.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A87F904778F7AD694B573F1 /* HermesSocket.swift */; };
 		D681AB6A78A919CC947068D4 /* HermesIOSUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E603ABD353FD2203064ED4D6 /* HermesIOSUITests.swift */; };
 		D7BE10234689EE99042A0352 /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03771C2DF46F958CA751A93C /* JSONValue.swift */; };
+		DCA80968B07895526470C4E6 /* InsightCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 384DDEDB7A703B22350AA929 /* InsightCards.swift */; };
 		DDCED966D0CD49F0861AC32D /* NativeSpeechStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6E4B7452159378C20628C7D /* NativeSpeechStream.swift */; };
 		E3BDA5080F70B105FDDA04F3 /* MarkdownText.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8C2642D7ADE3DDF465C6E89 /* MarkdownText.swift */; };
 		E4687AFCE99263487AB19A15 /* AgentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB4E2583813D830A3E900B68 /* AgentsView.swift */; };
@@ -234,6 +235,7 @@
 		33653FCB4712F78B59195DEF /* VoiceTextCursor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTextCursor.swift; sourceTree = "<group>"; };
 		362C9954B7F70E3D5BFA2C9F /* memoire.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = memoire.wav; sourceTree = "<group>"; };
 		37886968AE83A88E7E1B9678 /* RoutineDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineDetailView.swift; sourceTree = "<group>"; };
+		384DDEDB7A703B22350AA929 /* InsightCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsightCards.swift; sourceTree = "<group>"; };
 		3906C589B66E594172121A15 /* AccountsSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountsSupport.swift; sourceTree = "<group>"; };
 		399BB0F5CE1F8FF278DE6053 /* GroupsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupsView.swift; sourceTree = "<group>"; };
 		3CF3A3E8B03FC0663B7C6FA0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -470,6 +472,7 @@
 				6DFB43B3E8A94574E7859F89 /* ChatHeader.swift */,
 				CF7E91170403F14C2AEA4311 /* ChatRequestCards.swift */,
 				B1B95AADFCA8B42EAEAAFECD /* ChatTranscriptView.swift */,
+				384DDEDB7A703B22350AA929 /* InsightCards.swift */,
 				CF0E2A096609367B94AB7780 /* LinkPreviews.swift */,
 				0AEFC910E5CBFB0EDE731D28 /* RichCards.swift */,
 			);
@@ -859,6 +862,7 @@
 				8C9C5143998CC7920E16F040 /* HermesIOSApp.swift in Sources */,
 				D673AF44E66D90BFC2648926 /* HermesSocket.swift in Sources */,
 				4F12D4CF4D888EA890A98BF3 /* HistoryRequests.swift in Sources */,
+				DCA80968B07895526470C4E6 /* InsightCards.swift in Sources */,
 				5BBB627A0B67FE2F04FBD140 /* JSONValue.swift in Sources */,
 				F843B14A351EDA859765A6D3 /* KanbanView.swift in Sources */,
 				C4E5F98CEC41BFB069485A78 /* Keychain.swift in Sources */,
