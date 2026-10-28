@@ -1549,7 +1549,14 @@ final class AppModel {
                 \(fence)
                 """),
                 .init(role: "user", text: "Merci"),
-                .init(role: "assistant", text: "Avec plaisir.")
+                // The last reply holds a card and a link preview: it must stay reachable (VoiceOver, UI tests).
+                .init(role: "assistant", text: """
+                Avec plaisir. Le résumé complet est ici : https://www.apple.com/newsroom/
+
+                \(fence)ui
+                {"type":"choices","options":["Bonne soirée","Un dernier truc"]}
+                \(fence)
+                """)
             ]
         }
         #endif

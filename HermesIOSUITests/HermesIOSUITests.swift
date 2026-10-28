@@ -92,8 +92,10 @@ final class HermesIOSUITests: XCTestCase {
         app.launchArguments = ["--demo", "--demo-cards"]
         app.launch()
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.descendants(matching: .any)["card-event"].waitForExistence(timeout: 5), "the agenda reply's event card")
+        // The newest reply holds a card and a link preview; a tall last row used to fall out of the accessibility tree.
+        XCTAssertTrue(app.buttons["Bonne soirée"].waitForExistence(timeout: 5), "the last reply's quick replies")
         XCTAssertTrue(app.descendants(matching: .any)["link-preview"].waitForExistence(timeout: 5), "a link in the text gets a preview")
+        XCTAssertTrue(app.descendants(matching: .any)["card-event"].waitForExistence(timeout: 5), "the agenda reply's event card")
         for _ in 0..<16 { app.swipeDown(velocity: .fast) }
         for identifier in ["card-carousel", "card-choices"] {
             XCTAssertTrue(app.descendants(matching: .any)[identifier].waitForExistence(timeout: 5), identifier)
