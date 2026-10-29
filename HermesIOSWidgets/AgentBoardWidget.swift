@@ -248,11 +248,6 @@ struct BoardWidgetView: View {
 
     private func color(_ row: BoardRow) -> Color { BoardTone.color(row.item.tone, entry.palette) }
     private var palette: AgentLook.Palette { entry.palette }
-    private var heading: String {
-        let title = entry.live?.title ?? ""
-        return title.isEmpty ? entry.agentTitle : title
-    }
-
     // Lock Screen
     @ViewBuilder private var accessory: some View {
         let hero = entry.hero
@@ -272,18 +267,6 @@ struct BoardWidgetView: View {
     }
 
     // MARK: Header and pieces
-
-    private func header(compact: Bool, showTime: Bool = false) -> some View {
-        HStack(spacing: 7) {
-            OrbView(phase: .idle, animated: false, look: .standard(for: entry.profile), compact: true).frame(width: compact ? 20 : 24, height: compact ? 20 : 24)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(heading).font((compact ? Font.caption : .subheadline).weight(.semibold)).lineLimit(1)
-                if !compact, entry.live != nil, heading != entry.agentTitle { Text(entry.agentTitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
-            }
-            Spacer(minLength: 0)
-            if showTime || !compact, let updated = entry.live?.updatedAt { Text(updated, style: .time).font(.caption2).foregroundStyle(.tertiary) }
-        }
-    }
 
     private func pill(_ label: String, symbol: String, host: String, filled: Bool) -> some View {
         Link(destination: BoardLinks.url(host, profile: entry.profile) ?? URL(string: "hermesios://open")!) {
@@ -349,111 +332,126 @@ struct BoardWidgetView: View {
     }
 
     // MARK: Sizes
+    // The system gives a widget its margins: about 126 pt of height for the small and medium ones, 322 for the large one.
+    // Nothing is spent on a header; the content spreads over the whole height.
 
-    private var small: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            header(compact: true)
-            if let hero = entry.hero {
-                Spacer(minLength: 0)
-                HStack(alignment: .top) {
-                    if hero.item.time.isEmpty { Text("À voir").font(.system(.title3, design: .rounded).weight(.bold)).foregroundStyle(color(hero)) }
-                    else { Text(hero.item.time).font(.system(.title2, design: .rounded).weight(.bold).monospacedDigit()).foregroundStyle(color(hero)) }
-                    Spacer(minLength: 4)
-                    Tile(symbol: BoardTone.symbol(hero.item), color: color(hero), size: 28)
-                }
-                Text(hero.item.text).font(.subheadline.weight(.semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                if hero.phase == .now || hero.phase == .next { Countdown(row: hero, color: color(hero)) }
-                else if !hero.item.detail.isEmpty { Text(hero.item.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
-            } else {
-                Spacer(minLength: 0)
-                Image(systemName: entry.greetingSymbol).font(.title2).foregroundStyle(palette.main)
-                Text(entry.greeting).font(.title3.weight(.bold)).lineLimit(1).minimumScaleFactor(0.8)
-                dateLine
-                Text(entry.freeDay ? statusLine : "Touchez : \(entry.suggestions.first?.text ?? "")").font(.caption2.weight(.semibold))
-                    .foregroundStyle(palette.main).lineLimit(2)
-            }
-        }
+    private func bigTime(_ row: BoardRow) -> some View {
+        Text(row.item.time.isEmpty ? "À voir" : row.item.time).font(.system(size: 34, weight: .bold, design: .rounded)).monospacedDigit()
+            .minimumScaleFactor(0.6).lineLimit(1).foregroundStyle(color(row))
     }
 
-    /// 126 pt of height at most: a 20 pt header and about 90 pt of content.
+    /// « Maintenant », « dans 45 min », else the place.
+    @ViewBuilder private func sub(_ row: BoardRow) -> some View {
+        if row.phase == .now || row.phase == .next { Countdown(row: row, color: color(row)) }
+        else if !row.item.detail.isEmpty { Text(row.item.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+    }
+
+    private var small: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let hero = entry.hero {
+                HStack(alignment: .top) {
+                    bigTime(hero)
+                    Spacer(minLength: 4)
+                    Tile(symbol: BoardTone.symbol(hero.item), color: color(hero), size: 30)
+                }
+                Spacer(minLength: 4)
+                Text(hero.item.text).font(.headline).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                sub(hero).padding(.top, 2)
+                if let after = entry.rows.first(where: { $0.id != hero.id && $0.phase != .past }) {
+                    Text("Ensuite · \(after.item.time.isEmpty ? "" : "\(after.item.time) ")\(after.item.text)").font(.caption2).foregroundStyle(.secondary)
+                        .lineLimit(1).padding(.top, 5)
+                }
+            } else {
+                Image(systemName: entry.greetingSymbol).font(.title).foregroundStyle(palette.main)
+                Spacer(minLength: 4)
+                Text(entry.greeting).font(.title2.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
+                dateLine
+                Text(entry.freeDay ? statusLine : "Touchez : \(entry.suggestions.first?.text ?? "")").font(.caption2.weight(.semibold))
+                    .foregroundStyle(palette.main).lineLimit(2).padding(.top, 5)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
     private var medium: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            header(compact: true, showTime: true)
+        Group {
             if entry.live != nil, let hero = entry.hero {
                 let rest = entry.rows.filter { $0.id != hero.id }
+                let focus = entry.live?.focus ?? ""
                 HStack(alignment: .top, spacing: 12) {
                     link(hero) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack {
-                                Text(hero.item.time.isEmpty ? "À voir" : hero.item.time).font(.system(.title2, design: .rounded).weight(.bold).monospacedDigit()).foregroundStyle(color(hero))
-                                Spacer(minLength: 0)
-                                Tile(symbol: BoardTone.symbol(hero.item), color: color(hero), size: 26)
+                        VStack(alignment: .leading, spacing: 0) {
+                            HStack(alignment: .top) {
+                                bigTime(hero)
+                                Spacer(minLength: 4)
+                                Tile(symbol: BoardTone.symbol(hero.item), color: color(hero), size: 30)
                             }
-                            Text(hero.item.text).font(.subheadline.weight(.semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                            if hero.phase == .now || hero.phase == .next { Countdown(row: hero, color: color(hero)) }
-                            else if !hero.item.detail.isEmpty { Text(hero.item.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
-                        }.frame(maxWidth: .infinity, alignment: .leading)
-                    }.frame(maxWidth: 140)
-                    RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1)
-                    VStack(alignment: .leading, spacing: 6) {
-                        let focus = entry.live?.focus ?? ""
-                        ForEach(Array(rest.prefix(focus.isEmpty ? 3 : 2))) { row in link(row) { compactRow(row) } }
+                            Spacer(minLength: 4)
+                            Text(hero.item.text).font(.headline).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                            sub(hero).padding(.top, 2)
+                        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }.frame(width: 138)
+                    RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1).frame(maxHeight: .infinity)
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(rest.prefix(focus.isEmpty ? 4 : 3))) { row in
+                            link(row) { compactRow(row) }.frame(minHeight: 26, maxHeight: 40)
+                        }
+                        if rest.isEmpty && focus.isEmpty { Text("C’est tout pour l’instant.").font(.caption).foregroundStyle(.secondary) }
+                        Spacer(minLength: 0)
                         if !focus.isEmpty {
-                            HStack(spacing: 6) {
+                            HStack(alignment: .top, spacing: 6) {
                                 Image(systemName: "scope").font(.caption2.weight(.bold)).foregroundStyle(palette.main)
                                 Text(focus).font(.caption2.weight(.semibold)).lineLimit(2)
                             }
-                        } else if rest.isEmpty { Text("C’est tout pour l’instant.").font(.caption).foregroundStyle(.secondary) }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
-                Spacer(minLength: 0)
             } else {
                 HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Image(systemName: entry.greetingSymbol).font(.title3).foregroundStyle(palette.main)
-                        Text(entry.greeting).font(.title3.weight(.bold)).lineLimit(1).minimumScaleFactor(0.8)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Image(systemName: entry.greetingSymbol).font(.title2).foregroundStyle(palette.main)
+                        Spacer(minLength: 4)
+                        Text(entry.greeting).font(.title2.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
                         dateLine
-                        Text(statusLine).font(.caption2.weight(.semibold)).foregroundStyle(palette.main).lineLimit(2)
-                    }.frame(maxWidth: 130, alignment: .leading)
-                    RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1)
-                    VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(entry.suggestions.prefix(2))) { suggestionRow($0, size: 22, font: .caption.weight(.medium)) }
-                        voiceRow
-                    }.frame(maxWidth: .infinity, alignment: .leading)
+                        Text(statusLine).font(.caption2.weight(.semibold)).foregroundStyle(palette.main).lineLimit(2).padding(.top, 4)
+                    }.frame(width: 128, alignment: .leading).frame(maxHeight: .infinity, alignment: .topLeading)
+                    RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1).frame(maxHeight: .infinity)
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(entry.suggestions.prefix(2))) { suggestionRow($0, size: 26, font: .caption.weight(.medium)).frame(maxHeight: .infinity) }
+                        voiceRow.frame(maxHeight: .infinity)
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
-                Spacer(minLength: 0)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// About 322 pt of height: header, five timeline rows, the À retenir box and the two action pills.
     private var large: some View {
         VStack(alignment: .leading, spacing: 10) {
-            header(compact: false)
             if entry.live != nil, entry.hero != nil {
-                let rows = Array(entry.rows.prefix(5))
+                let rows = Array(entry.rows.prefix(6))
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                        link(row) { timelineRow(row, last: index == rows.count - 1) }
+                        link(row) { timelineRow(row, last: index == rows.count - 1) }.frame(minHeight: 40, maxHeight: 66)
                     }
-                }
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
+                }.frame(maxHeight: .infinity, alignment: .top)
                 if let focus = entry.live?.focus, !focus.isEmpty { focusBox(focus, compact: false) }
                 actions
             } else {
                 VStack(alignment: .leading, spacing: 3) {
-                    Image(systemName: entry.greetingSymbol).font(.title).foregroundStyle(palette.main)
-                    Text(entry.greeting).font(.largeTitle.weight(.bold)).lineLimit(1).minimumScaleFactor(0.8)
-                    dateLine
-                    Text(statusLine).font(.subheadline.weight(.semibold)).foregroundStyle(palette.main)
+                    Image(systemName: entry.greetingSymbol).font(.largeTitle).foregroundStyle(palette.main)
+                    Text(entry.greeting).font(.system(size: 36, weight: .bold)).lineLimit(1).minimumScaleFactor(0.7).padding(.top, 4)
+                    dateLine.font(.subheadline)
+                    Text(statusLine).font(.subheadline.weight(.semibold)).foregroundStyle(palette.main).padding(.top, 2)
                 }
-                VStack(alignment: .leading, spacing: 9) {
-                    ForEach(entry.suggestions) { suggestionRow($0, size: 28, font: .subheadline.weight(.medium)) }
-                }
-                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(entry.suggestions) { suggestionRow($0, size: 32, font: .subheadline.weight(.medium)).frame(maxHeight: .infinity) }
+                }.frame(maxHeight: .infinity)
                 actions
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     // MARK: Rows
@@ -475,21 +473,21 @@ struct BoardWidgetView: View {
     private func timelineRow(_ row: BoardRow, last: Bool) -> some View {
         HStack(alignment: .top, spacing: 10) {
             VStack(spacing: 0) {
-                Tile(symbol: row.phase == .past ? "checkmark" : BoardTone.symbol(row.item), color: row.phase == .past ? .secondary : color(row), size: 28)
+                Tile(symbol: row.phase == .past ? "checkmark" : BoardTone.symbol(row.item), color: row.phase == .past ? .secondary : color(row), size: 30)
                 if !last { Rectangle().fill(Color.primary.opacity(0.1)).frame(width: 1.5).frame(maxHeight: .infinity).padding(.vertical, 2) }
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(row.item.text).font(.subheadline.weight(row.phase == .next || row.phase == .now ? .bold : .medium)).lineLimit(1)
                 if !row.item.detail.isEmpty { Text(row.item.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
             }
-            .padding(.top, 2).padding(.bottom, last ? 0 : 6)
+            .padding(.top, 3).padding(.bottom, last ? 0 : 6)
             .opacity(row.phase == .past ? 0.5 : 1)
             Spacer(minLength: 6)
             VStack(alignment: .trailing, spacing: 1) {
                 if !row.item.time.isEmpty { Text(row.item.time).font(.caption.weight(.semibold).monospacedDigit()).foregroundStyle(row.phase == .past ? Color.secondary : color(row)) }
                 Countdown(row: row, color: color(row))
-            }.padding(.top, 2)
+            }.padding(.top, 3)
         }
-        .frame(maxHeight: .infinity)
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 }
