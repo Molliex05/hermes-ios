@@ -3,7 +3,8 @@ import SwiftUI
 import WidgetKit
 
 /// The agent's own board: what it judged worth showing right now (the next appointment, a shift, one thing to keep in
-/// mind). It decides when to update it and never notifies for it; the widget only draws what the app last saved.
+/// mind). It decides when to update it and never notifies for it; the widget only draws what the app last saved. Drawn
+/// like the chat's cards: symbol tiles, the next thing in large type with a countdown, a timeline, a « À retenir » box.
 struct AgentBoardWidget: Widget {
     static let kind = "AgentBoardWidget"
 
@@ -11,7 +12,7 @@ struct AgentBoardWidget: Widget {
         AppIntentConfiguration(kind: Self.kind, intent: SelectAgentIntent.self, provider: BoardProvider()) { entry in
             BoardWidgetView(entry: entry)
                 .widgetURL(entry.openURL)
-                .containerBackground(for: .widget) { WidgetBackground() }
+                .containerBackground(for: .widget) { BoardBackground(profile: entry.profile) }
         }
         .configurationDisplayName("À l’affiche")
         .description("Ce que votre agent juge utile de vous montrer maintenant.")
@@ -26,6 +27,28 @@ struct SelectAgentIntent: WidgetConfigurationIntent {
     @Parameter(title: "Agent") var agent: AgentEntity?
 }
 
+// MARK: - Data
+
+/// « 13:45 », « 9h », « 9 h 30 » → that time on the given day.
+enum BoardTime {
+    static func date(_ text: String, on day: Date) -> Date? {
+        guard let match = text.firstMatch(of: /(\d{1,2})\s*[:hH]\s*(\d{2})?/), let hour = Int(match.1), hour < 24 else { return nil }
+        let minute = match.2.flatMap { Int($0) } ?? 0
+        guard minute < 60 else { return nil }
+        return Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: day)
+    }
+    /// A moment this recent still counts as « maintenant ».
+    static let nowWindow: TimeInterval = 15 * 60
+}
+
+struct BoardRow: Identifiable {
+    enum Phase { case past, now, next, later }
+    let item: AgentBoard.Item
+    let when: Date?
+    var phase: Phase
+    var id: String { item.id }
+}
+
 struct BoardEntry: TimelineEntry {
     let date: Date
     let profile: String
@@ -36,14 +59,43 @@ struct BoardEntry: TimelineEntry {
 
     /// The board to draw: absent, empty or out of date means the calm state.
     var live: AgentBoard? { board.flatMap { $0.isEmpty || $0.isExpired(at: date) ? nil : $0 } }
+    var palette: AgentLook.Palette { AgentLook.standard(for: profile).palette }
+
+    /// The lines in the agent's order, each placed in time: done, happening now, the next one, or untimed.
+    var rows: [BoardRow] {
+        var rows = (live?.items ?? []).map { item -> BoardRow in
+            let when = BoardTime.date(item.time, on: date)
+            let phase: BoardRow.Phase = when.map { $0 < date.addingTimeInterval(-BoardTime.nowWindow) ? .past : $0 <= date ? .now : .later } ?? .later
+            return BoardRow(item: item, when: when, phase: phase)
+        }
+        if let first = rows.firstIndex(where: { $0.when != nil && $0.phase == .later }), !rows.contains(where: { $0.phase == .now }) { rows[first].phase = .next }
+        return rows
+    }
+    /// The thing to put forward: what is happening, the next timed line, else the first one.
+    var hero: BoardRow? {
+        let rows = rows
+        return rows.first { $0.phase == .now } ?? rows.first { $0.phase == .next } ?? rows.first { $0.phase != .past } ?? rows.first
+    }
+
     /// A tap opens that agent's chat with the sentence it suggests waiting in the composer (never sent by itself).
     var openURL: URL? {
-        var parts = URLComponents(); parts.scheme = "hermesios"
-        if let ask = live?.ask, !ask.isEmpty { parts.host = "ask"; parts.queryItems = [URLQueryItem(name: "profile", value: profile), URLQueryItem(name: "text", value: ask)] }
-        else { parts.host = "open"; parts.queryItems = profile.isEmpty ? nil : [URLQueryItem(name: "profile", value: profile)] }
+        if let ask = live?.ask, !ask.isEmpty { return BoardLinks.url("ask", profile: profile, text: ask) }
+        return BoardLinks.url("open", profile: profile)
+    }
+}
+
+enum BoardLinks {
+    static func url(_ host: String, profile: String, text: String? = nil) -> URL? {
+        var parts = URLComponents(); parts.scheme = "hermesios"; parts.host = host
+        var query: [URLQueryItem] = []
+        if !profile.isEmpty { query.append(URLQueryItem(name: "profile", value: profile)) }
+        if let text { query.append(URLQueryItem(name: "text", value: text)) }
+        parts.queryItems = query.isEmpty ? nil : query
         return parts.url
     }
 }
+
+// MARK: - Provider
 
 struct BoardProvider: AppIntentTimelineProvider {
     private static let sample = AgentBoard(title: "Aujourd’hui", items: [
@@ -60,10 +112,14 @@ struct BoardProvider: AppIntentTimelineProvider {
 
     func timeline(for configuration: SelectAgentIntent, in context: Context) async -> Timeline<BoardEntry> {
         let first = entry(for: configuration, at: .now)
-        var entries = [first]
-        // At its expiry the board gives way to the calm state without waiting for the next refresh.
-        if let expiry = first.board?.expiresAt, expiry > .now { entries.append(entry(for: configuration, at: expiry)) }
-        return Timeline(entries: entries, policy: .after(.now.addingTimeInterval(30 * 60)))
+        // The widget moves on by itself: a new « next » when a time passes, « maintenant » then done, the calm state at expiry.
+        var moments: [Date] = []
+        for item in first.board?.items ?? [] {
+            if let when = BoardTime.date(item.time, on: .now), when > .now { moments += [when, when.addingTimeInterval(BoardTime.nowWindow)] }
+        }
+        if let expiry = first.board?.expiresAt, expiry > .now { moments.append(expiry) }
+        let later = Set(moments).sorted().prefix(12).map { entry(for: configuration, at: $0) }
+        return Timeline(entries: [first] + later, policy: .after(.now.addingTimeInterval(30 * 60)))
     }
 
     private func entry(for configuration: SelectAgentIntent, at date: Date) -> BoardEntry {
@@ -74,16 +130,72 @@ struct BoardProvider: AppIntentTimelineProvider {
     }
 }
 
+// MARK: - Look
+
+struct BoardBackground: View {
+    let profile: String
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let palette = AgentLook.standard(for: profile).palette
+        ZStack {
+            WidgetPalette.background(scheme)
+            LinearGradient(colors: [palette.main.opacity(scheme == .dark ? 0.24 : 0.13), .clear], startPoint: .topLeading, endPoint: .center)
+        }
+    }
+}
+
 private enum BoardTone {
-    static func color(_ tone: String) -> Color {
+    static func color(_ tone: String, _ palette: AgentLook.Palette) -> Color {
         switch tone {
         case "positive": Color(red: 0.2, green: 0.62, blue: 0.4)
         case "warning": Color(red: 0.86, green: 0.52, blue: 0.1)
         case "negative": Color(red: 0.8, green: 0.25, blue: 0.2)
-        default: WidgetPalette.accent
+        default: palette.main
+        }
+    }
+
+    /// The agent's own symbol, else one guessed from the words, else a plain dot.
+    static func symbol(_ item: AgentBoard.Item) -> String {
+        if !item.icon.isEmpty, UIImage(systemName: item.icon) != nil { return item.icon }
+        let text = item.text.lowercased()
+        let guesses: [(String, [String])] = [
+            ("shield.lefthalf.filled", ["quart", "travail", "garde"]), ("scissors", ["barbier", "coiffeur", "coiffure"]),
+            ("fork.knife", ["souper", "dîner", "diner", "lunch", "resto", "déjeuner"]), ("cross.case", ["dentiste", "médecin", "medecin", "clinique", "docteur"]),
+            ("cloud.sun", ["météo", "meteo", "pluie", "neige"]), ("server.rack", ["serveur", "service", "disque", "sauvegarde"]),
+            ("envelope", ["courriel", "mail", "brouillon"]), ("figure.run", ["entraînement", "entrainement", "séance", "course", "gym"]),
+            ("phone", ["appel", "téléphone"]), ("calendar", ["rendez", "réunion", "reunion"])]
+        return guesses.first { _, words in words.contains { text.contains($0) } }?.0 ?? (item.time.isEmpty ? "circle.fill" : "calendar")
+    }
+}
+
+private struct Tile: View {
+    let symbol: String
+    let color: Color
+    var size: CGFloat = 30
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: size * 0.3, style: .continuous).fill(color.opacity(0.16))
+            Image(systemName: symbol).font(.system(size: size * 0.46, weight: .semibold)).foregroundStyle(color)
+        }.frame(width: size, height: size)
+    }
+}
+
+/// « Maintenant », or « dans 45 min » counting down by itself.
+private struct Countdown: View {
+    let row: BoardRow
+    let color: Color
+    var body: some View {
+        switch row.phase {
+        case .now: Text("Maintenant").font(.caption2.weight(.bold)).foregroundStyle(color)
+        case .next:
+            if let when = row.when { (Text("dans ") + Text(when, style: .relative)).font(.caption2.weight(.semibold)).foregroundStyle(color).lineLimit(1) }
+        default: EmptyView()
         }
     }
 }
+
+// MARK: - Widget
 
 struct BoardWidgetView: View {
     let entry: BoardEntry
@@ -95,65 +207,214 @@ struct BoardWidgetView: View {
 
     @ViewBuilder private var content: some View {
         switch family {
-        case .accessoryInline:
-            Text(entry.live?.items.first.map { "\($0.time.isEmpty ? "" : "\($0.time) ") \($0.text)" } ?? entry.live?.focus.nilIfEmpty ?? entry.agentTitle)
-        case .accessoryRectangular:
-            VStack(alignment: .leading, spacing: 1) {
-                Text(entry.live?.title.nilIfEmpty ?? entry.agentTitle).font(.caption.weight(.semibold))
-                if let live = entry.live {
-                    ForEach(live.items.prefix(2)) { Text("\($0.time.isEmpty ? "" : "\($0.time) ")\($0.text)").lineLimit(1) }
-                    if live.items.isEmpty { Text(live.focus).lineLimit(2) }
-                } else { Text("Rien de particulier") }
-            }.font(.caption).frame(maxWidth: .infinity, alignment: .leading)
-        default:
-            VStack(alignment: .leading, spacing: 8) {
-                header
-                if let live = entry.live { lines(live) } else { calm }
-                Spacer(minLength: 0)
-            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        case .accessoryInline, .accessoryRectangular: accessory
+        case .systemSmall: small
+        case .systemMedium: medium
+        default: large
         }
     }
 
-    private var header: some View {
-        HStack(spacing: 7) {
-            OrbView(phase: .idle, animated: false, look: .standard(for: entry.profile), compact: true).frame(width: 22, height: 22)
-            Text(entry.live?.title.nilIfEmpty ?? entry.agentTitle).font(.subheadline.weight(.semibold)).lineLimit(1)
-            Spacer(minLength: 0)
-            if let updated = entry.live?.updatedAt {
-                Text(updated, style: .relative).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-            }
+    private func color(_ row: BoardRow) -> Color { BoardTone.color(row.item.tone, entry.palette) }
+    private var palette: AgentLook.Palette { entry.palette }
+    private var heading: String {
+        let title = entry.live?.title ?? ""
+        return title.isEmpty ? entry.agentTitle : title
+    }
+
+    // Lock Screen
+    @ViewBuilder private var accessory: some View {
+        let hero = entry.hero
+        if family == .accessoryInline {
+            Text(hero.map { "\($0.item.time.isEmpty ? "" : "\($0.item.time) ")\($0.item.text)" } ?? entry.agentTitle)
+        } else {
+            HStack(spacing: 8) {
+                Image(systemName: hero.map { BoardTone.symbol($0.item) } ?? "sparkles").font(.title3.weight(.semibold))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(hero?.item.text ?? "Rien de particulier").font(.caption.weight(.semibold)).lineLimit(1)
+                    if let hero, let when = hero.when, hero.phase == .next { (Text("dans ") + Text(when, style: .relative)).font(.caption2) }
+                    else if let focus = entry.live?.focus, !focus.isEmpty { Text(focus).font(.caption2).lineLimit(1) }
+                    else { Text(entry.agentTitle).font(.caption2) }
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    // MARK: Header and pieces
+
+    private func header(compact: Bool) -> some View {
+        HStack(spacing: 7) {
+            OrbView(phase: .idle, animated: false, look: .standard(for: entry.profile), compact: true).frame(width: compact ? 20 : 24, height: compact ? 20 : 24)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(heading).font((compact ? Font.caption : .subheadline).weight(.semibold)).lineLimit(1)
+                if !compact, entry.live != nil, heading != entry.agentTitle { Text(entry.agentTitle).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+            }
+            Spacer(minLength: 0)
+            if !compact, let updated = entry.live?.updatedAt { Text(updated, style: .time).font(.caption2).foregroundStyle(.tertiary) }
+        }
+    }
+
+    private func pill(_ label: String, symbol: String, host: String, filled: Bool) -> some View {
+        Link(destination: BoardLinks.url(host, profile: entry.profile) ?? URL(string: "hermesios://open")!) {
+            Label(label, systemImage: symbol).font(.caption.weight(.semibold)).padding(.horizontal, 12).padding(.vertical, 7)
+                .foregroundStyle(filled ? Color.white : palette.main).background(filled ? palette.main : palette.main.opacity(0.14), in: Capsule())
+        }
+    }
+
+    private var actions: some View {
+        HStack(spacing: 8) {
+            pill("Parler", symbol: "waveform", host: "voice", filled: true)
+            pill("Écrire", symbol: "square.and.pencil", host: "open", filled: false)
+        }
+    }
+
+    /// A line tapped puts « tell me more » in the composer; it is never sent by the tap.
+    private func link<Content: View>(_ row: BoardRow, @ViewBuilder label: () -> Content) -> some View {
+        let ask = "Dis-m’en plus sur : \(row.item.time.isEmpty ? "" : "\(row.item.time) ")\(row.item.text)"
+        return Link(destination: BoardLinks.url("ask", profile: entry.profile, text: ask) ?? URL(string: "hermesios://open")!, label: label)
+    }
+
+    private func focusBox(_ text: String, compact: Bool) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "scope").font(.caption.weight(.bold)).foregroundStyle(palette.main)
+            VStack(alignment: .leading, spacing: 1) {
+                if !compact { Text("À retenir").font(.system(size: 9, weight: .bold)).foregroundStyle(palette.main).textCase(.uppercase) }
+                Text(text).font(.caption.weight(.semibold)).lineLimit(compact ? 1 : 2).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .background(palette.main.opacity(0.11), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var calm: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text("Rien de particulier").font(.callout.weight(.medium))
-            Text("\(entry.agentTitle) vous le dira quand il y aura quelque chose.").font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Rien de particulier").font(.headline)
+            Text("\(entry.agentTitle) vous le dira dès qu’il y aura quelque chose.").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    @ViewBuilder private func lines(_ board: AgentBoard) -> some View {
-        let count = family == .systemSmall ? 2 : family == .systemMedium ? 3 : 5
-        VStack(alignment: .leading, spacing: 7) {
-            ForEach(board.items.prefix(count)) { item in
-                HStack(alignment: .top, spacing: 8) {
-                    Circle().fill(BoardTone.color(item.tone)).frame(width: 6, height: 6).padding(.top, 5)
-                    if !item.time.isEmpty && family != .systemSmall {
-                        Text(item.time).font(.caption.weight(.semibold).monospacedDigit()).foregroundStyle(BoardTone.color(item.tone))
-                    }
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(item.text).font(family == .systemSmall ? .caption.weight(.medium) : .subheadline.weight(.medium)).lineLimit(family == .systemSmall ? 2 : 1)
-                        if !item.detail.isEmpty && family != .systemSmall { Text(item.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+    // MARK: Sizes
+
+    private var small: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            header(compact: true)
+            if let hero = entry.hero {
+                Spacer(minLength: 0)
+                HStack(alignment: .top) {
+                    if hero.item.time.isEmpty { Text("À voir").font(.system(.title3, design: .rounded).weight(.bold)).foregroundStyle(color(hero)) }
+                    else { Text(hero.item.time).font(.system(.title2, design: .rounded).weight(.bold).monospacedDigit()).foregroundStyle(color(hero)) }
+                    Spacer(minLength: 4)
+                    Tile(symbol: BoardTone.symbol(hero.item), color: color(hero), size: 28)
+                }
+                Text(hero.item.text).font(.subheadline.weight(.semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                if hero.phase == .now || hero.phase == .next { Countdown(row: hero, color: color(hero)) }
+                else if !hero.item.detail.isEmpty { Text(hero.item.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+            } else {
+                Spacer(minLength: 0)
+                Tile(symbol: "sparkles", color: palette.main, size: 34)
+                calm
+            }
+        }
+    }
+
+    private var medium: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            header(compact: false)
+            if entry.live != nil, let hero = entry.hero {
+                let rest = entry.rows.filter { $0.id != hero.id }
+                HStack(alignment: .top, spacing: 12) {
+                    link(hero) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Text(hero.item.time.isEmpty ? "À voir" : hero.item.time).font(.system(.title2, design: .rounded).weight(.bold).monospacedDigit()).foregroundStyle(color(hero))
+                                Spacer(minLength: 0)
+                                Tile(symbol: BoardTone.symbol(hero.item), color: color(hero), size: 26)
+                            }
+                            Text(hero.item.text).font(.subheadline.weight(.semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                            if hero.phase == .now || hero.phase == .next { Countdown(row: hero, color: color(hero)) }
+                            else if !hero.item.detail.isEmpty { Text(hero.item.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                    }.frame(maxWidth: 140)
+                    RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1)
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(rest.prefix(entry.live?.focus.isEmpty == false ? 2 : 3))) { row in
+                            link(row) { compactRow(row) }
+                        }
+                        if rest.isEmpty { Text("C’est tout pour l’instant.").font(.caption).foregroundStyle(.secondary) }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Spacer(minLength: 0)
+                if let focus = entry.live?.focus, !focus.isEmpty { focusBox(focus, compact: true) }
+            } else {
+                HStack(alignment: .center, spacing: 14) {
+                    Tile(symbol: "sparkles", color: palette.main, size: 44)
+                    calm
+                }
+                Spacer(minLength: 0)
+                actions
+            }
+        }
+    }
+
+    private var large: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            header(compact: false)
+            if entry.live != nil, entry.hero != nil {
+                let rows = Array(entry.rows.prefix(5))
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                        link(row) { timelineRow(row, last: index == rows.count - 1) }
                     }
                 }
-            }
-            if !board.focus.isEmpty && family != .systemSmall {
-                Text(board.focus).font(.caption.weight(.semibold)).foregroundStyle(WidgetPalette.accent).lineLimit(2).padding(.top, 2)
+                Spacer(minLength: 0)
+                if let focus = entry.live?.focus, !focus.isEmpty { focusBox(focus, compact: false) }
+                actions
+            } else {
+                Spacer(minLength: 0)
+                HStack(spacing: 14) {
+                    Tile(symbol: "sparkles", color: palette.main, size: 52)
+                    calm
+                }
+                Spacer(minLength: 0)
+                actions
             }
         }
     }
-}
 
-private extension String {
-    var nilIfEmpty: String? { isEmpty ? nil : self }
+    // MARK: Rows
+
+    private func compactRow(_ row: BoardRow) -> some View {
+        HStack(spacing: 7) {
+            Tile(symbol: BoardTone.symbol(row.item), color: color(row), size: 22)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(row.item.text).font(.caption.weight(.semibold)).lineLimit(1)
+                if !row.item.time.isEmpty { Text(row.item.time).font(.caption2.monospacedDigit()).foregroundStyle(.secondary) }
+            }
+            .opacity(row.phase == .past ? 0.5 : 1)
+            Spacer(minLength: 0)
+            if row.phase == .past { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary) }
+        }
+    }
+
+    /// A step of the day: its tile, a line down to the next one, the title and detail, the time or the countdown.
+    private func timelineRow(_ row: BoardRow, last: Bool) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(spacing: 0) {
+                Tile(symbol: row.phase == .past ? "checkmark" : BoardTone.symbol(row.item), color: row.phase == .past ? .secondary : color(row), size: 30)
+                if !last { Rectangle().fill(Color.primary.opacity(0.1)).frame(width: 1.5).frame(maxHeight: .infinity).padding(.vertical, 2) }
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(row.item.text).font(.subheadline.weight(row.phase == .next || row.phase == .now ? .bold : .medium)).lineLimit(1)
+                if !row.item.detail.isEmpty { Text(row.item.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+            }
+            .padding(.top, 2).padding(.bottom, last ? 0 : 8)
+            .opacity(row.phase == .past ? 0.5 : 1)
+            Spacer(minLength: 6)
+            VStack(alignment: .trailing, spacing: 1) {
+                if !row.item.time.isEmpty { Text(row.item.time).font(.caption.weight(.semibold).monospacedDigit()).foregroundStyle(row.phase == .past ? Color.secondary : color(row)) }
+                Countdown(row: row, color: color(row))
+            }.padding(.top, 2)
+        }
+        .frame(maxHeight: .infinity)
+    }
 }
