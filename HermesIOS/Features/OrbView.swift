@@ -41,169 +41,170 @@ struct OrbView: View {
     }
 }
 
-/// Draws one frame of an agent's illustration.
+/// Draws one frame of an agent's neural network: small points and fine links laid out by the agent's personality.
+/// At rest a few points light up now and then; listening lights the centre with the voice; thinking sends signals along
+/// the links; speaking sends a wave of light outward from the centre.
 private struct OrbArtist {
     let look: AgentLook
     let dark: Bool
     let compact: Bool
     private var palette: AgentLook.Palette { look.palette }
 
+    private struct Node { var x: Double, y: Double, depth = 1.0, weight = 0.6 }
+
     func draw(_ context: GraphicsContext, size: CGSize, time: Double, state: OrbMotion.State) {
         let side = min(size.width, size.height)
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
         let live = max(state.listening, state.speaking)
-        let breath = 0.012 * sin(time * 1.3) * (1 + state.thinking)
-        let radius = side / 2 * CGFloat((compact ? 0.9 : 0.66) + state.energy * 0.13 + breath + state.speaking * 0.02)
+        let breath = 0.01 * sin(time * 1.3) * (1 + state.thinking)
+        let radius = side / 2 * CGFloat((compact ? 0.9 : 0.66) * (1 + state.energy * 0.08) + breath)
         if !compact {
-            let glow = 0.07 + 0.10 * live + 0.05 * state.energy
+            let glow = 0.06 + 0.09 * live + 0.05 * state.energy
             let halo = Path(ellipseIn: CGRect(x: 1, y: 1, width: size.width - 2, height: size.height - 2))
-            context.fill(halo, with: .radialGradient(Gradient(colors: [palette.main.opacity(glow), palette.main.opacity(glow * 0.25), .clear]),
+            context.fill(halo, with: .radialGradient(Gradient(colors: [palette.main.opacity(glow), palette.main.opacity(0)]),
                                                      center: center, startRadius: side * 0.26, endRadius: side * 0.5))
         }
-        switch look.style {
-        case .petals: petals(context, center: center, radius: radius, time: time, state: state)
-        case .aurora: aurora(context, center: center, radius: radius, time: time, state: state)
-        case .prism: prism(context, center: center, radius: radius, time: time, state: state)
-        case .constellation: constellation(context, center: center, radius: radius, side: side, time: time, state: state)
-        case .liquid: liquid(context, center: center, radius: radius, time: time, state: state)
-        }
+        let (nodes, links) = layout(time: time, state: state)
+        network(context, center: center, radius: radius, nodes: nodes, links: links, time: time, state: state)
     }
 
-    /// Hermès' flower: six petals that turn slowly, open with the voice and light up one after another while thinking.
-    private func petals(_ context: GraphicsContext, center: CGPoint, radius: CGFloat, time: Double, state: OrbMotion.State) {
-        let spin = state.phase * 0.35
-        let lit = (time * 2.4).truncatingRemainder(dividingBy: 6)
-        for index in 0..<6 {
-            let angle = Double(index) / 6 * 2 * .pi + spin
-            let pulse = 1 + 0.08 * state.speaking * sin(time * 6 + Double(index)) + 0.12 * state.energy
-            let length = radius * 0.98 * CGFloat(pulse), width = radius * 0.46
-            let petal = Path(ellipseIn: CGRect(x: -width / 2, y: -length, width: width, height: length * 1.04))
-                .applying(CGAffineTransform(rotationAngle: angle).concatenating(CGAffineTransform(translationX: center.x, y: center.y)))
-            let tip = CGPoint(x: center.x + sin(angle) * length, y: center.y - cos(angle) * length)
-            context.fill(petal, with: .linearGradient(Gradient(colors: [palette.deep.opacity(0.95), palette.main, palette.light]),
-                                                      startPoint: center, endPoint: tip))
-            // While thinking, a light runs from petal to petal.
-            let distance = min(abs(Double(index) - lit), 6 - abs(Double(index) - lit))
-            let shine = state.thinking * max(0, 1 - distance) * 0.55
-            if shine > 0.01 { context.fill(petal, with: .color(.white.opacity(shine))) }
+    private func network(_ context: GraphicsContext, center: CGPoint, radius: CGFloat, nodes: [Node], links: [(Int, Int)], time: Double, state: OrbMotion.State) {
+        let base = dark ? palette.light : palette.main
+        var activity = nodes.enumerated().map { index, node -> Double in
+            let seed = Self.fraction(sin(Double(index + 1) * 91.7) * 4375.85)
+            let distance = (node.x * node.x + node.y * node.y).squareRoot()
+            var lit = pow(max(0, sin(time * 1.3 + seed * 17)), 16) * 0.8
+            lit += state.energy * max(0, 1 - distance) * 1.1
+            lit += state.speaking * max(0, sin(distance * 7 - time * 8)) * 0.7
+            return min(1, lit)
         }
-        let heart = radius * 0.16
-        context.fill(Path(ellipseIn: CGRect(x: center.x - heart, y: center.y - heart, width: heart * 2, height: heart * 2)),
-                     with: .color(dark ? Color(white: 0.08) : Color(red: 0.98, green: 0.96, blue: 0.93)))
-    }
-
-    /// Soft lights that drift around each other and blend, like an aurora; they spread and quicken with the voice.
-    private func aurora(_ context: GraphicsContext, center: CGPoint, radius: CGFloat, time: Double, state: OrbMotion.State) {
-        var glow = context
-        glow.addFilter(.blur(radius: radius * (compact ? 0.12 : 0.2)))
-        if dark { glow.blendMode = .plusLighter }
-        // On a light page the pale shade washes out: the deep one keeps the lights vivid.
-        let colors = dark ? [palette.main, palette.companion, palette.light] : [palette.main, palette.companion, palette.deep]
-        for index in 0..<3 {
-            let k = Double(index)
-            let angle = state.phase * 0.9 + k * 2.1 + sin(time * 0.7 + k) * 0.4
-            let reach = radius * CGFloat(0.26 + 0.14 * state.energy + 0.05 * sin(time * 1.3 + k))
-            let size = radius * CGFloat(0.66 + 0.08 * sin(time * 1.1 + k * 1.7) + 0.16 * state.energy + 0.05 * state.speaking)
-            let spot = CGPoint(x: center.x + cos(angle) * reach, y: center.y + sin(angle) * reach)
-            glow.fill(Path(ellipseIn: CGRect(x: spot.x - size, y: spot.y - size, width: size * 2, height: size * 2)),
-                      with: .color(colors[index].opacity(dark ? 0.85 : 0.92)))
-        }
-        // A bright core that swells while the agent speaks or thinks.
-        let core = radius * CGFloat(0.42 + 0.12 * max(state.speaking, state.thinking) + 0.1 * state.energy)
-        context.fill(Path(ellipseIn: CGRect(x: center.x - core, y: center.y - core, width: core * 2, height: core * 2)),
-                     with: .radialGradient(Gradient(colors: [.white.opacity(dark ? 0.55 : 0.45), .white.opacity(0)]),
-                                           center: center, startRadius: 0, endRadius: core))
-    }
-
-    /// A cut gem seen from above: its facets catch a light that turns, faster while thinking; it brightens with the voice.
-    private func prism(_ context: GraphicsContext, center: CGPoint, radius: CGFloat, time: Double, state: OrbMotion.State) {
-        let turn = state.phase * 0.25
-        let r = radius * CGFloat(1 + 0.04 * state.speaking * sin(time * 7))
-        func point(_ angle: Double, _ distance: CGFloat) -> CGPoint {
-            CGPoint(x: center.x + CGFloat(cos(angle)) * distance, y: center.y + CGFloat(sin(angle)) * distance)
-        }
-        let outer = (0..<6).map { point(turn + Double($0) / 6 * 2 * .pi - .pi / 2, r) }
-        let inner = (0..<6).map { point(turn + (Double($0) + 0.5) / 6 * 2 * .pi - .pi / 2, r * 0.52) }
-        let light = 2.6 - time * (0.5 + 1.6 * state.thinking)
-        func facet(_ points: [CGPoint]) {
-            var path = Path(); path.addLines(points); path.closeSubpath()
-            let middle = CGPoint(x: points.map(\.x).reduce(0, +) / CGFloat(points.count), y: points.map(\.y).reduce(0, +) / CGFloat(points.count))
-            let facing = atan2(Double(middle.y - center.y), Double(middle.x - center.x))
-            let brightness = 0.5 + 0.5 * cos(facing - light)
-            context.fill(path, with: .color(palette.deep))
-            context.fill(path, with: .color(palette.main.opacity(0.55 + 0.35 * brightness)))
-            context.fill(path, with: .color(palette.light.opacity(brightness * (0.55 + 0.3 * state.energy))))
-            context.stroke(path, with: .color(.white.opacity(dark ? 0.18 : 0.35)), lineWidth: max(0.5, radius * 0.012))
-        }
-        for index in 0..<6 {
-            let next = (index + 1) % 6, previous = (index + 5) % 6
-            facet([outer[index], outer[next], inner[index]])
-            facet([outer[index], inner[index], inner[previous]])
-        }
-        var table = Path(); table.addLines(inner); table.closeSubpath()
-        context.fill(table, with: .linearGradient(Gradient(colors: [palette.light, palette.main.opacity(0.9)]),
-                                                  startPoint: point(light, r * 0.5), endPoint: point(light + .pi, r * 0.5)))
-        context.stroke(table, with: .color(.white.opacity(dark ? 0.22 : 0.45)), lineWidth: max(0.5, radius * 0.012))
-    }
-
-    /// Linked stars around a centre: they drift, swell with the voice, and a spark runs along the links while thinking.
-    private func constellation(_ context: GraphicsContext, center: CGPoint, radius: CGFloat, side: CGFloat, time: Double, state: OrbMotion.State) {
-        context.fill(Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2)),
-                     with: .radialGradient(Gradient(colors: [palette.main.opacity(dark ? 0.3 : 0.24), palette.main.opacity(0)]),
-                                           center: center, startRadius: 0, endRadius: radius))
-        let stars: [CGPoint] = [center] + (0..<6).map { index in
-            let k = Double(index)
-            let angle = k / 6 * 2 * .pi + 0.35 * sin(time * 0.5 + k) + state.phase * 0.12 - .pi / 2
-            let distance = radius * CGFloat(0.66 + 0.1 * sin(time * 0.8 + k * 1.3) + 0.12 * state.energy)
-            return CGPoint(x: center.x + CGFloat(cos(angle)) * distance, y: center.y + CGFloat(sin(angle)) * distance)
-        }
-        let links = (1...6).map { (0, $0) } + (1...6).map { ($0, $0 % 6 + 1) } + [(1, 4), (2, 5)]
-        let width = max(0.8, side * (compact ? 0.05 : 0.014))
+        let points = nodes.map { CGPoint(x: center.x + CGFloat($0.x) * radius, y: center.y + CGFloat($0.y) * radius) }
+        // Small marks (headers, lists) get thicker links and larger points so they still read at 17–28 points.
+        let thin = max(0.7, radius * (compact ? 0.065 : 0.02))
         for (a, b) in links {
-            var line = Path(); line.move(to: stars[a]); line.addLine(to: stars[b])
-            context.stroke(line, with: .color(palette.main.opacity(b == 4 && a == 1 || b == 5 && a == 2 ? 0.35 : 0.75)), lineWidth: width)
+            let depth = (nodes[a].depth + nodes[b].depth) / 2
+            var line = Path(); line.move(to: points[a]); line.addLine(to: points[b])
+            context.stroke(line, with: .color(base.opacity((compact ? 0.3 : 0.14) + 0.28 * depth + 0.4 * max(activity[a], activity[b]))),
+                           style: StrokeStyle(lineWidth: thin * CGFloat(0.6 + 0.6 * depth), lineCap: .round))
         }
-        if state.thinking > 0.02 {
-            let travel = time * 1.4
-            let link = links[Int(travel) % links.count], progress = CGFloat(travel.truncatingRemainder(dividingBy: 1))
-            let spark = CGPoint(x: stars[link.0].x + (stars[link.1].x - stars[link.0].x) * progress,
-                                y: stars[link.0].y + (stars[link.1].y - stars[link.0].y) * progress)
-            let glow = radius * 0.16
-            context.fill(Path(ellipseIn: CGRect(x: spark.x - glow, y: spark.y - glow, width: glow * 2, height: glow * 2)),
-                         with: .radialGradient(Gradient(colors: [Color.white.opacity(0.9 * state.thinking), palette.light.opacity(0)]),
-                                               center: spark, startRadius: 0, endRadius: glow))
+        // Thinking: signals run along the links and light the point they reach.
+        if state.thinking > 0.02, !links.isEmpty {
+            for signal in 0..<(compact ? 1 : 3) {
+                let travel = time * 1.5 + Double(signal) * 0.37 * Double(links.count)
+                let link = links[Int(travel) % links.count], progress = Self.fraction(travel)
+                let spot = CGPoint(x: points[link.0].x + (points[link.1].x - points[link.0].x) * CGFloat(progress),
+                                   y: points[link.0].y + (points[link.1].y - points[link.0].y) * CGFloat(progress))
+                let size = radius * 0.06
+                context.fill(Path(ellipseIn: CGRect(x: spot.x - size, y: spot.y - size, width: size * 2, height: size * 2)),
+                             with: .color(Color(red: 1, green: 0.97, blue: 0.94).opacity(0.95 * state.thinking)))
+                if progress > 0.8 { activity[link.1] = max(activity[link.1], state.thinking) }
+            }
         }
-        for (index, star) in stars.enumerated() {
-            let pulse = 1 + 0.35 * state.energy * (0.6 + 0.4 * sin(time * 6 + Double(index)))
-            let size = radius * CGFloat(index == 0 ? (compact ? 0.26 : 0.2) : (compact ? 0.17 : 0.12)) * CGFloat(pulse)
-            context.fill(Path(ellipseIn: CGRect(x: star.x - size, y: star.y - size, width: size * 2, height: size * 2)),
-                         with: .radialGradient(Gradient(colors: [palette.light, palette.main]), center: star, startRadius: 0, endRadius: size))
+        for index in nodes.indices.sorted(by: { nodes[$0].depth < nodes[$1].depth }) {
+            let node = nodes[index], lit = activity[index]
+            let size = radius * CGFloat((compact ? 0.1 : 0.048) + (compact ? 0.05 : 0.026) * node.weight) * CGFloat(0.7 + 0.5 * node.depth) * CGFloat(1 + 0.5 * lit)
+            let dot = Path(ellipseIn: CGRect(x: points[index].x - size, y: points[index].y - size, width: size * 2, height: size * 2))
+            context.fill(dot, with: .color(base.opacity(0.5 + 0.5 * node.depth)))
+            if lit > 0.02 { context.fill(dot, with: .color((dark ? Color.white : palette.light).opacity(lit * (dark ? 0.8 : 0.9)))) }
         }
     }
 
-    /// A drop whose outline ripples: calm at rest, it moves more with the voice and while thinking.
-    private func liquid(_ context: GraphicsContext, center: CGPoint, radius: CGFloat, time: Double, state: OrbMotion.State) {
-        let amount = 0.08 + 0.1 * state.energy + 0.03 * state.thinking + 0.02 * state.speaking
-        var drop = Path()
-        for sample in 0...72 {
-            let theta = Double(sample) / 72 * 2 * .pi
-            let wobble = sin(3 * theta + state.phase * 1.1) + 0.6 * sin(5 * theta - state.phase * 1.7 + 1) + 0.4 * sin(2 * theta + state.phase * 0.6 + 2)
-            let distance = radius * CGFloat(1 + amount * wobble / 2)
-            let point = CGPoint(x: center.x + CGFloat(cos(theta)) * distance, y: center.y + CGFloat(sin(theta)) * distance)
-            if sample == 0 { drop.move(to: point) } else { drop.addLine(to: point) }
+    /// The personality: where the points sit and how they move, in a unit disc.
+    private func layout(time: Double, state: OrbMotion.State) -> ([Node], [(Int, Int)]) {
+        let golden = 2.399963
+        var nodes: [Node] = [], links: [(Int, Int)] = []
+        func linkClose(_ limit: Double) {
+            for i in nodes.indices { for j in nodes.indices where j > i && hypot(nodes[i].x - nodes[j].x, nodes[i].y - nodes[j].y) < limit { links.append((i, j)) } }
         }
-        drop.closeSubpath()
-        let box = drop.boundingRect
-        context.fill(drop, with: .linearGradient(Gradient(colors: [palette.light, palette.main, palette.deep]),
-                                                 startPoint: box.origin, endPoint: CGPoint(x: box.maxX, y: box.maxY)))
-        var inside = context
-        inside.clip(to: drop)
-        let swirl = CGPoint(x: center.x + CGFloat(cos(state.phase * 0.8)) * radius * 0.3, y: center.y + CGFloat(sin(state.phase * 0.8)) * radius * 0.3)
-        inside.fill(drop, with: .radialGradient(Gradient(colors: [palette.companion.opacity(0.5), .clear]), center: swirl, startRadius: 0, endRadius: radius * 0.8))
-        inside.fill(drop, with: .radialGradient(Gradient(colors: [.white.opacity(dark ? 0.28 : 0.5), .clear]),
-                                                center: CGPoint(x: box.minX + box.width * 0.3, y: box.minY + box.height * 0.24), startRadius: 0, endRadius: radius * 0.7))
-        context.stroke(drop, with: .color(.white.opacity(dark ? 0.12 : 0.3)), lineWidth: max(0.5, radius * 0.012))
+        switch look.style {
+        case .sphere:
+            // Points on a turning globe: nearer points are larger and brighter.
+            let count = compact ? 12 : 26, spin = state.phase * 0.45, tilt = 0.38
+            var unit: [(Double, Double, Double)] = []
+            for index in 0..<count {
+                let y = 1 - 2 * (Double(index) + 0.5) / Double(count), ring = max(0, 1 - y * y).squareRoot(), angle = Double(index) * golden
+                let x0 = cos(angle) * ring, z0 = sin(angle) * ring
+                unit.append((x0, y, z0))
+                let xr = x0 * cos(spin) + z0 * sin(spin), zr = -x0 * sin(spin) + z0 * cos(spin)
+                let yt = y * cos(tilt) - zr * sin(tilt), zt = y * sin(tilt) + zr * cos(tilt)
+                nodes.append(Node(x: xr * 0.95, y: yt * 0.95, depth: (zt + 1) / 2))
+            }
+            var seen = Set<Int>()
+            for (i, a) in unit.enumerated() {
+                let nearest = unit.indices.filter { $0 != i }.sorted { j, k in
+                    let dj = pow(a.0 - unit[j].0, 2) + pow(a.1 - unit[j].1, 2) + pow(a.2 - unit[j].2, 2)
+                    let dk = pow(a.0 - unit[k].0, 2) + pow(a.1 - unit[k].1, 2) + pow(a.2 - unit[k].2, 2)
+                    return dj < dk
+                }.prefix(3)
+                for j in nearest where seen.insert(min(i, j) * 100 + max(i, j)).inserted { links.append((i, j)) }
+            }
+        case .flower:
+            // Hermès' flower as a network: six arms of points around a centre.
+            let radii: [Double] = compact ? [0.5, 0.95] : [0.34, 0.62, 0.93], turn = state.phase * 0.25
+            nodes.append(Node(x: 0, y: 0, weight: 1.4))
+            for arm in 0..<6 {
+                for (step, distance) in radii.enumerated() {
+                    let angle = turn + Double(arm) * .pi / 3 + Double(step) * 0.17 - .pi / 2
+                    let reach = distance * (1 + 0.04 * sin(time * 1.1 + Double(arm)))
+                    nodes.append(Node(x: cos(angle) * reach, y: sin(angle) * reach, weight: step == 0 ? 0.95 : 0.6 - 0.1 * Double(step)))
+                }
+            }
+            let perArm = radii.count
+            for arm in 0..<6 {
+                let first = 1 + arm * perArm
+                links.append((0, first))
+                for step in 0..<(perArm - 1) { links.append((first + step, first + step + 1)) }
+                links.append((first, 1 + ((arm + 1) % 6) * perArm))
+            }
+        case .spiral:
+            // A sunflower of points, linked along its golden spirals.
+            let count = compact ? 13 : 28
+            for index in 0..<count {
+                let reach = 0.96 * ((Double(index) + 0.5) / Double(count)).squareRoot(), angle = Double(index) * golden + state.phase * 0.3
+                nodes.append(Node(x: cos(angle) * reach, y: sin(angle) * reach, weight: 1 - reach * 0.5))
+            }
+            for index in 0..<count { for gap in [5, 8, 13] where index + gap < count && hypot(nodes[index].x - nodes[index + gap].x, nodes[index].y - nodes[index + gap].y) < (compact ? 0.62 : 0.42) { links.append((index, index + gap)) } }
+        case .cluster:
+            // A loose swarm that drifts; links follow whoever is close.
+            let count = compact ? 10 : 19
+            nodes.append(Node(x: 0.02 * sin(time * 0.7), y: 0.02 * cos(time * 0.6), weight: 1.3))
+            for index in 1..<count {
+                let h1 = Self.fraction(sin(Double(index) * 12.9898) * 43758.5453), h2 = Self.fraction(sin(Double(index) * 78.233) * 12345.678)
+                let angle = Double(index) * golden + h1 * 0.8, reach = 0.28 + 0.68 * h2.squareRoot()
+                nodes.append(Node(x: cos(angle) * reach + 0.07 * sin(time * 0.6 + Double(index) * 1.7),
+                                  y: sin(angle) * reach + 0.07 * cos(time * 0.5 + Double(index) * 2.3), weight: 0.4 + 0.4 * (1 - reach)))
+            }
+            linkClose(compact ? 0.78 : 0.56)
+        case .layers:
+            // A deep-learning diagram: columns of points, every point linked to the next column.
+            let counts = compact ? [2, 3, 2] : [3, 4, 4, 3], spacing = compact ? 0.62 : 0.46
+            var columns: [[Int]] = []
+            for (layer, count) in counts.enumerated() {
+                let x = -0.82 + 1.64 * Double(layer) / Double(counts.count - 1)
+                var column: [Int] = []
+                for row in 0..<count {
+                    column.append(nodes.count)
+                    let y = (Double(row) - Double(count - 1) / 2) * spacing + 0.04 * sin(time * 0.9 + Double(layer + row))
+                    nodes.append(Node(x: x, y: y, weight: layer == 0 || layer == counts.count - 1 ? 0.5 : 0.7))
+                }
+                columns.append(column)
+            }
+            for layer in 0..<(columns.count - 1) { for a in columns[layer] { for b in columns[layer + 1] { links.append((a, b)) } } }
+        case .lattice:
+            // An ordered hexagonal lattice that turns slowly.
+            let ring = compact ? 1 : 2, spacing = compact ? 0.8 : 0.44, turn = state.phase * 0.12
+            for q in -ring...ring {
+                for r in -ring...ring where abs(q + r) <= ring {
+                    let x0 = spacing * (Double(q) + Double(r) / 2), y0 = spacing * Double(r) * 3.0.squareRoot() / 2
+                    nodes.append(Node(x: x0 * cos(turn) - y0 * sin(turn), y: x0 * sin(turn) + y0 * cos(turn), weight: q == 0 && r == 0 ? 1.2 : 0.6))
+                }
+            }
+            linkClose(spacing * 1.05)
+        }
+        return (nodes, links)
     }
+
+    private static func fraction(_ value: Double) -> Double { value - value.rounded(.down) }
 }
 
 /// Smooths phase changes: weights ease between states and the energy follows with a fast attack and a

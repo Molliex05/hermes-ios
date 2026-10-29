@@ -1,69 +1,66 @@
 import SwiftUI
 
-/// How an agent looks and moves: one illustration style and one palette. Each profile has its own, so Hermès and Jarvis
-/// are told apart at a glance in the header, the voice screen, lists and next to each reply.
+/// How an agent looks and moves: a small neural network of points with its own personality (layout and motion) and
+/// palette. Each profile has its own, so Hermès and Jarvis are told apart at a glance in the header, the voice screen,
+/// lists and next to each reply.
 struct AgentLook: Equatable, Codable, Hashable {
     enum Style: String, Codable, CaseIterable, Identifiable {
-        case petals, aurora, prism, constellation, liquid
+        case flower, sphere, spiral, cluster, layers, lattice
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .petals: "Pétales"
-            case .aurora: "Aurore"
-            case .prism: "Prisme"
-            case .constellation: "Constellation"
-            case .liquid: "Liquide"
+            case .flower: "Fleur"
+            case .sphere: "Sphère"
+            case .spiral: "Spirale"
+            case .cluster: "Nuée"
+            case .layers: "Couches"
+            case .lattice: "Treillis"
             }
         }
     }
 
+    /// Soft colours that sit well on the app's sand background and next to its ember accent.
     enum Palette: String, Codable, CaseIterable, Identifiable {
-        case ember, ocean, amethyst, jade, sun
+        case ember, ink, sage, plum, ochre, clay
         var id: String { rawValue }
         var label: String {
             switch self {
             case .ember: "Braise"
-            case .ocean: "Océan"
-            case .amethyst: "Améthyste"
-            case .jade: "Jade"
-            case .sun: "Soleil"
+            case .ink: "Encre"
+            case .sage: "Sauge"
+            case .plum: "Prune"
+            case .ochre: "Ocre"
+            case .clay: "Argile"
             }
         }
-        /// Light, main and deep shades, plus a companion hue for the styles that blend several lights.
         var light: Color {
             switch self {
             case .ember: Color(red: 0.97, green: 0.66, blue: 0.43)
-            case .ocean: Color(red: 0.55, green: 0.88, blue: 0.98)
-            case .amethyst: Color(red: 0.98, green: 0.68, blue: 0.85)
-            case .jade: Color(red: 0.62, green: 0.95, blue: 0.78)
-            case .sun: Color(red: 1.0, green: 0.88, blue: 0.45)
+            case .ink: Color(red: 0.79, green: 0.83, blue: 0.88)
+            case .sage: Color(red: 0.81, green: 0.88, blue: 0.79)
+            case .plum: Color(red: 0.93, green: 0.78, blue: 0.83)
+            case .ochre: Color(red: 0.96, green: 0.86, blue: 0.65)
+            case .clay: Color(red: 0.94, green: 0.79, blue: 0.71)
             }
         }
         var main: Color {
             switch self {
             case .ember: Color(red: 0.81, green: 0.29, blue: 0.19)
-            case .ocean: Color(red: 0.18, green: 0.52, blue: 0.92)
-            case .amethyst: Color(red: 0.6, green: 0.36, blue: 0.9)
-            case .jade: Color(red: 0.13, green: 0.66, blue: 0.52)
-            case .sun: Color(red: 0.95, green: 0.6, blue: 0.12)
+            case .ink: Color(red: 0.31, green: 0.39, blue: 0.51)
+            case .sage: Color(red: 0.44, green: 0.58, blue: 0.45)
+            case .plum: Color(red: 0.6, green: 0.31, blue: 0.43)
+            case .ochre: Color(red: 0.78, green: 0.56, blue: 0.18)
+            case .clay: Color(red: 0.71, green: 0.41, blue: 0.29)
             }
         }
         var deep: Color {
             switch self {
             case .ember: Color(red: 0.55, green: 0.21, blue: 0.17)
-            case .ocean: Color(red: 0.12, green: 0.2, blue: 0.55)
-            case .amethyst: Color(red: 0.28, green: 0.16, blue: 0.55)
-            case .jade: Color(red: 0.05, green: 0.36, blue: 0.32)
-            case .sun: Color(red: 0.66, green: 0.3, blue: 0.06)
-            }
-        }
-        var companion: Color {
-            switch self {
-            case .ember: Color(red: 0.98, green: 0.45, blue: 0.55)
-            case .ocean: Color(red: 0.55, green: 0.4, blue: 0.95)
-            case .amethyst: Color(red: 0.35, green: 0.55, blue: 0.98)
-            case .jade: Color(red: 0.4, green: 0.75, blue: 0.98)
-            case .sun: Color(red: 0.98, green: 0.42, blue: 0.3)
+            case .ink: Color(red: 0.15, green: 0.2, blue: 0.29)
+            case .sage: Color(red: 0.24, green: 0.35, blue: 0.27)
+            case .plum: Color(red: 0.34, green: 0.16, blue: 0.25)
+            case .ochre: Color(red: 0.48, green: 0.33, blue: 0.09)
+            case .clay: Color(red: 0.42, green: 0.23, blue: 0.16)
             }
         }
     }
@@ -71,20 +68,22 @@ struct AgentLook: Equatable, Codable, Hashable {
     var style: Style
     var palette: Palette
 
-    /// The app's own mark: Hermès' flower in its ember colours.
-    static let hermes = AgentLook(style: .petals, palette: .ember)
+    /// The app's own mark: Hermès' neural flower in its ember colours.
+    static let hermes = AgentLook(style: .flower, palette: .ember)
 
-    /// A profile's look before anyone chooses: Hermès keeps the flower, Jarvis is an aurora; any other agent gets a style
-    /// and a palette of its own from its name, the same on every launch.
+    /// A profile's look before anyone chooses: Hermès keeps the flower, Jarvis is a turning sphere of points; any other
+    /// agent gets a personality and a palette of its own from its name, the same on every launch.
     static func standard(for profile: String) -> AgentLook {
         switch profile.lowercased() {
         case "default", "noriven", "hermes", "hermès": return .hermes
-        case "personnel", "jarvis": return AgentLook(style: .aurora, palette: .ocean)
-        case "research": return AgentLook(style: .prism, palette: .jade)
-        case "studio": return AgentLook(style: .liquid, palette: .amethyst)
+        case "personnel", "jarvis": return AgentLook(style: .sphere, palette: .ink)
+        case "research": return AgentLook(style: .layers, palette: .sage)
+        case "studio": return AgentLook(style: .cluster, palette: .plum)
         default:
             let seed = profile.unicodeScalars.reduce(5381) { ($0 &* 33 &+ Int($1.value)) & 0x7FFF_FFFF }
-            return AgentLook(style: Style.allCases[seed % Style.allCases.count], palette: Palette.allCases[(seed / 7) % Palette.allCases.count])
+            let styles: [Style] = [.spiral, .cluster, .layers, .lattice, .sphere]
+            let palettes: [Palette] = [.sage, .plum, .ochre, .clay, .ink]
+            return AgentLook(style: styles[seed % styles.count], palette: palettes[(seed / 7) % palettes.count])
         }
     }
 }
@@ -92,7 +91,7 @@ struct AgentLook: Equatable, Codable, Hashable {
 /// The looks chosen on this iPhone, per profile (the server does not need to know). Observed: a change shows everywhere.
 @MainActor @Observable final class AgentLooks {
     static let shared = AgentLooks()
-    private static let key = "agentLooks.v1"
+    private static let key = "agentLooks.v2"
     private var chosen: [String: AgentLook]
 
     private init() {

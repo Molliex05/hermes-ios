@@ -82,7 +82,7 @@ struct ChatHeader: View, Equatable {
     private var agentCapsule: some View {
         Button { Haptics.select(); switchAgent() } label: {
             HStack(spacing: 9) {
-                OrbView(phase: running ? .thinking : .idle, animated: running).frame(width: 28, height: 28)
+                OrbView(phase: running ? .thinking : .idle, animated: running, compact: true).frame(width: 26, height: 26).padding(1)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(agentTitle).font(.subheadline.weight(.semibold)).lineLimit(1)
                     if showsConnection {
