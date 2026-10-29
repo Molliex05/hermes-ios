@@ -372,7 +372,7 @@ struct MessageView: View, Equatable {
             if user { Spacer(minLength: 42) }
             VStack(alignment: .leading, spacing: 10) {
                 if !user {
-                    HStack(spacing: 8) { AgentMark(size: 17); Text(agent).font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
+                    HStack(spacing: 8) { AgentGlyph(size: 17); Text(agent).font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
                 }
                 Group {
                     if user { Text(verbatim: message.text).lineSpacing(4) }

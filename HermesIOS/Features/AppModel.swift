@@ -979,6 +979,7 @@ final class AppModel {
     }
 
     @discardableResult func answerClarification(_ text: String, request: JSONValue, qid: String? = nil) async -> Bool {
+        if demo { return true }                     // the preview has no server to lock answers with
         guard let socket else { return false }
         let generation = selectionGeneration
         do {
@@ -1433,6 +1434,33 @@ final class AppModel {
         #if DEBUG
         // Every kind of rich card, to look at them (and for the UI tests).
         if ProcessInfo.processInfo.arguments.contains("--demo-calendar") { Task { await CalendarLink.seedDemoEvent() } }
+        // The agent asks a few questions, one at a time (`choices` with `questions`).
+        if ProcessInfo.processInfo.arguments.contains("--demo-questions") {
+            let fence = "```"
+            transcript.messages = [
+                .init(role: "user", text: "Aide-moi à chercher une maison."),
+                .init(role: "assistant", text: """
+                Avec plaisir. Trois questions pour bien cibler :
+
+                \(fence)ui
+                {"type":"choices","questions":[
+                {"prompt":"Quel budget maximum ?","options":[{"label":"450 000 $","detail":"Maisons à rafraîchir, terrains plus petits","icon":"dollarsign.circle"},{"label":"500 000 $","detail":"Le gros de l’offre à Saint-Constant","icon":"house"},{"label":"550 000 $","detail":"Plus récent, garage double","icon":"sparkles"}]},
+                {"prompt":"Quels secteurs ?","multiple":true,"options":["Saint-Constant","Delson","Candiac","La Prairie"]},
+                {"prompt":"Le plus important ?","options":[{"label":"Un grand terrain","icon":"leaf"},{"label":"Un garage","icon":"car"},{"label":"Près de l’autoroute 30","icon":"road.lanes"}]}]}
+                \(fence)
+                """)
+            ]
+        }
+        // Hermes' own clarification request (its `clarify` tool), several questions.
+        if ProcessInfo.processInfo.arguments.contains("--demo-clarify") {
+            transcript.clarification = .object([
+                "rpc_id": "demo", "request_id": "demo-clarify",
+                "questions": .array([
+                    .object(["qid": "q1", "question": "Pour le souper de vendredi, je réserve où ?", "choices": .array(["Chez Julie", "Au restaurant", "On reste à la maison"])]),
+                    .object(["qid": "q2", "question": "Pour combien de personnes ?", "choices": .array(["2", "4", "6"])])
+                ])
+            ])
+        }
         if ProcessInfo.processInfo.arguments.contains("--demo-cards") {
             let fence = "```"
             transcript.messages = [

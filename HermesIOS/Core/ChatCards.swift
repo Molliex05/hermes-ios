@@ -46,6 +46,30 @@ enum ChatCard: Equatable {
         let url: URL
         let title: String
     }
+    /// One answer the reader can pick: what it shows, what it sends (often the same), an optional line and symbol.
+    struct Option: Equatable, Identifiable {
+        let id: Int
+        let label: String, reply: String, detail: String, icon: String
+    }
+    /// A question with its answers; several may be picked when `multiple`.
+    struct Question: Equatable, Identifiable {
+        let id: Int
+        let prompt: String
+        let options: [Option]
+        let multiple: Bool
+    }
+    /// Answers to pick: one or several questions, asked one at a time, sent together as one message.
+    struct Choices: Equatable {
+        let questions: [Question]
+        /// Whether a free answer (« Autre réponse… ») is offered.
+        let other: Bool
+        /// A few short follow-ups with nothing to explain: shown as quick-reply pills under the reply.
+        var isQuick: Bool {
+            guard questions.count == 1, let only = questions.first else { return false }
+            return !only.multiple && only.prompt.isEmpty && only.options.count <= 4
+                && only.options.allSatisfy { $0.detail.isEmpty && $0.icon.isEmpty && $0.label.count <= 28 }
+        }
+    }
     /// A label and a figure, as written by the agent (« Distance », « 8,2 km »).
     struct Stat: Equatable, Identifiable {
         let id: Int
@@ -153,7 +177,7 @@ enum ChatCard: Equatable {
 
     case carousel(title: String, items: [Item])
     case places(title: String, items: [Place])
-    case choices(prompt: String, options: [String])
+    case choices(Choices)
     case metrics(title: String, items: [Metric])
     case weather(Weather)
     case event(Event)
@@ -204,11 +228,21 @@ enum ChatCard: Equatable {
             }
             return items.isEmpty ? nil : .places(title: title, items: items)
         case "choices":
-            let options = list(json["options"].isNull ? json["items"] : json["options"]).compactMap { value -> String? in
-                let text = clean(value.string.isEmpty ? (value["reply"].string.isEmpty ? value["label"].string : value["reply"].string) : value.string, 80)
-                return text.isEmpty ? nil : text
+            let asked = json["questions"].array.isEmpty ? [json] : Array(json["questions"].array.prefix(6))
+            let questions = asked.enumerated().compactMap { index, value -> Question? in
+                let options = list(firstNonNull(value, "options", "items", "choices")).enumerated().compactMap { number, option -> Option? in
+                    let label = clean(option.string.isEmpty ? firstString(option, "label", "text", "title", "reply") : option.string, 80)
+                    guard !label.isEmpty else { return nil }
+                    let reply = clean(option.string.isEmpty ? firstString(option, "reply", "send") : "", 160)
+                    return Option(id: number, label: label, reply: reply.isEmpty ? label : reply,
+                                  detail: clean(firstString(option, "detail", "description", "subtitle"), 100), icon: symbolName(option["icon"].string))
+                }
+                guard !options.isEmpty else { return nil }
+                let several: Bool = if case .bool(let flag) = firstNonNull(value, "multiple", "multi", "multi_select") { flag } else { false }
+                return Question(id: index, prompt: clean(firstString(value, "prompt", "question", "title"), 160), options: Array(options.prefix(8)), multiple: several)
             }
-            return options.isEmpty ? nil : .choices(prompt: clean(json["prompt"].string, 120), options: Array(options.prefix(6)))
+            let other: Bool = if case .bool(let flag) = json["other"] { flag } else { true }
+            return questions.isEmpty ? nil : .choices(Choices(questions: questions, other: other))
         case "metrics":
             let items = list(json["items"]).enumerated().compactMap { index, value -> Metric? in
                 let label = clean(value["label"].string, 40), shown = clean(display(value["value"]), 30)
@@ -590,6 +624,10 @@ enum ChatCard: Equatable {
         return nil
     }
 
+    private static func firstNonNull(_ value: JSONValue, _ keys: String...) -> JSONValue {
+        keys.lazy.map { value[$0] }.first { !$0.isNull } ?? .null
+    }
+
     private static func firstString(_ value: JSONValue, _ keys: String...) -> String {
         keys.lazy.map { value[$0].string }.first { !$0.isEmpty } ?? ""
     }
@@ -684,7 +722,7 @@ enum ChatCard: Equatable {
         switch card {
         case .carousel(let title, let items): lines = [title] + items.map { joined($0.title, $0.subtitle, $0.price, $0.url?.absoluteString ?? "") }
         case .places(let title, let items): lines = [title] + items.map { joined($0.name, $0.address, $0.phone) }
-        case .choices(let prompt, let options): lines = [prompt] + options.map { "• " + $0 }
+        case .choices(let choices): lines = choices.questions.flatMap { [$0.prompt] + $0.options.map { "• " + $0.label } }
         case .metrics(let title, let items): lines = [title] + items.map { joined($0.label + " : " + $0.value, $0.delta) }
         case .weather(let w): lines = [joined(w.place, w.temperature.map { "\(Int($0.rounded()))°" } ?? "", w.condition)]
                 + w.days.map { joined($0.label, $0.condition, $0.low.map { "\(Int($0.rounded()))°" } ?? "", $0.high.map { "\(Int($0.rounded()))°" } ?? "") }

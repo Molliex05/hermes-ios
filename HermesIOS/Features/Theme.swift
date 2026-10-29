@@ -75,17 +75,15 @@ struct AgentMark: View {
     }
 }
 
+/// A profile's avatar: its own illustration (see `AgentLook`) on a tile of its colour.
 struct AgentAvatar: View {
     let name: String
     var size: CGFloat = 48
     var body: some View {
+        let look = AgentLooks.shared.look(for: name)
         ZStack {
-            RoundedRectangle(cornerRadius: size * 0.34).fill(AppTheme.color(name).opacity(0.12))
-            if name == "default" { AgentMark(size: size * 0.54) }
-            else {
-                Image(systemName: name == "research" ? "sparkle.magnifyingglass" : name == "studio" ? "pencil.and.outline" : "sparkle")
-                    .font(.system(size: size * 0.42, weight: .medium)).foregroundStyle(AppTheme.color(name))
-            }
+            RoundedRectangle(cornerRadius: size * 0.34).fill(look.palette.main.opacity(0.13))
+            AgentGlyph(look: look, size: size * 0.68)
         }.frame(width: size, height: size).accessibilityHidden(true)
     }
 }

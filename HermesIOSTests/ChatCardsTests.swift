@@ -38,8 +38,10 @@ final class ChatCardsTests: XCTestCase {
     }
 
     func testChoicesMetricsWeatherEventAndLinks() {
-        guard case .choices(_, let options)? = ChatCard.parse("{\"type\":\"choix\",\"options\":[\"Oui\",{\"label\":\"Plus tard\",\"reply\":\"Rappelle-moi demain\"}]}") else { return XCTFail() }
-        XCTAssertEqual(options, ["Oui", "Rappelle-moi demain"])
+        guard case .choices(let quick)? = ChatCard.parse("{\"type\":\"choix\",\"options\":[\"Oui\",{\"label\":\"Plus tard\",\"reply\":\"Rappelle-moi demain\"}]}") else { return XCTFail() }
+        XCTAssertEqual(quick.questions[0].options.map(\.label), ["Oui", "Plus tard"])
+        XCTAssertEqual(quick.questions[0].options.map(\.reply), ["Oui", "Rappelle-moi demain"], "a label can send another sentence")
+        XCTAssertTrue(quick.isQuick, "short follow-ups stay quick-reply pills")
         guard case .metrics(_, let metrics)? = ChatCard.parse("{\"type\":\"chiffres\",\"items\":[{\"label\":\"Revenu\",\"value\":12400,\"delta\":\"+8 %\"},{\"label\":\"Profit\",\"value\":\"3 100 $\",\"delta\":\"-2 %\"}]}") else { return XCTFail() }
         XCTAssertEqual(metrics[0].value, "12400"); XCTAssertEqual(metrics[0].trend, .up); XCTAssertEqual(metrics[1].trend, .down)
         guard case .weather(let weather)? = ChatCard.parse("{\"type\":\"météo\",\"place\":\"Saint-Constant\",\"now\":{\"temp\":\"7 °C\",\"condition\":\"Averses\"},\"days\":[{\"day\":\"Mer\",\"high\":9,\"low\":2,\"condition\":\"Soleil\"}]}") else { return XCTFail() }
@@ -293,6 +295,21 @@ final class ChatCardsTests: XCTestCase {
         XCTAssertNil(ChatCard.bestEventMatch(title: "Dentiste", start: at("10:00"), among: events), "nothing fits: no guess")
         let twoAtOnce: [(title: String, start: Date)] = [("Réunion A", day), ("Réunion B", day)]
         XCTAssertNil(ChatCard.bestEventMatch(title: "Appel", start: day, among: twoAtOnce), "two events at that time: no guess")
+    }
+
+    func testChoicesAskSeveralQuestionsOneAtATime() {
+        let json = """
+        {"type":"choices","questions":[
+          {"prompt":"Quel budget ?","options":[{"label":"Moins de 450 000 $","detail":"Maisons plus anciennes","icon":"dollarsign.circle"},"450 à 500 000 $"]},
+          {"question":"Quels secteurs ?","multiple":true,"choices":["Saint-Constant","Delson","Candiac"]},
+          {"prompt":"Sans réponse possible","options":[]}],"other":false}
+        """
+        guard case .choices(let flow)? = ChatCard.parse(json) else { return XCTFail() }
+        XCTAssertEqual(flow.questions.map(\.prompt), ["Quel budget ?", "Quels secteurs ?"], "a question needs answers")
+        XCTAssertEqual(flow.questions[0].options[0].detail, "Maisons plus anciennes"); XCTAssertEqual(flow.questions[0].options[0].icon, "dollarsign.circle")
+        XCTAssertTrue(flow.questions[1].multiple); XCTAssertFalse(flow.other); XCTAssertFalse(flow.isQuick)
+        guard case .choices(let single)? = ChatCard.parse("{\"type\":\"choices\",\"prompt\":\"On réserve ?\",\"options\":[\"Oui\",\"Non\"]}") else { return XCTFail() }
+        XCTAssertFalse(single.isQuick, "a question asked in words gets the question card"); XCTAssertTrue(single.other)
     }
 
     func testStatusDerivesTheWholeFromItsParts() {

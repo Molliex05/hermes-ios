@@ -71,6 +71,7 @@ targets:
       - path: HermesIOS/Features
         includes:
           - OrbView.swift
+          - AgentLook.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.hermesios.HermesIOS.Widgets

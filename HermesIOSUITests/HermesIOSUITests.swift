@@ -227,9 +227,10 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
         XCTAssertTrue(app.staticTexts["Un détail à ajouter ?"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.staticTexts["Choisir une couleur"].exists)
+        app.buttons["Autre réponse…"].tap()
         let response = app.textFields["Votre réponse…"]
-        XCTAssertTrue(response.waitForExistence(timeout: 5)); response.tap(); response.typeText("Simple et fluide")
-        app.buttons["Répondre"].tap()
+        XCTAssertTrue(response.waitForExistence(timeout: 5)); response.typeText("Simple et fluide")
+        app.buttons["Envoyer cette réponse"].tap()
         let final = app.descendants(matching: .any).matching(identifier: "assistant-message").matching(NSPredicate(format: "label CONTAINS %@", "le fil est retrouvé."))
         XCTAssertTrue(final.firstMatch.waitForExistence(timeout: 45))
         XCTAssertFalse(app.staticTexts["Un détail à ajouter ?"].exists)

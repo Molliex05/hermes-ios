@@ -143,6 +143,8 @@ struct ChatView: View {
             .onAppear { updateVisibility() }
             .onDisappear { model.setChatVisible(false) }
         }
+        // The current agent's illustration and motion, for the header, the empty chat, replies and the voice screen.
+        .environment(\.agentLook, AgentLooks.shared.look(for: model.profile))
     }
 
     private func chooseAttachment(_ choice: AttachChoice) {

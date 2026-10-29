@@ -16,7 +16,7 @@ struct RichCardView: View, Equatable {
             switch card {
             case .carousel(let title, let items): CarouselCard(title: title, items: items)
             case .places(let title, let items): PlacesCard(title: title, places: items)
-            case .choices(let prompt, let options): ChoicesCard(prompt: prompt, options: options)
+            case .choices(let choices): ChoicesCard(choices: choices)
             case .metrics(let title, let items): MetricsCard(title: title, metrics: items)
             case .weather(let weather): WeatherCard(weather: weather)
             case .event(let event): EventCard(event: event)
@@ -408,43 +408,7 @@ private struct PlaceRow: View {
     }
 }
 
-// MARK: - Quick replies
-
-private struct ChoicesCard: View {
-    let prompt: String
-    let options: [String]
-    @Environment(\.chatReply) private var reply
-    @Environment(\.cardsInteractive) private var interactive
-    @State private var chosen: String?
-    private var live: Bool { reply != nil && interactive && chosen == nil }
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if !prompt.isEmpty { Text(prompt).font(.subheadline).foregroundStyle(.secondary) }
-            FlowLayout(spacing: 8) {
-                ForEach(options, id: \.self) { option in
-                    Button {
-                        guard live, let reply, reply.send(option) else { return }
-                        Haptics.send(); chosen = option
-                    } label: {
-                        HStack(spacing: 6) {
-                            if chosen == option { Image(systemName: "checkmark").font(.caption.weight(.bold)) }
-                            Text(option).font(.subheadline.weight(.medium)).multilineTextAlignment(.leading)
-                        }
-                        .padding(.horizontal, 14).padding(.vertical, 9)
-                        .foregroundStyle(chosen == option ? Color.white : AppTheme.accent)
-                        .background(chosen == option ? AppTheme.accent : AppTheme.surface, in: Capsule())
-                        .overlay(Capsule().strokeBorder(AppTheme.accent.opacity(chosen == option ? 0 : 0.45)))
-                    }
-                    .buttonStyle(PressableStyle())
-                    .disabled(!live)
-                    .opacity(chosen != nil && chosen != option ? 0.45 : chosen == nil && !live ? 0.6 : 1)
-                }
-            }
-        }
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: chosen)
-        .accessibilityIdentifier("card-choices")
-    }
-}
+// MARK: - Layout
 
 /// Wraps its children onto as many lines as needed.
 struct FlowLayout: Layout {
