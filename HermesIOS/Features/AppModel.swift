@@ -248,8 +248,12 @@ final class AppModel {
     func refreshWidgets(retryUnavailable: Bool = false) async {
         if retryUnavailable { widgetUnavailable = false }      // a new connection retries a plugin installed meanwhile
         guard !demo, !widgetUnavailable, let http, Date.now.timeIntervalSince(widgetRefreshedAt) > 15 * 60 else { return }
-        widgetRefreshedAt = .now
-        if await WidgetRefresh.run(using: http) == .unavailable { widgetUnavailable = true }
+        // The wait starts only once the boards are saved: a network blip does not block the next try for a quarter of an hour.
+        switch await WidgetRefresh.run(using: http) {
+        case .saved: widgetRefreshedAt = .now
+        case .unavailable: widgetUnavailable = true
+        case .failed: break
+        }
     }
 
     /// The connection is wanted while the app is visible or a voice call is running.
@@ -260,6 +264,7 @@ final class AppModel {
         hasBooted = true
         defer { notificationRoutingReady = true; booting = false }
         PushNotifications.shared.suppressesPresentation = { [weak self] envelope in self?.suppressesBanner(for: envelope) ?? false }
+        WidgetRefresh.removeOldFinanceSnapshot()
         LaunchBridge.shared.attach { [weak self] request in self?.enqueue(request) }
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--demo") { loadDemo(); return }
@@ -396,6 +401,7 @@ final class AppModel {
         connectionGeneration = UUID(); selectionGeneration = UUID()
         let generation = connectionGeneration
         activeConnection = connection; demo = false; state = .connecting; routines = []
+        widgetRefreshedAt = .distantPast                      // another server: its boards, not the previous one's
         let ordered = [connection] + connections.filter { $0.id != connection.id }
         if ordered != connections { connections = ordered; try? await cache.save(connections, key: "connections") }
         guard generation == connectionGeneration else { return }
@@ -1423,6 +1429,10 @@ final class AppModel {
         }
         Keychain.delete(connection.id.uuidString)
         NotificationKeyStore.remove(for: connection.id)
+        // What the widgets, Siri and the share sheet knew of this server goes with it.
+        AgentBoardStore.clear(); SharedProfiles.write([]); widgetRefreshedAt = .distantPast
+        if connections.count <= 1 { ShareInbox.remove(ids: Set(ShareInbox.read().map(\.id))) }
+        WidgetCenter.shared.reloadAllTimelines()
         connections.removeAll { $0.id == connection.id }
         await cache.removeChats(connection: connection.id.uuidString)
         do { try await cache.remove(connection.id.uuidString); try await cache.remove(connection.id.uuidString + "-groups"); try await cache.save(connections, key: "connections") }

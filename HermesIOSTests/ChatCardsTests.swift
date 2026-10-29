@@ -308,6 +308,9 @@ final class ChatCardsTests: XCTestCase {
         XCTAssertEqual(day("Mercredi 3 décembre 2025"), DateComponents(year: 2025, month: 12, day: 3))
         XCTAssertEqual(day("2026-10-30"), DateComponents(year: 2026, month: 10, day: 30))
         XCTAssertNil(day("31 novembre")); XCTAssertNil(day("Bonne journée"))
+        XCTAssertEqual(day("Résumé de 8 h, jeudi 29 octobre"), DateComponents(year: 2026, month: 10, day: 29), "the first number is not the day")
+        XCTAssertEqual(day("Vendredi 30 oct."), DateComponents(year: 2026, month: 10, day: 30), "an abbreviated month")
+        XCTAssertNil(day("3 jui")) // juin or juillet
     }
 
     func testAnEmailDraftKeepsItsLineBreaksAndNeedsSomethingToShow() {

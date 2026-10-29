@@ -159,13 +159,14 @@ struct ChatHeader: View, Equatable {
 private struct ShimmerText: View {
     let text: String
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.orbsAsleep) private var asleep
 
     var body: some View {
         label
             .foregroundStyle(AppTheme.accent)
             .overlay {
                 if !reduceMotion {
-                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: asleep)) { timeline in
                         let phase = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.8) / 1.8
                         GeometryReader { geometry in
                             LinearGradient(colors: [.white.opacity(0), .white.opacity(0.75), .white.opacity(0)], startPoint: .leading, endPoint: .trailing)
@@ -218,6 +219,7 @@ private struct HeaderGlyph: View {
 private struct HeaderProgress: View {
     let running: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.orbsAsleep) private var asleep
 
     var body: some View {
         ZStack(alignment: .leading) {
@@ -227,7 +229,7 @@ private struct HeaderProgress: View {
                     if reduceMotion {
                         Rectangle().fill(AppTheme.accent.opacity(0.5)).frame(height: 2)
                     } else {
-                        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: asleep)) { timeline in
                             let phase = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.5) / 1.5
                             let width = geometry.size.width * 0.38
                             LinearGradient(colors: [AppTheme.accent.opacity(0), AppTheme.accent, AppTheme.accent.opacity(0)], startPoint: .leading, endPoint: .trailing)

@@ -119,7 +119,8 @@ struct ChatTranscriptView: View {
         if bottomVisible != visible { bottomVisible = visible }
         // Folds past 140 pt from the end, unfolds within 20: a glance up does not fold it, and the header's own change
         // of height (about 60 pt) cannot flip it back.
-        let fold = headerFolded ? distance > 20 : distance > 140
+        // Only while reading up: a tall block arriving while following the stream must not fold the title and unfold it again.
+        let fold = (!pinnedToBottom || follower.dragging) && (headerFolded ? distance > 20 : distance > 140)
         if headerFolded != fold { headerFolded = fold }
         if !follower.dragging, visible, !pinnedToBottom { pinnedToBottom = true }
         let target = $position
@@ -440,20 +441,23 @@ struct ChatBackdrop: View {
 
 /// A soft, warm glow behind the empty chat. Drawn once (no per-frame work); a very slow drift is the only motion.
 struct AmbientBackground: View {
-    @State private var drift = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var scheme
+    @Environment(\.orbsAsleep) private var asleep
 
     var body: some View {
         let dark = scheme == .dark
-        ZStack {
-            AppTheme.background
-            RadialGradient(colors: [AppTheme.accent.opacity(dark ? 0.30 : 0.18), .clear], center: .init(x: drift ? 0.30 : 0.10, y: 1.0), startRadius: 0, endRadius: 520)
-            RadialGradient(colors: [Color(red: 0.95, green: 0.62, blue: 0.35).opacity(dark ? 0.14 : 0.16), .clear], center: .init(x: drift ? 0.85 : 1.0, y: 0.9), startRadius: 0, endRadius: 380)
-            RadialGradient(colors: [Color(red: 0.42, green: 0.45, blue: 0.75).opacity(dark ? 0.10 : 0.07), .clear], center: .init(x: 0.85, y: 0.0), startRadius: 0, endRadius: 420)
+        // A slow back-and-forth every 18 s, redrawn 10 times a second at most, and not at all behind a page or with reduced motion.
+        TimelineView(.animation(minimumInterval: 0.1, paused: reduceMotion || asleep)) { timeline in
+            let drift = reduceMotion ? 0 : 0.5 - 0.5 * cos(timeline.date.timeIntervalSinceReferenceDate / 9 * .pi)
+            ZStack {
+                AppTheme.background
+                RadialGradient(colors: [AppTheme.accent.opacity(dark ? 0.30 : 0.18), .clear], center: .init(x: 0.10 + 0.20 * drift, y: 1.0), startRadius: 0, endRadius: 520)
+                RadialGradient(colors: [Color(red: 0.95, green: 0.62, blue: 0.35).opacity(dark ? 0.14 : 0.16), .clear], center: .init(x: 1.0 - 0.15 * drift, y: 0.9), startRadius: 0, endRadius: 380)
+                RadialGradient(colors: [Color(red: 0.42, green: 0.45, blue: 0.75).opacity(dark ? 0.10 : 0.07), .clear], center: .init(x: 0.85, y: 0.0), startRadius: 0, endRadius: 420)
+            }
+            .ignoresSafeArea()
         }
-        .ignoresSafeArea()
-        .onAppear { guard !reduceMotion else { return }; withAnimation(.easeInOut(duration: 9).repeatForever(autoreverses: true)) { drift = true } }
         .accessibilityHidden(true)
     }
 }

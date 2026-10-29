@@ -64,6 +64,7 @@
 		5F43FC5FB21C3D63A134BB60 /* VoiceEnvironmentSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77DEDAE25F2DCE8DA3DB84F4 /* VoiceEnvironmentSettings.swift */; };
 		5FD563394AA5347A5CB87C77 /* ModelSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD17FA2A027A1EE3C4D37805 /* ModelSettingsView.swift */; };
 		6012B19D16F654C72930481B /* memoire.wav in Resources */ = {isa = PBXBuildFile; fileRef = 362C9954B7F70E3D5BFA2C9F /* memoire.wav */; };
+		63A4DE48B3ED617ADA326CF5 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 6E2CB57B1CD64ACC08947C0D /* PrivacyInfo.xcprivacy */; };
 		640AC38B22A3A2B0CE25B33E /* NotificationKeyStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8BBC0720EC796E9C661E8B0 /* NotificationKeyStore.swift */; };
 		6464EEE8CB8044836D55A1C8 /* PushNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 638546B579DE55B294254F19 /* PushNotifications.swift */; };
 		660617D093BC769C42E2204E /* meteo.wav in Resources */ = {isa = PBXBuildFile; fileRef = 5AFED7BFEFF9E73E8742F99A /* meteo.wav */; };
@@ -289,6 +290,7 @@
 		638546B579DE55B294254F19 /* PushNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotifications.swift; sourceTree = "<group>"; };
 		66B00D49A62F7932717F5453 /* Haptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Haptics.swift; sourceTree = "<group>"; };
 		6DFB43B3E8A94574E7859F89 /* ChatHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHeader.swift; sourceTree = "<group>"; };
+		6E2CB57B1CD64ACC08947C0D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		70C3D4CBCE21007427CF5346 /* NotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
 		7494750F87AE1DE4FCD29840 /* AppChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppChrome.swift; sourceTree = "<group>"; };
 		7501177E33D3A582977DBC58 /* DraftCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraftCard.swift; sourceTree = "<group>"; };
@@ -396,6 +398,7 @@
 				CEAB709D8C5E3108719E06C0 /* HermesLiveActivity.swift */,
 				4248E82756F62E76CFBD2FC3 /* HermesVoiceWidget.swift */,
 				5380C4BA29841FE2C644991E /* Info.plist */,
+				6E2CB57B1CD64ACC08947C0D /* PrivacyInfo.xcprivacy */,
 				A7C0FDE51D314A469DD2A19A /* WidgetStyle.swift */,
 			);
 			path = HermesIOSWidgets;
@@ -706,6 +709,7 @@
 			buildConfigurationList = 81E3D79CB8E3C54677F63713 /* Build configuration list for PBXNativeTarget "HermesIOSWidgets" */;
 			buildPhases = (
 				DE5240E046FABB6822B32D82 /* Sources */,
+				D0CE7E87C37CB0840FEDE364 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -881,6 +885,14 @@
 				AD68B66A2C390D8BFACA6842 /* serveur.wav in Resources */,
 				37CFBBB3D7D38EB3436802A3 /* verifie.pcm in Resources */,
 				B9769A1645106A420D44BF99 /* web.wav in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D0CE7E87C37CB0840FEDE364 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				63A4DE48B3ED617ADA326CF5 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

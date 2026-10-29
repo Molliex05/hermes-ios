@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import WidgetKit
 
 /// Downloads the agents' boards, saves them for the « À l'affiche » widget and asks WidgetKit to redraw. Used by the live app
@@ -16,6 +17,16 @@ enum WidgetRefresh {
         } catch let failure as RPCFailure where [401, 403, 404].contains(failure.code) {
             return .unavailable
         } catch { return .failed }
+    }
+
+    /// The Noriven finance widget is gone: its figures, saved in the shared keychain by an earlier version, are deleted.
+    static func removeOldFinanceSnapshot() {
+        var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "org.hermesios.widget-snapshot",
+                                    kSecAttrAccount as String: "noriven"]
+        if let group = Bundle.main.object(forInfoDictionaryKey: "HermesSharedKeychainGroup") as? String, !group.isEmpty, !group.contains("$(") {
+            query[kSecAttrAccessGroup as String] = group
+        }
+        SecItemDelete(query as CFDictionary)
     }
 
     /// From a silent push: the app may have been started just for this, so it reads the saved connection itself.

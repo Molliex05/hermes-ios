@@ -572,13 +572,21 @@ enum ChatCard: Equatable {
         if let moment = date(raw) { return calendar.startOfDay(for: moment) }
         let text = raw.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "fr_CA")).lowercased()
         let months = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre"]
-        guard let match = text.firstMatch(of: /(\d{1,2})(?:er)?\s+([a-z]+)(?:\s+(\d{4}))?/), let day = Int(match.1),
-              let month = months.firstIndex(of: String(match.2)).map({ $0 + 1 }) else { return nil }
-        let year = calendar.component(.year, from: now)
-        let years = match.3.flatMap { Int($0) }.map { [$0] } ?? [year - 1, year, year + 1]
-        return years.compactMap { calendar.date(from: DateComponents(year: $0, month: month, day: day)) }
-            .filter { calendar.component(.month, from: $0) == month }                  // « 31 novembre » is no day
-            .min { abs($0.timeIntervalSince(now)) < abs($1.timeIntervalSince(now)) }
+        // « Résumé de 8 h, jeudi 29 octobre »: the first number is not a day, so every « number word » is tried. A month may be
+        // abbreviated (« oct. ») when that is not ambiguous (« jui » is juin or juillet).
+        for match in text.matches(of: /(\d{1,2})(?:er)?\s+([a-z]+)(?:\s+(\d{4}))?/) {
+            guard let day = Int(match.1) else { continue }
+            let word = String(match.2)
+            let found = word.count >= 3 ? months.indices.filter { months[$0].hasPrefix(word) } : []
+            guard found.count == 1 else { continue }
+            let month = found[0] + 1, year = calendar.component(.year, from: now)
+            let years = match.3.flatMap { Int($0) }.map { [$0] } ?? [year - 1, year, year + 1]
+            let nearest = years.compactMap { calendar.date(from: DateComponents(year: $0, month: month, day: day)) }
+                .filter { calendar.component(.month, from: $0) == month }              // « 31 novembre » is no day
+                .min { abs($0.timeIntervalSince(now)) < abs($1.timeIntervalSince(now)) }
+            if let nearest { return nearest }
+        }
+        return nil
     }
 
     /// The local day of an ISO date or date and time, as « 2026-10-29 »; nil without a date.

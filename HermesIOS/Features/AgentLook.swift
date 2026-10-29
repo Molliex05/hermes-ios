@@ -97,10 +97,11 @@ struct AgentLook: Equatable, Codable, Hashable {
     private init() {
         // Look by look: one this version does not know (a style since removed) is dropped, the others are kept.
         let data = UserDefaults.standard.data(forKey: Self.key)
-        let stored = data.flatMap { try? JSONDecoder().decode([String: [String: String]].self, from: $0) } ?? [:]
-        chosen = stored.compactMapValues { entry in
-            guard let style = entry["style"].flatMap(AgentLook.Style.init(rawValue:)),
-                  let palette = entry["palette"].flatMap(AgentLook.Palette.init(rawValue:)) else { return nil }
+        let stored = data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] } ?? [:]
+        chosen = stored.compactMapValues { value in
+            guard let entry = value as? [String: Any],                       // a field this version does not know changes nothing
+                  let style = (entry["style"] as? String).flatMap(AgentLook.Style.init(rawValue:)),
+                  let palette = (entry["palette"] as? String).flatMap(AgentLook.Palette.init(rawValue:)) else { return nil }
             return AgentLook(style: style, palette: palette)
         }
     }
