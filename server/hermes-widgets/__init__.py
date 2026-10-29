@@ -138,13 +138,25 @@ def handle_board(args, **kwargs) -> str:
             return json.dumps({"error": str(problem)}, ensure_ascii=False)
         module.save(home, tableau)
         return json.dumps({"ok": True, "valide_jusqu_a": tableau["expires_at"], "lignes": len(tableau["items"]),
-                           "note": "Le widget se met à jour au prochain rafraîchissement du téléphone (jusqu'à une heure). "
+                           "note": "Le widget se met à jour au prochain rafraîchissement du téléphone (sous une demi-heure en général). "
                                    "Maxime n'a PAS été prévenu : pour cela, utilise ios_notify."}, ensure_ascii=False)
     except Exception as error:      # never forward the arguments
         return json.dumps({"error": f"Le widget n'a pas pu être mis à jour ({type(error).__name__})."}, ensure_ascii=False)
 
 
+def _profile_name() -> str:
+    """The profile this plugin is loaded for; empty when Hermes cannot say."""
+    try:
+        from hermes_constants import get_hermes_home, profile_name_for_home
+        return profile_name_for_home(get_hermes_home()) or ""
+    except Exception:
+        return ""
+
+
 def register(ctx):
-    ctx.register_tool(name="noriven_chiffres", toolset=TOOLSET, schema=SCHEMA, handler=handle, description=DESCRIPTION, emoji="📊")
+    # Noriven's figures belong to Hermès: another profile (Jarvis) gets the board tool only. An unknown profile keeps the
+    # tool, as before.
+    if _profile_name() in ("noriven", ""):
+        ctx.register_tool(name="noriven_chiffres", toolset=TOOLSET, schema=SCHEMA, handler=handle, description=DESCRIPTION, emoji="📊")
     ctx.register_tool(name="widget_publier", toolset=BOARD_TOOLSET, schema=BOARD_SCHEMA, handler=handle_board,
                       description=BOARD_DESCRIPTION, emoji="🪟")

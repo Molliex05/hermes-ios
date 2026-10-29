@@ -103,7 +103,8 @@ if __name__ == "__main__":
     try:
         lines = asyncio.run(asyncio.wait_for(collect(_load_snapshot().mcp_call, _previous()), TIMEOUT_SECONDS))
         STATE.write_text(json.dumps(lines, ensure_ascii=False), encoding="utf-8"); STATE.chmod(0o600)
-        print("\n".join(lines))
+        if lines:                                  # a healthy server prints nothing at all, not even a line break
+            print("\n".join(lines))
     except Exception as error:      # a failure is reported by Hermes, never read as « all is well »
         print(f"surveillance serveur: {type(error).__name__}: {str(error)[:160]}", file=sys.stderr)
         sys.exit(1)
