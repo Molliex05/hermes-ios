@@ -5,9 +5,11 @@ import Foundation
 public struct AgentBoard: Equatable, Sendable {
     public struct Item: Equatable, Sendable, Identifiable {
         public var text: String, detail: String, time: String, icon: String, tone: String
+        /// The exact moment, when the source knows it (the calendar does): « 13:45 » alone means today.
+        public var at: Date?
         public var id: String { "\(time)|\(text)" }
-        public init(text: String, detail: String = "", time: String = "", icon: String = "", tone: String = "") {
-            self.text = text; self.detail = detail; self.time = time; self.icon = icon; self.tone = tone
+        public init(text: String, detail: String = "", time: String = "", icon: String = "", tone: String = "", at: Date? = nil) {
+            self.text = text; self.detail = detail; self.time = time; self.icon = icon; self.tone = tone; self.at = at
         }
     }
 
@@ -36,7 +38,8 @@ public struct AgentBoard: Equatable, Sendable {
         items = value["items"].array.prefix(Self.maxItems).compactMap { row in
             let text = clean(row["text"].string, 80)
             return text.isEmpty ? nil : Item(text: text, detail: clean(row["detail"].string, 50), time: clean(row["time"].string, 12),
-                                             icon: clean(row["icon"].string, 40), tone: clean(row["tone"].string, 10).lowercased())
+                                             icon: clean(row["icon"].string, 40), tone: clean(row["tone"].string, 10).lowercased(),
+                                             at: Self.date(row["at"].string))
         }
         updatedAt = Self.date(value["updated_at"].string)
         expiresAt = Self.date(value["expires_at"].string)
@@ -53,13 +56,17 @@ public struct AgentBoard: Equatable, Sendable {
 /// The boards of every agent the server knows, by profile name.
 public struct AgentBoards: Equatable, Sendable {
     public var boards: [String: AgentBoard]
-    public init(boards: [String: AgentBoard] = [:]) { self.boards = boards }
+    /// The next calendar events of the profiles that have Google, read by the server with no model: what the widget shows
+    /// while the agent has written nothing. A profile present with no items is a free day, not an unknown.
+    public var agendas: [String: AgentBoard]
+    public init(boards: [String: AgentBoard] = [:], agendas: [String: AgentBoard] = [:]) { self.boards = boards; self.agendas = agendas }
 
     /// Tolerant on purpose: a malformed board is left out, the others are kept; not even an object is an error.
     public static func decode(_ data: Data) throws -> AgentBoards {
         let root = try JSONValue.decode(data)
         guard case .object = root, case .object(let rows) = root["boards"] else { throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "no boards")) }
-        return AgentBoards(boards: rows.mapValues(AgentBoard.init).filter { !$0.key.isEmpty })
+        let agendas = root["agendas"].object.mapValues(AgentBoard.init).filter { !$0.key.isEmpty }
+        return AgentBoards(boards: rows.mapValues(AgentBoard.init).filter { !$0.key.isEmpty }, agendas: agendas)
     }
 }
 

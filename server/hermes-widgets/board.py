@@ -92,3 +92,18 @@ def load_all(profiles_dir: Optional[Path] = None) -> Dict[str, Any]:
         if isinstance(board, dict):
             boards[profile.name] = board
     return {"version": 1, "boards": boards}
+
+
+def with_agendas(payload: Dict[str, Any], profiles_dir: Optional[Path] = None, source=None) -> Dict[str, Any]:
+    """Adds `agendas`: for each profile with Google set up, the next events straight from the calendar (no model)."""
+    root = Path(profiles_dir or os.environ.get("HERMES_PROFILES_DIR", "/opt/data/profiles"))
+    agendas: Dict[str, Any] = {}
+    try:
+        profiles = sorted(entry.name for entry in root.iterdir() if entry.is_dir())
+    except OSError:
+        profiles = []
+    for profile in profiles:
+        board = source(root, profile) if source else None
+        if board is not None:
+            agendas[profile] = board
+    return {**payload, "agendas": agendas}

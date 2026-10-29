@@ -39,6 +39,20 @@ final class AgentBoardTests: XCTestCase {
         XCTAssertThrowsError(try AgentBoards.decode(Data("{\"boards\":[]}".utf8)))
     }
 
+    func testTheCalendarAgendaComesWithItsExactMoments() throws {
+        let data = Data("""
+        {"boards":{},"agendas":{"personnel":{"title":"Aujourd’hui","expires_at":"2026-10-29T12:00:00-04:00",
+          "items":[{"text":"Demain matin","time":"09:00","at":"2026-10-30T09:00:00-04:00","detail":"Demain · Personnel"},{"text":"Sans moment","time":"10:00"}]},
+          "libre":{"title":"Aujourd’hui","items":[]}}}
+        """.utf8)
+        let boards = try AgentBoards.decode(data)
+        XCTAssertEqual(Set(boards.agendas.keys), ["personnel", "libre"])
+        XCTAssertEqual(boards.agendas["personnel"]?.items.first?.at, ISO8601DateFormatter().date(from: "2026-10-30T09:00:00-04:00"))
+        XCTAssertNil(boards.agendas["personnel"]?.items.last?.at)
+        XCTAssertTrue(boards.agendas["libre"]?.items.isEmpty ?? false, "a free day is present and empty")
+        XCTAssertTrue(try AgentBoards.decode(Data("{\"boards\":{}}".utf8)).agendas.isEmpty, "a server without agendas is fine")
+    }
+
     func testTheStoreKeepsAGoodBoardWhenTheNextOneIsBroken() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("board-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

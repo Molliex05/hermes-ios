@@ -10,6 +10,10 @@ _spec = importlib.util.spec_from_file_location("hermes_widgets_snapshot", Path(_
 snapshot_module = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = snapshot_module
 _spec.loader.exec_module(snapshot_module)
+_agenda_spec = importlib.util.spec_from_file_location("hermes_widgets_agenda", Path(__file__).resolve().parent.parent / "agenda.py")
+agenda_module = importlib.util.module_from_spec(_agenda_spec)
+sys.modules[_agenda_spec.name] = agenda_module
+_agenda_spec.loader.exec_module(agenda_module)
 _board_spec = importlib.util.spec_from_file_location("hermes_widgets_board", Path(__file__).resolve().parent.parent / "board.py")
 board_module = importlib.util.module_from_spec(_board_spec)
 sys.modules[_board_spec.name] = board_module
@@ -35,5 +39,6 @@ async def get_snapshot():
 
 @router.get("/board")
 def get_board():
-    """Every agent's « À l'affiche » board (written by the agents themselves), for the iPhone widget."""
-    return board_module.load_all()
+    """Every agent's « À l'affiche » board (written by the agents themselves) and, for profiles with Google, the next events
+    straight from the calendar, for the iPhone widget. A plain `def`: the Google calls block, FastAPI runs it in a thread."""
+    return board_module.with_agendas(board_module.load_all(), source=agenda_module.upcoming)
