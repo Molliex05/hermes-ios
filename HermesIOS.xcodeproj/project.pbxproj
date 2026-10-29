@@ -45,6 +45,7 @@
 		4360124DB73B3B91DC9DBC8E /* noriven_compare.wav in Resources */ = {isa = PBXBuildFile; fileRef = 41C5AE38319FEB1DF5D09D55 /* noriven_compare.wav */; };
 		439A876888E485FB158CB840 /* PresenceBeacon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88CDF5DC1D8A5E35BD92E7BF /* PresenceBeacon.swift */; };
 		48C38EA4D6AF9C7DE6F2E160 /* CredentialsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC8FE4D6E2F7E5F6C796C928 /* CredentialsSettingsView.swift */; };
+		4AC347EB232545757FCB73E2 /* CardLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48F4B51FA524CF9E3A8B67F4 /* CardLinks.swift */; };
 		4F12D4CF4D888EA890A98BF3 /* HistoryRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C910078020A4AF8014712019 /* HistoryRequests.swift */; };
 		4F7E457B9EC1B22606C5986B /* ActivityIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 085BE96A8289B836A61EB9B0 /* ActivityIntents.swift */; };
 		52F6850354DB1AB081A270AF /* AccountsSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3906C589B66E594172121A15 /* AccountsSupport.swift */; };
@@ -249,6 +250,7 @@
 		45F8C117680E3093D826D5D3 /* SlashInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashInput.swift; sourceTree = "<group>"; };
 		46031F875793783DE776A6F7 /* ConversationActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationActivity.swift; sourceTree = "<group>"; };
 		476734DA2FC09D7F7E0875DC /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		48F4B51FA524CF9E3A8B67F4 /* CardLinks.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardLinks.swift; sourceTree = "<group>"; };
 		4B1B07CAFC53C700A7E55E59 /* VoiceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceView.swift; sourceTree = "<group>"; };
 		4B6516CD29F52E374AAF519F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		4E860692EEEAFF8808740459 /* ChatCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatCards.swift; sourceTree = "<group>"; };
@@ -468,6 +470,7 @@
 		849B39FAD7A53186BFECD97C /* Chat */ = {
 			isa = PBXGroup;
 			children = (
+				48F4B51FA524CF9E3A8B67F4 /* CardLinks.swift */,
 				8B989A6021842DF3745AC235 /* ChatComposer.swift */,
 				6DFB43B3E8A94574E7859F89 /* ChatHeader.swift */,
 				CF7E91170403F14C2AEA4311 /* ChatRequestCards.swift */,
@@ -839,6 +842,7 @@
 				2385223B5DEAB01545E54893 /* ApprovalsSettingsView.swift in Sources */,
 				27316298D68C4B149E54621E /* AttachSheet.swift in Sources */,
 				EEF0B72EEC204B07A6808D5A /* BackgroundLease.swift in Sources */,
+				4AC347EB232545757FCB73E2 /* CardLinks.swift in Sources */,
 				AD9AED8F8F4E3D0848B5F90F /* ChatCards.swift in Sources */,
 				310DFB70B3DD5F4DA5D1F973 /* ChatComposer.swift in Sources */,
 				3C71872B6874298E0B73C4F5 /* ChatHeader.swift in Sources */,

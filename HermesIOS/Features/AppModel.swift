@@ -1432,6 +1432,7 @@ final class AppModel {
         ]
         #if DEBUG
         // Every kind of rich card, to look at them (and for the UI tests).
+        if ProcessInfo.processInfo.arguments.contains("--demo-calendar") { Task { await CalendarLink.seedDemoEvent() } }
         if ProcessInfo.processInfo.arguments.contains("--demo-cards") {
             let fence = "```"
             transcript.messages = [

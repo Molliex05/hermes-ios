@@ -207,18 +207,18 @@ private struct PlacesCard: View {
     let places: [ChatCard.Place]
     @State private var resolved: [ResolvedPlace] = []
     @State private var searched = false
-    @State private var expanded = false
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             CardTitle(text: title, symbol: "map")
             VStack(spacing: 0) {
-                Button { Haptics.select(); expanded = true } label: {
+                // The map opens Plans with every pin; each place below opens its own page in Plans.
+                Button { Haptics.select(); PlaceResolver.openAll(resolved) } label: {
                     PlacesMap(places: resolved, searching: !searched, interactive: false).frame(height: 180)
                         .overlay(alignment: .topTrailing) {
-                            Image(systemName: "arrow.up.left.and.arrow.down.right").font(.caption.weight(.bold))
-                                .padding(8).background(.thinMaterial, in: Circle()).padding(10)
+                            Label("Plans", systemImage: "arrow.up.right").font(.caption.weight(.bold)).labelStyle(.titleAndIcon)
+                                .padding(.horizontal, 10).padding(.vertical, 7).background(.thinMaterial, in: Capsule()).padding(10)
                         }
-                }.buttonStyle(.plain).accessibilityLabel("Agrandir la carte")
+                }.buttonStyle(.plain).disabled(resolved.isEmpty).accessibilityLabel("Ouvrir dans Plans")
                 ForEach(Array(places.enumerated()), id: \.element.id) { index, place in
                     if index > 0 { Divider().padding(.leading, 52) }
                     PlaceRow(index: index + 1, place: place, coordinate: resolved.first { $0.id == place.id }?.coordinate)
@@ -232,13 +232,6 @@ private struct PlacesCard: View {
             let found = await PlaceResolver.resolve(places)
             guard !Task.isCancelled else { return }              // the row left the screen: the next visit asks the cache again
             resolved = found; searched = true
-        }
-        .sheet(isPresented: $expanded) {
-            NavigationStack {
-                PlacesMap(places: resolved, searching: !searched, interactive: true).ignoresSafeArea(edges: .bottom)
-                    .navigationTitle(title.isEmpty ? "Carte" : title).navigationBarTitleDisplayMode(.inline)
-                    .toolbar { AppToolbarItem(placement: .confirmationAction) { AppCloseButton { expanded = false } } }
-            }.presentationDetents([.large]).presentationDragIndicator(.visible)
         }
         .accessibilityIdentifier("card-places")
     }
@@ -288,9 +281,22 @@ private struct PlaceRow: View {
             Text("\(index)").font(.caption.weight(.bold)).foregroundStyle(.white)
                 .frame(width: 26, height: 26).background(AppTheme.accent, in: Circle())
             VStack(alignment: .leading, spacing: 3) {
-                if !place.name.isEmpty { Text(place.name).font(.subheadline.weight(.semibold)) }
-                if !place.address.isEmpty { Text(place.address).font(.caption).foregroundStyle(.secondary) }
-                if !place.note.isEmpty { Text(place.note).font(.caption).foregroundStyle(.secondary) }
+                Button { Haptics.select(); Task { await PlaceResolver.open(place, at: coordinate) } } label: {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            if !place.name.isEmpty { Text(place.name).font(.subheadline.weight(.semibold)) }
+                            if !place.address.isEmpty { Text(place.address).font(.caption).foregroundStyle(.secondary) }
+                            if !place.note.isEmpty { Text(place.note).font(.caption).foregroundStyle(.secondary) }
+                        }
+                        .multilineTextAlignment(.leading)
+                        Spacer(minLength: 6)
+                        Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.tertiary).padding(.top, 2)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(PressableStyle())
+                .accessibilityElement(children: .combine)
+                .accessibilityHint("Ouvre le lieu dans Plans")
                 HStack(spacing: 8) {
                     pill("Itinéraire", "arrow.triangle.turn.up.right.diamond.fill", prominent: true) { openOutside(directions) }
                     if let phone = phoneURL { pill("Appeler", "phone.fill") { openOutside(phone) } }
@@ -328,7 +334,7 @@ private struct PlaceRow: View {
 /// Places without coordinates are looked up on Apple's map service (no location permission needed). Each address is
 /// searched once per launch, found or not, so scrolling back to a card never asks Apple again (searches are throttled).
 @MainActor private enum PlaceResolver {
-    private static var known: [String: CLLocationCoordinate2D?] = [:]
+    private static var known: [String: MKMapItem?] = [:]
 
     static func resolve(_ places: [ChatCard.Place]) async -> [ResolvedPlace] {
         var found: [ResolvedPlace] = []
@@ -342,13 +348,56 @@ private struct PlaceRow: View {
                 request.naturalLanguageQuery = place.query
                 let item = try? await MKLocalSearch(request: request).start().mapItems.first
                 if Task.isCancelled { break }                     // left the screen: keep what was learned, stop asking
-                known[place.query] = .some(item.map(coordinate(of:)))
+                known[place.query] = .some(item)
             }
-            if case .some(.some(let point)) = known[place.query] {
-                found.append(ResolvedPlace(id: place.id, number: index + 1, place: place, coordinate: point))
+            if case .some(.some(let item)) = known[place.query] {
+                found.append(ResolvedPlace(id: place.id, number: index + 1, place: place, coordinate: coordinate(of: item)))
             }
         }
         return found
+    }
+
+    /// One place in Plans: Apple's own page for it (hours, photos, call, directions) when the search finds it near the
+    /// card's point, else a pin with the card's name; with nothing to place, a Plans search.
+    static func open(_ place: ChatCard.Place, at coordinate: CLLocationCoordinate2D?) async {
+        if let item = await mapItem(place, near: coordinate) { item.openInMaps(launchOptions: nil); return }
+        var search = URLComponents(string: "https://maps.apple.com/")!
+        search.queryItems = [URLQueryItem(name: "q", value: place.query)]
+        if let url = search.url { openOutside(url) }
+    }
+
+    /// Every place of a card in Plans, as pins (no new search: what the card already found).
+    static func openAll(_ places: [ResolvedPlace]) {
+        let items = places.map { resolved -> MKMapItem in
+            if case .some(.some(let item)) = known[resolved.place.query] { return item }
+            return pin(resolved.place, at: resolved.coordinate)
+        }
+        if items.count == 1 { items[0].openInMaps(launchOptions: nil) } else if !items.isEmpty { MKMapItem.openMaps(with: items, launchOptions: nil) }
+    }
+
+    private static func mapItem(_ place: ChatCard.Place, near coordinate: CLLocationCoordinate2D?) async -> MKMapItem? {
+        if case .some(.some(let item)) = known[place.query] { return item }
+        if !place.query.isEmpty, known[place.query] == nil {
+            let request = MKLocalSearch.Request()
+            request.naturalLanguageQuery = place.query
+            if let coordinate { request.region = MKCoordinateRegion(center: coordinate, latitudinalMeters: 4_000, longitudinalMeters: 4_000) }
+            let found = try? await MKLocalSearch(request: request).start().mapItems.first
+            // A result far from the card's own point is another place with the same name.
+            let near = found.map { item in
+                coordinate.map { CLLocation(latitude: $0.latitude, longitude: $0.longitude)
+                    .distance(from: CLLocation(latitude: Self.coordinate(of: item).latitude, longitude: Self.coordinate(of: item).longitude)) < 1_500 } ?? true
+            } ?? false
+            if near { known[place.query] = .some(found); return found }
+        }
+        return coordinate.map { pin(place, at: $0) }
+    }
+
+    private static func pin(_ place: ChatCard.Place, at coordinate: CLLocationCoordinate2D) -> MKMapItem {
+        let item = MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
+        item.name = place.name.isEmpty ? place.address : place.name
+        item.phoneNumber = place.phone.isEmpty ? nil : place.phone
+        item.url = place.url
+        return item
     }
 
     private static func coordinate(of item: MKMapItem) -> CLLocationCoordinate2D {
@@ -519,8 +568,38 @@ private extension WeatherCard {
 struct EventCard: View {
     let event: ChatCard.Event
     @Environment(\.openURL) private var openURL
+    @Environment(\.calendarEvent) private var calendarEvent
     private var startDate: Date? { Self.date(event.start) }
     var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // The whole top of the card opens the event, like the Calendrier button.
+            Button(action: openEvent) { summary }.buttonStyle(PressableStyle())
+                .accessibilityHint("Ouvre l’événement dans Calendrier")
+            HStack(spacing: 8) {
+                Button(action: openEvent) {
+                    Label("Calendrier", systemImage: "calendar").font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10).padding(.vertical, 6).foregroundStyle(.white).background(AppTheme.accent, in: Capsule())
+                }.buttonStyle(PressableStyle())
+                if !event.location.isEmpty {
+                    Button { Haptics.select(); openOutside(mapsURL) } label: {
+                        Label("Plans", systemImage: "map").font(.caption.weight(.semibold))
+                            .padding(.horizontal, 10).padding(.vertical, 6).foregroundStyle(AppTheme.accent).background(AppTheme.accent.opacity(0.12), in: Capsule())
+                    }.buttonStyle(PressableStyle())
+                }
+            }
+            .padding(.leading, 68)
+        }
+        .padding(14).cardSurface()
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("card-event")
+    }
+
+    private func openEvent() {
+        guard let start = startDate else { return CalendarLink.openDay(.now) }
+        openInCalendar(CalendarEventRequest(title: event.title, start: start), using: calendarEvent)
+    }
+
+    private var summary: some View {
         HStack(alignment: .top, spacing: 14) {
             VStack(spacing: 0) {
                 Text(startDate.map { $0.formatted(.dateTime.month(.abbreviated)) }?.uppercased() ?? "—")
@@ -535,24 +614,13 @@ struct EventCard: View {
                 Text(timeRange).font(.subheadline).foregroundStyle(.secondary)
                 if !event.location.isEmpty { Label(event.location, systemImage: "mappin.and.ellipse").font(.caption).foregroundStyle(.secondary) }
                 if !event.calendar.isEmpty { Label(event.calendar, systemImage: "calendar").font(.caption).foregroundStyle(.secondary) }
-                HStack(spacing: 8) {
-                    Button { Haptics.select(); openOutside(calendarURL) } label: {
-                        Label("Calendrier", systemImage: "calendar").font(.caption.weight(.semibold))
-                            .padding(.horizontal, 10).padding(.vertical, 6).foregroundStyle(.white).background(AppTheme.accent, in: Capsule())
-                    }.buttonStyle(PressableStyle())
-                    if !event.location.isEmpty {
-                        Button { Haptics.select(); openOutside(mapsURL) } label: {
-                            Label("Plans", systemImage: "map").font(.caption.weight(.semibold))
-                                .padding(.horizontal, 10).padding(.vertical, 6).foregroundStyle(AppTheme.accent).background(AppTheme.accent.opacity(0.12), in: Capsule())
-                        }.buttonStyle(PressableStyle())
-                    }
-                }.padding(.top, 4)
             }
+            .multilineTextAlignment(.leading)
             Spacer(minLength: 0)
+            Image(systemName: "chevron.right").font(.caption.weight(.bold)).foregroundStyle(.tertiary).padding(.top, 4)
         }
-        .padding(14).cardSurface()
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("card-event")
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .combine)
     }
 
     private var timeRange: String {
@@ -562,10 +630,6 @@ struct EventCard: View {
         let first = start.formatted(.dateTime.weekday(.abbreviated).hour().minute())
         guard let end = Self.date(event.end) else { return first }
         return "\(first) – \(end.formatted(.dateTime.hour().minute()))"
-    }
-
-    private var calendarURL: URL {
-        URL(string: "calshow:\(Int((startDate ?? .now).timeIntervalSinceReferenceDate))")!
     }
 
     private var mapsURL: URL {

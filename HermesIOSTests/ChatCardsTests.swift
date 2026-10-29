@@ -281,6 +281,20 @@ final class ChatCardsTests: XCTestCase {
         XCTAssertEqual(["arrêté", "stopped", "hors ligne", "stale", "paused"].map(ChatCard.health), [.down, .down, .down, .unknown, .warning])
     }
 
+    func testACardFindsItsCalendarEvent() {
+        let day = ChatCard.date("2026-10-29T17:00")!
+        let at = { (time: String) in ChatCard.date("2026-10-29T" + time)! }
+        let events: [(title: String, start: Date)] = [("Quart de jour", at("06:45")), ("Barbier du Village", at("17:00")),
+                                                       ("Souper chez Julie", at("18:30")), ("Barbier", ChatCard.date("2026-10-30T17:00")!)]
+        XCTAssertEqual(ChatCard.bestEventMatch(title: "Barbier du Village", start: day, among: events), 1)
+        XCTAssertEqual(ChatCard.bestEventMatch(title: "barbier", start: day, among: events), 1, "case, accents and a shorter title")
+        XCTAssertEqual(ChatCard.bestEventMatch(title: "Rendez-vous barbier", start: day, among: events), 1, "the only event at that time")
+        XCTAssertEqual(ChatCard.bestEventMatch(title: "Souper chez Julie", start: at("19:00"), among: events), 2, "same title, time moved")
+        XCTAssertNil(ChatCard.bestEventMatch(title: "Dentiste", start: at("10:00"), among: events), "nothing fits: no guess")
+        let twoAtOnce: [(title: String, start: Date)] = [("Réunion A", day), ("Réunion B", day)]
+        XCTAssertNil(ChatCard.bestEventMatch(title: "Appel", start: day, among: twoAtOnce), "two events at that time: no guess")
+    }
+
     func testStatusDerivesTheWholeFromItsParts() {
         let json = """
         {"type":"vps","title":"noriven-prod","gauges":[{"label":"CPU","value":9,"unit":"%"},{"label":"Mémoire","value":2.1,"max":7.8,"unit":"Go"},{"label":"Disque","value":28},{"label":"","value":1,"max":2}],

@@ -26,6 +26,7 @@ struct ChatView: View {
     @State private var toolsExpanded = false
     /// A web page opened from a reply, shown in the in-app browser.
     @State private var webPage: WebPage?
+    @State private var eventPage: EventPage?
     @FocusState private var focused: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -49,7 +50,9 @@ struct ChatView: View {
                 return .handled
             })
             .environment(\.chatReply, ChatReplyAction { text in reply(text) })
+            .environment(\.calendarEvent, CalendarEventAction { request in showEvent(request) })
             .sheet(item: $webPage) { page in SafariView(url: page.url).ignoresSafeArea() }
+            .sheet(item: $eventPage) { page in EventPageView(event: page.event) { eventPage = nil }.ignoresSafeArea() }
             // Tapping the chat closes the « + » panel; the composer below stays live.
             .overlay {
                 if attachOpen {
@@ -135,6 +138,7 @@ struct ChatView: View {
             }
             .onChange(of: sheet) { _, _ in updateVisibility() }
             .onChange(of: webPage) { _, _ in updateVisibility() }
+            .onChange(of: eventPage?.id) { _, _ in updateVisibility() }
             .onChange(of: bottomVisible) { _, _ in updateVisibility() }
             .onAppear { updateVisibility() }
             .onDisappear { model.setChatVisible(false) }
@@ -183,13 +187,21 @@ struct ChatView: View {
     }
 
     /// The chat counts as seen (no banner, read marks) only when nothing covers it and its end is on screen.
-    private func updateVisibility() { model.setChatVisible(sheet == nil && webPage == nil && bottomVisible) }
+    private func updateVisibility() { model.setChatVisible(sheet == nil && webPage == nil && eventPage == nil && bottomVisible) }
+
+    /// A card's event: its page from the phone's calendars, else Calendar on that day.
+    private func showEvent(_ request: CalendarEventRequest) {
+        Task {
+            guard let event = await CalendarLink.find(request), sheet == nil, webPage == nil else { return CalendarLink.openDay(request.start) }
+            eventPage = EventPage(event: event)
+        }
+    }
 
     /// One presentation at a time: the in-app browser closes first, then the sheet opens once it is gone.
     private func present(_ page: ChatSheet) {
         focused = false
-        guard webPage != nil else { sheet = page; return }
-        webPage = nil
+        guard webPage != nil || eventPage != nil else { sheet = page; return }
+        webPage = nil; eventPage = nil
         Task { try? await Task.sleep(for: .milliseconds(450)); sheet = page }
     }
 }

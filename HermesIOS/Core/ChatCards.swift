@@ -483,6 +483,30 @@ enum ChatCard: Equatable {
         return gaps
     }
 
+    /// Which of the phone's calendar events a card means: the same title (or one inside the other, « Barbier » for
+    /// « Barbier du Village ») on the same day, the closest to the card's time first; failing that, the only event that
+    /// starts at that very time. nil when nothing fits or the choice would be a guess.
+    static func bestEventMatch(title: String, start: Date, among candidates: [(title: String, start: Date)]) -> Int? {
+        let wanted = folded(title)
+        func likeness(_ name: String) -> Double {
+            let other = folded(name)
+            guard !other.isEmpty, !wanted.isEmpty else { return 0 }
+            return other == wanted ? 2 : other.contains(wanted) || wanted.contains(other) ? 1 : 0
+        }
+        let scored = candidates.enumerated().compactMap { index, candidate -> (index: Int, score: Double)? in
+            let titleScore = likeness(candidate.title), gap = abs(candidate.start.timeIntervalSince(start))
+            guard titleScore > 0, Calendar.current.isDate(candidate.start, inSameDayAs: start) else { return nil }
+            return (index, titleScore * 1_000 - gap / 60)
+        }
+        if let best = scored.max(by: { $0.score < $1.score }) { return best.index }
+        let sameTime = candidates.indices.filter { abs(candidates[$0].start.timeIntervalSince(start)) < 90 }
+        return sameTime.count == 1 ? sameTime[0] : nil
+    }
+
+    private static func folded(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "fr_CA")).filter { $0.isLetter || $0.isNumber }
+    }
+
     /// The local day of an ISO date or date and time, as « 2026-10-29 »; nil without a date.
     static func day(_ raw: String) -> String? {
         let text = raw.trimmingCharacters(in: .whitespaces)

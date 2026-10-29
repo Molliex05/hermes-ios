@@ -425,6 +425,7 @@ struct AgendaCard: View {
 
 private struct AgendaRow: View {
     let slot: ChatCard.Slot
+    @Environment(\.calendarEvent) private var calendarEvent
     private var color: Color { CardPalette.color(for: slot.calendar) }
     private var now: Bool {
         guard let start = EventCard.date(slot.start), let end = EventCard.date(slot.end), slot.start.count > 10 else { return false }
@@ -433,8 +434,9 @@ private struct AgendaRow: View {
 
     var body: some View {
         if let date = EventCard.date(slot.start) {
-            Button { Haptics.select(); openOutside(URL(string: "calshow:\(Int(date.timeIntervalSinceReferenceDate))")!) } label: { content }
+            Button { openInCalendar(CalendarEventRequest(title: slot.title, start: date), using: calendarEvent) } label: { content }
                 .buttonStyle(PressableStyle())
+                .accessibilityHint("Ouvre l’événement dans Calendrier")
         } else {
             content
         }
@@ -910,6 +912,7 @@ private struct BriefSectionView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.chatReply) private var reply
     @Environment(\.cardsInteractive) private var interactive
+    @Environment(\.calendarEvent) private var calendarEvent
     @State private var sent: Set<Int> = []
 
     var body: some View {
@@ -940,12 +943,17 @@ private struct BriefSectionView: View {
             Text(line.text).font(.subheadline).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 6)
             if !line.detail.isEmpty { Text(line.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-            if line.url != nil || (!line.reply.isEmpty && reply != nil && interactive) {
+            if line.url != nil || (!line.reply.isEmpty && reply != nil && interactive) || (section.kind == .agenda && ChatCard.minutes(line.time) != nil) {
                 Image(systemName: sent.contains(line.id) ? "checkmark" : "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(.tertiary)
             }
         }
         if let url = line.url {
             Button { Haptics.select(); openURL(url) } label: { row.contentShape(Rectangle()) }.buttonStyle(PressableStyle())
+        } else if section.kind == .agenda, let minutes = ChatCard.minutes(line.time),
+                  let start = Calendar.current.date(bySettingHour: minutes / 60 % 24, minute: minutes % 60, second: 0, of: .now) {
+            // The morning summary's agenda is today's: a line opens its event.
+            Button { openInCalendar(CalendarEventRequest(title: line.text, start: start), using: calendarEvent) } label: { row.contentShape(Rectangle()) }
+                .buttonStyle(PressableStyle()).accessibilityHint("Ouvre l’événement dans Calendrier")
         } else if !line.reply.isEmpty, let reply, interactive {
             Button {
                 guard !sent.contains(line.id), reply.send(line.reply) else { return }
