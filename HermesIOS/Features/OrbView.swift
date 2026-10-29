@@ -31,7 +31,7 @@ struct OrbView: View {
         let target = OrbMotion.Target(listening: phase == .listening, thinking: phase == .thinking, speaking: phase == .speaking,
                                       level: reduceMotion ? 0 : heard)
         let drawn = look ?? currentLook
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animating)) { timeline in
+        TimelineView(.animation(minimumInterval: compact ? 1.0 / 30.0 : 1.0 / 60.0, paused: !animating)) { timeline in
             Canvas { context, size in
                 let time = animating ? timeline.date.timeIntervalSinceReferenceDate : 0
                 let state = animating ? motion.step(time: time, target: target) : motion.settle(target: target)
@@ -68,46 +68,119 @@ private struct OrbArtist {
         network(context, center: center, radius: radius, nodes: nodes, links: links, time: time, state: state)
     }
 
-    private func network(_ context: GraphicsContext, center: CGPoint, radius: CGFloat, nodes: [Node], links: [(Int, Int)], time: Double, state: OrbMotion.State) {
+    private func network(_ context: GraphicsContext, center: CGPoint, radius: CGFloat, nodes rawNodes: [Node], links: [(Int, Int)], time: Double, state: OrbMotion.State) {
+        var canvas = context
+        if dark && !compact { canvas.blendMode = .plusLighter }      // light adds up on a dark page (large orb only)
         let base = dark ? palette.light : palette.main
-        var activity = nodes.enumerated().map { index, node -> Double in
-            let seed = Self.fraction(sin(Double(index + 1) * 91.7) * 4375.85)
-            let distance = (node.x * node.x + node.y * node.y).squareRoot()
-            var lit = pow(max(0, sin(time * 1.3 + seed * 17)), 16) * 0.8
-            lit += state.energy * max(0, 1 - distance) * 1.1
-            lit += state.speaking * max(0, sin(distance * 7 - time * 8)) * 0.7
-            return min(1, lit)
+        let glow = dark && !compact ? Color.white : dark ? palette.main : palette.light
+        let spark = dark ? Color.white : palette.deep
+        // A slow drift: the network is never frozen while it animates (the sphere turns instead).
+        let nodes = rawNodes.enumerated().map { index, node -> Node in
+            guard look.style != .sphere else { return node }
+            let seed = Self.seed(index)
+            var moved = node
+            moved.x += 0.022 * sin(time * 0.7 + seed * 6.28)
+            moved.y += 0.022 * cos(time * 0.55 + seed * 4.1)
+            return moved
         }
         let points = nodes.map { CGPoint(x: center.x + CGFloat($0.x) * radius, y: center.y + CGFloat($0.y) * radius) }
-        // Small marks (headers, lists) get thicker links and larger points so they still read at 17–28 points.
-        let thin = max(0.7, radius * (compact ? 0.065 : 0.02))
-        for (a, b) in links {
-            let depth = (nodes[a].depth + nodes[b].depth) / 2
-            var line = Path(); line.move(to: points[a]); line.addLine(to: points[b])
-            context.stroke(line, with: .color(base.opacity((compact ? 0.3 : 0.14) + 0.28 * depth + 0.4 * max(activity[a], activity[b]))),
-                           style: StrokeStyle(lineWidth: thin * CGFloat(0.6 + 0.6 * depth), lineCap: .round))
+        var activity = nodes.enumerated().map { index, node -> Double in
+            let seed = Self.seed(index), distance = hypot(node.x, node.y)
+            let period = 3.6 + 3.2 * seed, phase = Self.fraction(time / period + seed)
+            var lit = 0.55 * exp(-pow((phase - 0.5) * 7, 2))                    // a point lights up now and then, softly
+            lit += state.energy * max(0, 1 - distance) * 1.1                    // the voice lights the centre
+            let front = Self.fraction(time * 0.85) * 1.35                        // speaking: a wave of light leaves the centre
+            lit += state.speaking * exp(-pow((distance - front) * 5, 2)) * 0.9
+            return min(1, lit)
         }
-        // Thinking: signals run along the links and light the point they reach.
+        let thin = max(0.7, radius * (compact ? 0.065 : 0.011))
+
+        // Thinking: signals hop from link to link, lighting the point they reach.
+        var signals: [(from: CGPoint, to: CGPoint, progress: Double)] = []
         if state.thinking > 0.02, !links.isEmpty {
-            for signal in 0..<(compact ? 1 : 3) {
-                let travel = time * 1.5 + Double(signal) * 0.37 * Double(links.count)
-                let link = links[Int(travel) % links.count], progress = Self.fraction(travel)
-                let spot = CGPoint(x: points[link.0].x + (points[link.1].x - points[link.0].x) * CGFloat(progress),
-                                   y: points[link.0].y + (points[link.1].y - points[link.0].y) * CGFloat(progress))
-                let size = radius * 0.06
-                context.fill(Path(ellipseIn: CGRect(x: spot.x - size, y: spot.y - size, width: size * 2, height: size * 2)),
-                             with: .color(Color(red: 1, green: 0.97, blue: 0.94).opacity(0.95 * state.thinking)))
-                if progress > 0.8 { activity[link.1] = max(activity[link.1], state.thinking) }
+            for index in 0..<(compact ? 1 : 4) {
+                let travel = time * (0.9 + 0.22 * Double(index)) + Double(index) * 7.31
+                let hop = Int(travel.rounded(.down))
+                let pick = ((hop &* 7919 &+ index &* 104_729) % links.count + links.count) % links.count
+                let forward = (hop + index) % 2 == 0
+                let (from, to) = forward ? links[pick] : (links[pick].1, links[pick].0)
+                let linear = Self.fraction(travel), progress = linear * linear * (3 - 2 * linear)
+                signals.append((points[from], points[to], progress))
+                if progress > 0.8 { activity[to] = max(activity[to], state.thinking * (progress - 0.8) / 0.2) }
+                if progress < 0.15 { activity[from] = max(activity[from], state.thinking * (0.15 - progress) / 0.15 * 0.6) }
             }
         }
+
+        // Speaking: soft rings leave the centre. Listening: a ring around the centre follows the voice.
+        if !compact, state.speaking > 0.02 {
+            for ring in 0..<2 {
+                let progress = Self.fraction(time * 0.6 + Double(ring) * 0.5), size = radius * CGFloat(0.12 + 0.95 * progress)
+                canvas.stroke(Path(ellipseIn: CGRect(x: center.x - size, y: center.y - size, width: size * 2, height: size * 2)),
+                              with: .color(base.opacity((1 - progress) * 0.28 * state.speaking)), lineWidth: thin * 1.2)
+            }
+        }
+        if !compact, state.listening > 0.02 {
+            let size = radius * CGFloat(0.2 + 0.28 * state.energy)
+            canvas.stroke(Path(ellipseIn: CGRect(x: center.x - size, y: center.y - size, width: size * 2, height: size * 2)),
+                          with: .color(base.opacity(0.12 + 0.4 * state.energy * state.listening)), lineWidth: thin)
+        }
+
+        // Links: fade with their length and toward a quiet point, brighten toward a lit one.
+        for (a, b) in links {
+            let depth = (nodes[a].depth + nodes[b].depth) / 2
+            let length = hypot(nodes[a].x - nodes[b].x, nodes[a].y - nodes[b].y)
+            let quiet = (compact ? 0.32 : 0.1 + 0.2 * depth) * (1 - 0.45 * min(1, length / 1.2))
+            var line = Path(); line.move(to: points[a]); line.addLine(to: points[b])
+            let ends = Gradient(colors: [base.opacity(quiet + 0.5 * activity[a]), base.opacity(quiet + 0.5 * activity[b])])
+            canvas.stroke(line, with: .linearGradient(ends, startPoint: points[a], endPoint: points[b]),
+                          style: StrokeStyle(lineWidth: thin * CGFloat(0.6 + 0.6 * depth), lineCap: .round))
+        }
+        // Signal tails, like comets.
+        for signal in signals {
+            func at(_ t: Double) -> CGPoint {
+                CGPoint(x: signal.from.x + (signal.to.x - signal.from.x) * CGFloat(t), y: signal.from.y + (signal.to.y - signal.from.y) * CGFloat(t))
+            }
+            let tail = at(max(0, signal.progress - 0.4)), head = at(signal.progress)
+            var line = Path(); line.move(to: tail); line.addLine(to: head)
+            canvas.stroke(line, with: .linearGradient(Gradient(colors: [spark.opacity(0), spark.opacity(0.85 * state.thinking)]), startPoint: tail, endPoint: head),
+                          style: StrokeStyle(lineWidth: thin * 2.2, lineCap: .round))
+        }
+
+        // Points: a soft halo, the point, a small highlight; the hub gets a fine ring.
         for index in nodes.indices.sorted(by: { nodes[$0].depth < nodes[$1].depth }) {
-            let node = nodes[index], lit = activity[index]
-            let size = radius * CGFloat((compact ? 0.1 : 0.048) + (compact ? 0.05 : 0.026) * node.weight) * CGFloat(0.7 + 0.5 * node.depth) * CGFloat(1 + 0.5 * lit)
-            let dot = Path(ellipseIn: CGRect(x: points[index].x - size, y: points[index].y - size, width: size * 2, height: size * 2))
-            context.fill(dot, with: .color(base.opacity(0.5 + 0.5 * node.depth)))
-            if lit > 0.02 { context.fill(dot, with: .color((dark ? Color.white : palette.light).opacity(lit * (dark ? 0.8 : 0.9)))) }
+            let node = nodes[index], lit = activity[index], spot = points[index]
+            let core = radius * CGFloat((compact ? 0.1 : 0.024) + (compact ? 0.05 : 0.016) * node.weight) * CGFloat(0.75 + 0.45 * node.depth) * CGFloat(1 + 0.35 * lit)
+            // No halo in small marks: it would reach past the frame and be cut into a square.
+            let haloAlpha = compact ? 0 : 0.14 * node.depth + 0.45 * lit
+            if haloAlpha > 0.01 {
+                let halo = core * CGFloat(3 + 3 * lit)
+                canvas.fill(Path(ellipseIn: CGRect(x: spot.x - halo, y: spot.y - halo, width: halo * 2, height: halo * 2)),
+                            with: .radialGradient(Gradient(colors: [base.opacity(haloAlpha), base.opacity(0)]), center: spot, startRadius: core * 0.5, endRadius: halo))
+            }
+            let dot = Path(ellipseIn: CGRect(x: spot.x - core, y: spot.y - core, width: core * 2, height: core * 2))
+            canvas.fill(dot, with: .color(base.opacity(0.55 + 0.45 * node.depth)))
+            if lit > 0.02 { canvas.fill(dot, with: .color(glow.opacity(lit * 0.85))) }
+            if !compact {
+                if node.weight > 1 {
+                    let ring = core * 1.9
+                    canvas.stroke(Path(ellipseIn: CGRect(x: spot.x - ring, y: spot.y - ring, width: ring * 2, height: ring * 2)),
+                                  with: .color(base.opacity(0.22 + 0.4 * state.energy)), lineWidth: thin * 0.8)
+                }
+            }
+        }
+        // Signal heads, on top.
+        for signal in signals {
+            let head = CGPoint(x: signal.from.x + (signal.to.x - signal.from.x) * CGFloat(signal.progress),
+                               y: signal.from.y + (signal.to.y - signal.from.y) * CGFloat(signal.progress))
+            let size = radius * (compact ? 0.08 : 0.045), halo = size * 3.2
+            canvas.fill(Path(ellipseIn: CGRect(x: head.x - halo, y: head.y - halo, width: halo * 2, height: halo * 2)),
+                        with: .radialGradient(Gradient(colors: [spark.opacity(0.45 * state.thinking), spark.opacity(0)]), center: head, startRadius: 0, endRadius: halo))
+            canvas.fill(Path(ellipseIn: CGRect(x: head.x - size, y: head.y - size, width: size * 2, height: size * 2)),
+                        with: .color(Color.white.opacity(0.95 * state.thinking)))
         }
     }
+
+    private static func seed(_ index: Int) -> Double { fraction(sin(Double(index + 1) * 91.7) * 4375.85) }
 
     /// The personality: where the points sit and how they move, in a unit disc.
     private func layout(time: Double, state: OrbMotion.State) -> ([Node], [(Int, Int)]) {
@@ -119,7 +192,7 @@ private struct OrbArtist {
         switch look.style {
         case .sphere:
             // Points on a turning globe: nearer points are larger and brighter.
-            let count = compact ? 12 : 26, spin = state.phase * 0.45, tilt = 0.38
+            let count = compact ? 12 : 32, spin = state.phase * 0.4, tilt = 0.38
             var unit: [(Double, Double, Double)] = []
             for index in 0..<count {
                 let y = 1 - 2 * (Double(index) + 0.5) / Double(count), ring = max(0, 1 - y * y).squareRoot(), angle = Double(index) * golden
@@ -140,13 +213,13 @@ private struct OrbArtist {
             }
         case .flower:
             // Hermès' flower as a network: six arms of points around a centre.
-            let radii: [Double] = compact ? [0.5, 0.95] : [0.34, 0.62, 0.93], turn = state.phase * 0.25
+            let radii: [Double] = compact ? [0.5, 0.95] : [0.26, 0.48, 0.71, 0.94], turn = state.phase * 0.25
             nodes.append(Node(x: 0, y: 0, weight: 1.4))
             for arm in 0..<6 {
                 for (step, distance) in radii.enumerated() {
-                    let angle = turn + Double(arm) * .pi / 3 + Double(step) * 0.17 - .pi / 2
+                    let angle = turn + Double(arm) * .pi / 3 + Double(step) * 0.12 - .pi / 2
                     let reach = distance * (1 + 0.04 * sin(time * 1.1 + Double(arm)))
-                    nodes.append(Node(x: cos(angle) * reach, y: sin(angle) * reach, weight: step == 0 ? 0.95 : 0.6 - 0.1 * Double(step)))
+                    nodes.append(Node(x: cos(angle) * reach, y: sin(angle) * reach, weight: step == 0 ? 0.95 : 0.65 - 0.1 * Double(step)))
                 }
             }
             let perArm = radii.count
@@ -158,7 +231,7 @@ private struct OrbArtist {
             }
         case .spiral:
             // A sunflower of points, linked along its golden spirals.
-            let count = compact ? 13 : 28
+            let count = compact ? 13 : 34
             for index in 0..<count {
                 let reach = 0.96 * ((Double(index) + 0.5) / Double(count)).squareRoot(), angle = Double(index) * golden + state.phase * 0.3
                 nodes.append(Node(x: cos(angle) * reach, y: sin(angle) * reach, weight: 1 - reach * 0.5))
@@ -166,7 +239,7 @@ private struct OrbArtist {
             for index in 0..<count { for gap in [5, 8, 13] where index + gap < count && hypot(nodes[index].x - nodes[index + gap].x, nodes[index].y - nodes[index + gap].y) < (compact ? 0.62 : 0.42) { links.append((index, index + gap)) } }
         case .cluster:
             // A loose swarm that drifts; links follow whoever is close.
-            let count = compact ? 10 : 19
+            let count = compact ? 10 : 24
             nodes.append(Node(x: 0.02 * sin(time * 0.7), y: 0.02 * cos(time * 0.6), weight: 1.3))
             for index in 1..<count {
                 let h1 = Self.fraction(sin(Double(index) * 12.9898) * 43758.5453), h2 = Self.fraction(sin(Double(index) * 78.233) * 12345.678)
