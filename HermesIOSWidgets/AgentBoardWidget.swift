@@ -85,6 +85,17 @@ struct BoardEntry: TimelineEntry {
     var greeting: String { hour < 5 || hour >= 18 ? "Bonsoir" : hour < 12 ? "Bonjour" : "Bon après-midi" }
     var greetingSymbol: String { hour < 5 || hour >= 20 ? "moon.stars.fill" : hour < 11 ? "sunrise.fill" : hour < 18 ? "sun.max.fill" : "sunset.fill" }
 
+    // What is known with no server at all, so the widget is never blank: where the day stands (6 h to 23 h), the week, the weekend.
+    private var clock: Double { Double(hour) + Double(Calendar.current.component(.minute, from: date)) / 60 }
+    var dayProgress: Double { min(1, max(0, (clock - 6) / 17)) }
+    /// The end of the day while it lasts, for a countdown that runs by itself.
+    var dayEnd: Date? { clock >= 6 ? Calendar.current.date(bySettingHour: 23, minute: 0, second: 0, of: date).flatMap { $0 > date ? $0 : nil } : nil }
+    var weekNumber: Int { Calendar.current.component(.weekOfYear, from: date) }
+    var weekendLine: String {
+        let weekday = Calendar.current.component(.weekday, from: date)               // 1 = Sunday … 7 = Saturday
+        return weekday == 1 || weekday == 7 ? "C’est le week-end" : weekday == 6 ? "Week-end demain" : "Week-end dans \(7 - weekday) j"
+    }
+
     /// What to ask when there is nothing on the board, by the hour and by agent. A tap fills the composer; it never sends.
     var suggestions: [Suggestion] {
         if isOps { return [Suggestion("État du serveur", "server.rack"), Suggestion("Les chiffres de Noriven ce mois-ci", "chart.line.uptrend.xyaxis"), Suggestion("Quoi de neuf ?", "newspaper")] }
@@ -180,10 +191,11 @@ struct BoardProvider: AppIntentTimelineProvider {
             }
         }
         for expiry in [first.board?.expiresAt, first.agenda?.expiresAt] { if let expiry, expiry > .now { moments.append(expiry) } }
-        for hour in [0, 5, 11, 12, 18, 20] {
+        // Also every two hours: the day's progress ring and the greeting follow the clock.
+        for hour in [0, 5, 7, 9, 11, 12, 14, 16, 18, 20, 22, 23] {
             if let next = Calendar.current.nextDate(after: .now, matching: DateComponents(hour: hour, minute: 0), matchingPolicy: .nextTime), next < .now.addingTimeInterval(24 * 3600) { moments.append(next) }
         }
-        let later = Set(moments).sorted().prefix(14).map { saved.entry(configuration, at: $0) }
+        let later = Set(moments).sorted().prefix(20).map { saved.entry(configuration, at: $0) }
         // New data makes the app reload the timelines by itself, so a long wait here costs nothing.
         return Timeline(entries: [first] + later, policy: .after(.now.addingTimeInterval(60 * 60)))
     }
@@ -254,6 +266,46 @@ private struct Tile: View {
     }
 }
 
+/// Where the day stands: a ring that fills from 6 h to 23 h, the moment's symbol inside.
+private struct DayRing: View {
+    let progress: Double
+    let symbol: String
+    let color: Color
+    var size: CGFloat = 36
+    var body: some View {
+        ZStack {
+            Circle().stroke(color.opacity(0.2), lineWidth: size * 0.11)
+            Circle().trim(from: 0, to: max(0.02, progress)).stroke(color, style: StrokeStyle(lineWidth: size * 0.11, lineCap: .round)).rotationEffect(.degrees(-90))
+            Image(systemName: symbol).font(.system(size: size * 0.38, weight: .semibold)).foregroundStyle(color)
+        }.frame(width: size, height: size).accessibilityHidden(true)
+    }
+}
+
+/// The same progress as a line.
+private struct DayBar: View {
+    let progress: Double
+    let color: Color
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(color.opacity(0.18))
+                Capsule().fill(color).frame(width: max(6, proxy.size.width * progress))
+            }
+        }.frame(height: 6).accessibilityHidden(true)
+    }
+}
+
+/// A small fact: « Semaine 44 », « Week-end dans 2 j ».
+private struct FactChip: View {
+    let symbol: String
+    let text: String
+    let color: Color
+    var body: some View {
+        Label(text, systemImage: symbol).font(.caption2.weight(.semibold)).foregroundStyle(color).lineLimit(1)
+            .padding(.horizontal, 8).padding(.vertical, 4).background(color.opacity(0.14), in: Capsule())
+    }
+}
+
 /// « Maintenant », or « dans 45 min » counting down by itself.
 private struct Countdown: View {
     let row: BoardRow
@@ -299,15 +351,18 @@ struct BoardWidgetView: View {
     @ViewBuilder private var accessory: some View {
         let hero = entry.hero
         if family == .accessoryInline {
-            Text(hero.map { "\($0.item.time.isEmpty ? "" : "\($0.item.time) ")\($0.item.text)" } ?? entry.agentTitle)
+            if let hero { Text("\(hero.item.time.isEmpty ? "" : "\(hero.item.time) ")\(hero.item.text)") }
+            else { Text(entry.date, format: .dateTime.weekday(.abbreviated).day().month(.abbreviated)).environment(\.locale, Locale(identifier: "fr_CA")) }
         } else {
             HStack(spacing: 8) {
-                Image(systemName: hero.map { BoardTone.symbol($0.item) } ?? "sparkles").font(.title3.weight(.semibold))
+                Image(systemName: hero.map { BoardTone.symbol($0.item) } ?? entry.greetingSymbol).font(.title3.weight(.semibold))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(hero?.item.text ?? "Rien de particulier").font(.caption.weight(.semibold)).lineLimit(1)
+                    if let hero { Text(hero.item.text).font(.caption.weight(.semibold)).lineLimit(1) }
+                    else { Text(entry.date, format: .dateTime.weekday(.wide).day().month(.wide)).environment(\.locale, Locale(identifier: "fr_CA")).font(.caption.weight(.semibold)).lineLimit(1) }
                     if let hero, let when = hero.when, hero.phase == .next { (Text("dans ") + Text(when, style: .relative)).font(.caption2) }
                     else if let focus = entry.live?.focus, !focus.isEmpty { Text(focus).font(.caption2).lineLimit(1) }
-                    else { Text(entry.agentTitle).font(.caption2) }
+                    else if hero == nil, let end = entry.dayEnd { (Text("Encore ") + Text(end, style: .relative)).font(.caption2) }
+                    else { Text(entry.weekendLine).font(.caption2) }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -351,12 +406,30 @@ struct BoardWidgetView: View {
 
     // MARK: Empty state (nothing from the agent, nothing from the calendar)
 
-    private func dateLine(_ font: Font = .caption) -> some View {
-        Text(entry.date, format: .dateTime.weekday(.wide).day().month(.wide)).environment(\.locale, Locale(identifier: "fr_CA"))
-            .font(font).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+    private static let french = Locale(identifier: "fr_CA")
+
+    /// The date as the page's anchor: the weekday small and in colour, the day number large, the month under it.
+    private func dateBlock(day: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(entry.date, format: .dateTime.weekday(.wide)).environment(\.locale, Self.french)
+                .font(.caption.weight(.bold)).textCase(.uppercase).foregroundStyle(accent).lineLimit(1)
+            Text(entry.date, format: .dateTime.day()).environment(\.locale, Self.french)
+                .font(.system(size: day, weight: .bold, design: .rounded)).monospacedDigit().lineLimit(1)
+            Text(entry.date, format: .dateTime.month(.wide)).environment(\.locale, Self.french)
+                .font(.caption.weight(.medium)).foregroundStyle(.secondary).lineLimit(1)
+        }
     }
 
-    private var statusLine: String { entry.dayDone ? "Journée terminée" : entry.freeDay ? "Rien à l’agenda aujourd’hui" : "Prêt quand vous l’êtes" }
+    private func ring(_ size: CGFloat) -> some View { DayRing(progress: entry.dayProgress, symbol: entry.greetingSymbol, color: accent, size: size) }
+
+    private var statusLine: String { entry.dayDone ? "Journée terminée" : entry.freeDay ? "Rien à l’agenda aujourd’hui" : "\(entry.greeting) · prêt quand vous l’êtes" }
+    private var shortStatus: String { entry.dayDone ? "Journée terminée" : entry.freeDay ? "Agenda libre" : entry.greeting }
+
+    /// « Encore 5 h 12 min » counting down by itself while the day lasts, else the week.
+    @ViewBuilder private func dayLeft(_ font: Font = .caption2) -> some View {
+        if let end = entry.dayEnd { (Text("Encore ") + Text(end, style: .relative)).font(font).foregroundStyle(.secondary).lineLimit(1) }
+        else { Text(entry.weekendLine).font(font).foregroundStyle(.secondary).lineLimit(1) }
+    }
 
     /// A suggestion: tapping it puts the sentence in the composer.
     private func suggestionRow(_ suggestion: Suggestion, size: CGFloat, font: Font) -> some View {
@@ -402,15 +475,37 @@ struct BoardWidgetView: View {
                     smallHero(hero, showNext: false)
                 }
             } else {
-                Image(systemName: entry.greetingSymbol).font(.title).foregroundStyle(accent).accessibilityHidden(true)
-                Spacer(minLength: 4)
-                Text(entry.greeting).font(.title2.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
-                dateLine()
-                Text(entry.freeDay || entry.dayDone ? statusLine : "Touchez : \(entry.suggestions.first?.text ?? "")").font(.caption2.weight(.semibold))
-                    .foregroundStyle(accent).lineLimit(2).padding(.top, 5)
+                ViewThatFits(in: .vertical) {
+                    smallCalm(withAsk: !bigText)
+                    smallCalm(withAsk: false)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Nothing from the agent or the calendar: the date and where the day stands at the top, a tap-to-ask line at the bottom.
+    private func smallCalm(withAsk: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top) {
+                dateBlock(day: 34)
+                Spacer(minLength: 4)
+                ring(34)
+            }
+            Spacer(minLength: 4)
+            Text(shortStatus).font(.caption.weight(.semibold)).foregroundStyle(accent).lineLimit(1)
+            if withAsk, let ask = entry.suggestions.first {
+                HStack(spacing: 5) {
+                    Image(systemName: ask.symbol).font(.system(size: 10, weight: .semibold)).foregroundStyle(accent)
+                    Text(ask.text).font(.caption2.weight(.medium)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 8).padding(.vertical, 5).frame(maxWidth: .infinity, alignment: .leading)
+                .background(accent.opacity(dark ? 0.16 : 0.11), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .padding(.top, 4)
+            } else {
+                dayLeft().padding(.top, 1)
+            }
+        }
     }
 
     private func smallHero(_ hero: BoardRow, showNext: Bool) -> some View {
@@ -466,12 +561,16 @@ struct BoardWidgetView: View {
             } else {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 0) {
-                        Image(systemName: entry.greetingSymbol).font(.title2).foregroundStyle(accent).accessibilityHidden(true)
+                        HStack(alignment: .top) {
+                            dateBlock(day: 34)
+                            Spacer(minLength: 4)
+                            ring(32)
+                        }
                         Spacer(minLength: 4)
-                        Text(entry.greeting).font(.title2.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
-                        dateLine()
-                        Text(statusLine).font(.caption2.weight(.semibold)).foregroundStyle(accent).lineLimit(2).padding(.top, 4)
-                    }.frame(width: 128, alignment: .leading).frame(maxHeight: .infinity, alignment: .topLeading)
+                        DayBar(progress: entry.dayProgress, color: accent)
+                        Text(shortStatus).font(.caption.weight(.semibold)).foregroundStyle(accent).lineLimit(1).padding(.top, 5)
+                        dayLeft()
+                    }.frame(width: 138, alignment: .leading).frame(maxHeight: .infinity, alignment: .topLeading)
                     RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1).frame(maxHeight: .infinity)
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(entry.suggestions.prefix(2))) { suggestionRow($0, size: 26, font: .caption.weight(.medium)).frame(maxHeight: .infinity) }
@@ -486,7 +585,17 @@ struct BoardWidgetView: View {
     private var large: some View {
         VStack(alignment: .leading, spacing: 10) {
             if entry.live != nil, entry.hero != nil {
-                let rows = Array(entry.rows.prefix(bigText ? 4 : 6))
+                let rows = Array(entry.rows.prefix(bigText ? 3 : 5))
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(entry.live?.title.isEmpty == false ? entry.live?.title ?? "" : "Aujourd’hui").font(.caption.weight(.bold)).textCase(.uppercase)
+                            .foregroundStyle(accent).lineLimit(1)
+                        Text(entry.date, format: .dateTime.weekday(.wide).day().month(.wide)).environment(\.locale, Self.french)
+                            .font(.system(size: 19, weight: .bold, design: .rounded)).lineLimit(1).minimumScaleFactor(0.7)
+                    }
+                    Spacer(minLength: 8)
+                    ring(34)
+                }
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                         link(row) { timelineRow(row, last: index == rows.count - 1) }.frame(minHeight: 40, maxHeight: 66)
@@ -496,14 +605,42 @@ struct BoardWidgetView: View {
                 if let focus = entry.live?.focus, !focus.isEmpty { focusBox(focus, compact: bigText) }
                 actions
             } else {
-                VStack(alignment: .leading, spacing: 3) {
-                    Image(systemName: entry.greetingSymbol).font(.largeTitle).foregroundStyle(accent).accessibilityHidden(true)
-                    Text(entry.greeting).font(.system(size: 36, weight: .bold)).lineLimit(1).minimumScaleFactor(0.7).padding(.top, 4)
-                    dateLine(.subheadline)
-                    Text(statusLine).font(.subheadline.weight(.semibold)).foregroundStyle(accent).padding(.top, 2)
+                // The date and the day's ring across the top, where the day stands, then the questions worth asking now.
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(entry.date, format: .dateTime.weekday(.wide).day().month(.wide)).environment(\.locale, Self.french)
+                            .font(.system(size: 26, weight: .bold, design: .rounded)).lineLimit(1).minimumScaleFactor(0.6)
+                        Text(statusLine).font(.subheadline.weight(.semibold)).foregroundStyle(accent).lineLimit(1).minimumScaleFactor(0.8)
+                        HStack(spacing: 6) {
+                            FactChip(symbol: "calendar", text: "Semaine \(entry.weekNumber)", color: accent)
+                            FactChip(symbol: "party.popper", text: entry.weekendLine, color: accent)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    ring(52)
                 }
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(entry.suggestions) { suggestionRow($0, size: 32, font: .subheadline.weight(.medium)).frame(maxHeight: .infinity) }
+                VStack(spacing: 5) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("Journée").font(.system(size: 9, weight: .bold)).textCase(.uppercase).foregroundStyle(accent)
+                        Spacer()
+                        dayLeft(.caption2.weight(.medium))
+                    }
+                    DayBar(progress: entry.dayProgress, color: accent)
+                    HStack {
+                        ForEach(["6 h", "12 h", "18 h", "23 h"], id: \.self) { label in
+                            Text(label).font(.system(size: 9, weight: .medium)).foregroundStyle(.tertiary)
+                            if label != "23 h" { Spacer() }
+                        }
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 8)
+                .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                VStack(spacing: 6) {
+                    ForEach(entry.suggestions) {
+                        suggestionRow($0, size: 30, font: .subheadline.weight(.medium))
+                            .padding(.horizontal, 8).frame(maxHeight: .infinity)
+                            .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
                 }.frame(maxHeight: .infinity)
                 actions
             }
