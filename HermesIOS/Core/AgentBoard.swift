@@ -58,10 +58,58 @@ public struct AgentBoard: Equatable, Sendable {
         let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return formatter
     }()
 
-    private static func date(_ text: String) -> Date? {
+    fileprivate static func date(_ text: String) -> Date? {
         guard !text.isEmpty else { return nil }
         return plainISO.date(from: text) ?? fractionalISO.date(from: text)
     }
+}
+
+/// The weather of the user's place, read by the server from Open-Meteo with no model: now, the next hours, the next days.
+public struct WeatherReport: Equatable, Sendable {
+    public struct Hour: Equatable, Sendable { public var at: Date, temp: Int, rain: Int; public var symbol: String }
+    public struct Day: Equatable, Sendable {
+        public var date: Date, high: Int, low: Int, rain: Int; public var summary: String, symbol: String
+        public var sunrise: Date?, sunset: Date?
+    }
+    public var place: String, summary: String, symbol: String
+    public var temp: Int
+    public var feels: Int?, wind: Int?
+    public var hours: [Hour], days: [Day]
+    public var updatedAt: Date?, expiresAt: Date?
+
+    /// Past its time the figures are stale: the widget leaves the weather out rather than show this morning's.
+    public func isExpired(at date: Date = .now) -> Bool {
+        if let expiresAt { return expiresAt <= date }
+        if let updatedAt { return date.timeIntervalSince(updatedAt) > 3 * 3600 }
+        return false
+    }
+
+    /// nil when there is no temperature: nothing worth drawing.
+    init?(_ value: JSONValue) {
+        guard case .object = value, !value["temp"].isNull else { return nil }
+        func text(_ key: String, _ limit: Int) -> String { String(value[key].string.prefix(limit)) }
+        func optional(_ key: String) -> Int? { value[key].isNull ? nil : value[key].int }
+        place = text("place", 40); summary = text("summary", 40); symbol = text("symbol", 40)
+        temp = value["temp"].int; feels = optional("feels"); wind = optional("wind")
+        hours = value["hours"].array.prefix(12).compactMap { row in
+            guard let at = AgentBoard.date(row["at"].string), !row["temp"].isNull else { return nil }
+            return Hour(at: at, temp: row["temp"].int, rain: row["rain"].int, symbol: String(row["symbol"].string.prefix(40)))
+        }
+        days = value["days"].array.prefix(7).compactMap { row in
+            guard let date = Self.local(row["date"].string), !row["high"].isNull, !row["low"].isNull else { return nil }
+            return Day(date: date, high: row["high"].int, low: row["low"].int, rain: row["rain"].int, summary: String(row["summary"].string.prefix(40)),
+                       symbol: String(row["symbol"].string.prefix(40)), sunrise: Self.local(row["sunrise"].string), sunset: Self.local(row["sunset"].string))
+        }
+        updatedAt = AgentBoard.date(value["updated_at"].string); expiresAt = AgentBoard.date(value["expires_at"].string)
+    }
+
+    nonisolated(unsafe) private static let dayFormat = format("yyyy-MM-dd")
+    nonisolated(unsafe) private static let minuteFormat = format("yyyy-MM-dd'T'HH:mm")
+    private static func format(_ pattern: String) -> DateFormatter {
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = pattern; return formatter
+    }
+    /// « 2026-10-29 » or « 2026-10-29T07:17 » (no zone: the place's own clock, which is the phone's).
+    private static func local(_ text: String) -> Date? { text.isEmpty ? nil : (text.contains("T") ? minuteFormat : dayFormat).date(from: text) }
 }
 
 /// The boards of every agent the server knows, by profile name.
@@ -70,7 +118,11 @@ public struct AgentBoards: Equatable, Sendable {
     /// The next calendar events of the profiles that have Google, read by the server with no model: what the widget shows
     /// while the agent has written nothing. A profile present with no items is a free day, not an unknown.
     public var agendas: [String: AgentBoard]
-    public init(boards: [String: AgentBoard] = [:], agendas: [String: AgentBoard] = [:]) { self.boards = boards; self.agendas = agendas }
+    /// The weather of the user's place, the same for every agent; nil when the server has none.
+    public var weather: WeatherReport?
+    public init(boards: [String: AgentBoard] = [:], agendas: [String: AgentBoard] = [:], weather: WeatherReport? = nil) {
+        self.boards = boards; self.agendas = agendas; self.weather = weather
+    }
 
     /// Tolerant on purpose: a malformed board is left out, the others are kept; not even an object is an error.
     public static func decode(_ data: Data) throws -> AgentBoards {
@@ -81,7 +133,7 @@ public struct AgentBoards: Equatable, Sendable {
         if case .object(let found) = root["boards"] { rows = found; hasBoards = true }
         guard hasBoards || !root["agendas"].object.isEmpty else { throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "no boards")) }
         let agendas = root["agendas"].object.mapValues(AgentBoard.init).filter { !$0.key.isEmpty }
-        return AgentBoards(boards: rows.mapValues(AgentBoard.init).filter { !$0.key.isEmpty }, agendas: agendas)
+        return AgentBoards(boards: rows.mapValues(AgentBoard.init).filter { !$0.key.isEmpty }, agendas: agendas, weather: WeatherReport(root["weather"]))
     }
 }
 

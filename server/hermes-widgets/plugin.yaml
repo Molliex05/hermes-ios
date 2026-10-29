@@ -1,5 +1,5 @@
 name: hermes-widgets
-version: 0.3.0
+version: 0.4.0
 description: "Compact, read-only snapshot of Noriven figures (revenue, expenses, profit, MRR) and the agents' own « À l'affiche » boards for the Hermès iOS widgets, served under the dashboard's own authentication."
 author: Hermès iOS
 kind: standalone

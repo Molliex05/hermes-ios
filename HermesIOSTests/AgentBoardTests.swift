@@ -53,6 +53,27 @@ final class AgentBoardTests: XCTestCase {
         XCTAssertTrue(try AgentBoards.decode(Data("{\"boards\":{}}".utf8)).agendas.isEmpty, "a server without agendas is fine")
     }
 
+    func testTheWeatherComesWithItsHoursDaysAndSun() throws {
+        let data = Data("""
+        {"boards":{},"weather":{"place":"Saint-Constant","temp":8,"feels":5,"wind":14,"summary":"Couvert","symbol":"cloud.fill",
+          "hours":[{"at":"2026-10-29T10:00:00-04:00","temp":8,"symbol":"cloud.fill","rain":10},{"temp":9}],
+          "days":[{"date":"2026-10-29","summary":"Pluie","symbol":"cloud.rain.fill","high":10,"low":3,"rain":40,"sunrise":"2026-10-29T07:17","sunset":"2026-10-29T17:48"},{"date":"2026-10-30","high":7}],
+          "expires_at":"2026-10-29T11:50:00-04:00"}}
+        """.utf8)
+        let weather = try XCTUnwrap(AgentBoards.decode(data).weather)
+        XCTAssertEqual(weather.temp, 8); XCTAssertEqual(weather.feels, 5); XCTAssertEqual(weather.place, "Saint-Constant")
+        XCTAssertEqual(weather.hours.count, 1, "an hour with no moment is left out")
+        XCTAssertEqual(weather.days.count, 1, "a day with no low is left out")
+        let day = try XCTUnwrap(weather.days.first)
+        XCTAssertEqual(day.high, 10); XCTAssertEqual(day.rain, 40)
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: try XCTUnwrap(day.sunset))
+        XCTAssertEqual(parts.hour, 17); XCTAssertEqual(parts.minute, 48)
+        XCTAssertFalse(weather.isExpired(at: ISO8601DateFormatter().date(from: "2026-10-29T11:00:00-04:00")!))
+        XCTAssertTrue(weather.isExpired(at: ISO8601DateFormatter().date(from: "2026-10-29T12:00:00-04:00")!))
+        XCTAssertNil(try AgentBoards.decode(Data("{\"boards\":{},\"weather\":{\"place\":\"x\"}}".utf8)).weather, "no temperature, nothing to draw")
+        XCTAssertNil(try AgentBoards.decode(Data("{\"boards\":{}}".utf8)).weather)
+    }
+
     func testTheStoreKeepsAGoodBoardWhenTheNextOneIsBroken() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("board-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
