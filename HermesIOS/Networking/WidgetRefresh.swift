@@ -1,17 +1,16 @@
 import Foundation
 import WidgetKit
 
-/// Downloads the Noriven snapshot, saves it for the widgets and asks WidgetKit to redraw. Used by the live app
+/// Downloads the agents' boards, saves them for the « À l'affiche » widget and asks WidgetKit to redraw. Used by the live app
 /// (`AppModel`) and by the silent push that wakes the app in the background with no UI.
 enum WidgetRefresh {
     enum Result { case saved, unavailable, failed }
-    static let path = "/api/plugins/hermes-widgets/snapshot"
+    static let boardPath = "/api/plugins/hermes-widgets/board"
 
     static func run(using http: HermesHTTP) async -> Result {
         do {
-            let value = try await http.request(path)
-            let data = try JSONEncoder().encode(value)
-            guard WidgetSnapshotStore.write(data) != nil else { return .failed }
+            let value = try await http.request(boardPath)
+            guard AgentBoardStore.write(try JSONEncoder().encode(value)) != nil else { return .failed }
             WidgetCenter.shared.reloadAllTimelines()
             return .saved
         } catch let failure as RPCFailure where [401, 403, 404].contains(failure.code) {

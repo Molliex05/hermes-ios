@@ -77,5 +77,26 @@ class Snapshot(unittest.TestCase):
         self.assertIsNone(value["mrr"]); self.assertEqual(value["finance"]["current"]["estimated_revenue"], 247.99)
 
 
+class McpAddress(unittest.TestCase):
+    def test_the_address_comes_from_the_profile_config(self):
+        import os, tempfile
+        with tempfile.TemporaryDirectory() as root:
+            (Path(root) / "noriven").mkdir()
+            (Path(root) / "noriven" / "config.yaml").write_text(
+                "mcp_servers:\n  memoire:\n    url: http://memoire:3200/mcp\n  noriven:\n    url: http://100.78.159.45:3300/api/mcp\n"
+                "    headers:\n      Authorization: x\nother: 1\n")
+            os.environ["HERMES_PROFILES_DIR"] = root
+            os.environ.pop("NORIVEN_MCP_URL", None)
+            try:
+                self.assertEqual(snap._mcp_url(), "http://100.78.159.45:3300/api/mcp", "not the memory server's address")
+                os.environ["NORIVEN_MCP_URL"] = "http://override/api/mcp"
+                self.assertEqual(snap._mcp_url(), "http://override/api/mcp")
+                os.environ.pop("NORIVEN_MCP_URL")
+                (Path(root) / "noriven" / "config.yaml").write_text("nothing: here\n")
+                self.assertEqual(snap._mcp_url(), snap.MCP_URL, "falls back to the old name")
+            finally:
+                os.environ.pop("HERMES_PROFILES_DIR", None); os.environ.pop("NORIVEN_MCP_URL", None)
+
+
 if __name__ == "__main__":
     unittest.main()

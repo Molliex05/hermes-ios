@@ -310,6 +310,16 @@ final class ChatCardsTests: XCTestCase {
         XCTAssertNil(day("31 novembre")); XCTAssertNil(day("Bonne journée"))
     }
 
+    func testAnEmailDraftKeepsItsLineBreaksAndNeedsSomethingToShow() {
+        let text = "{\"type\":\"brouillon\",\"a\":\"julie@example.com\",\"objet\":\"Souper jeudi\",\"body\":\"Salut Julie,\\n\\nOn se voit à 18 h 30 ?\\n\\nMaxime\",\"url\":\"https://mail.google.com/mail/u/0/#drafts\"}"
+        guard case .draft(let draft)? = ChatCard.parse(text) else { return XCTFail() }
+        XCTAssertEqual(draft.to, "julie@example.com"); XCTAssertEqual(draft.subject, "Souper jeudi")
+        XCTAssertEqual(draft.body, "Salut Julie,\n\nOn se voit à 18 h 30 ?\n\nMaxime", "a letter keeps its paragraphs")
+        XCTAssertNotNil(draft.url)
+        XCTAssertNil(ChatCard.parse("{\"type\":\"draft\",\"to\":\"a@b.c\"}"), "a recipient alone is no draft")
+        XCTAssertEqual(ChatCard.summary(text).first, "Brouillon · julie@example.com · Souper jeudi")
+    }
+
     func testChoicesAcceptNumbersAsAnswers() {
         guard case .choices(let choices)? = ChatCard.parse("{\"type\":\"choices\",\"questions\":[{\"prompt\":\"Combien de chambres ?\",\"options\":[2,3,4]}]}")
         else { return XCTFail() }

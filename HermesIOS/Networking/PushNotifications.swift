@@ -12,6 +12,9 @@ final class PushNotifications {
     private var pendingReply: (target: String, text: String)?
     /// Category the server puts on every alert that targets a conversation (see `notification_payload`).
     nonisolated static let replyCategory = "hermes.reply", replyAction = "hermes.reply.text"
+    /// Buttons that answer in one touch: what each one says to the agent (nil: just dismiss, nothing is sent).
+    nonisolated static let detailsAction = "hermes.reply.details", laterAction = "hermes.reply.later", acknowledgeAction = "hermes.reply.ok"
+    nonisolated static let canned: [String: String] = [detailsAction: "Donne-moi plus de détails.", laterAction: "Rappelle-moi ça dans une heure."]
     var statuses: [UUID: String] = [:]
     var busy = Set<UUID>()
     var authorized = false
@@ -39,7 +42,11 @@ final class PushNotifications {
     private func registerCategories() {
         let reply = UNTextInputNotificationAction(identifier: Self.replyAction, title: "Répondre", options: [.foreground],
                                                   textInputButtonTitle: "Envoyer", textInputPlaceholder: "Votre réponse")
-        let category = UNNotificationCategory(identifier: Self.replyCategory, actions: [reply], intentIdentifiers: [], options: [])
+        // The one-touch answers open the app too: the conversation must be alive to receive them. « Compris » only clears the alert.
+        let details = UNNotificationAction(identifier: Self.detailsAction, title: "Détailler", options: [.foreground])
+        let later = UNNotificationAction(identifier: Self.laterAction, title: "Plus tard", options: [.foreground])
+        let acknowledge = UNNotificationAction(identifier: Self.acknowledgeAction, title: "Compris", options: [])
+        let category = UNNotificationCategory(identifier: Self.replyCategory, actions: [reply, details, later, acknowledge], intentIdentifiers: [], options: [])
         UNUserNotificationCenter.current().setNotificationCategories([category])
     }
 
@@ -228,9 +235,12 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
     /// from the main actor.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
         let payload = try? JSONSerialization.data(withJSONObject: response.notification.request.content.userInfo)
-        // Only the « Répondre » action carries text; a plain tap just opens the conversation.
-        let reply = response.actionIdentifier == PushNotifications.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : nil
+        // « Répondre » carries the typed text, « Détailler » and « Plus tard » a ready sentence; a plain tap just opens the
+        // conversation, and « Compris » does nothing more than clear the alert.
+        let action = response.actionIdentifier
+        let reply = action == PushNotifications.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : PushNotifications.canned[action]
         let done = CompletionBox(completionHandler)
+        if action == PushNotifications.acknowledgeAction { Task { @MainActor in done.call() }; return }
         Task { @MainActor in
             if let payload, let json = try? JSONValue.decode(payload), let target = NotificationTarget(json) {
                 PushNotifications.shared.open(target, reply: reply)

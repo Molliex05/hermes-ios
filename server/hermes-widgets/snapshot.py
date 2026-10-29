@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 PROFILE = "noriven"
+# Last resort only: the server moved in October 2026 and this internal name no longer resolves. The live address is the
+# one Hermès already uses (`mcp_servers.noriven.url` in the Noriven profile), read from its config.
 MCP_URL = "http://noriven-mcp-production:3000/api/mcp"
 CACHE_SECONDS = 300
 MONTHS = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre")
@@ -110,6 +112,25 @@ def _token() -> str:
     return ""
 
 
+def _mcp_url() -> str:
+    """`NORIVEN_MCP_URL`, else the address in the Noriven profile's own config, else the old internal name."""
+    if os.environ.get("NORIVEN_MCP_URL"):
+        return os.environ["NORIVEN_MCP_URL"].strip()
+    config = Path(os.environ.get("HERMES_PROFILES_DIR", "/opt/data/profiles")) / PROFILE / "config.yaml"
+    try:
+        in_noriven = False
+        for line in config.read_text().splitlines():
+            if re.match(r"^  noriven:\s*$", line):
+                in_noriven = True
+            elif in_noriven and re.match(r"^  \S", line):
+                in_noriven = False
+            elif in_noriven and (found := re.match(r"^\s+url:\s*(\S+)\s*$", line)):
+                return found.group(1).strip("\"'")
+    except OSError:
+        pass
+    return MCP_URL
+
+
 async def mcp_call(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     """One tool call over the MCP streamable HTTP transport. The token never leaves this function."""
     from mcp import ClientSession
@@ -117,7 +138,7 @@ async def mcp_call(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     token = _token()
     if not token:
         raise RuntimeError("Jeton Noriven absent.")
-    async with streamable_http_client(MCP_URL, http_client=create_mcp_http_client(headers={"Authorization": f"Bearer {token}"})) as (read, write):
+    async with streamable_http_client(_mcp_url(), http_client=create_mcp_http_client(headers={"Authorization": f"Bearer {token}"})) as (read, write):
         async with ClientSession(read, write) as session:
             await session.initialize()
             result = await session.call_tool(name, arguments)

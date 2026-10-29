@@ -20,6 +20,7 @@ struct RichCardView: View, Equatable {
             case .metrics(let title, let items): MetricsCard(title: title, metrics: items)
             case .weather(let weather): WeatherCard(weather: weather)
             case .event(let event): EventCard(event: event)
+            case .draft(let draft): DraftCard(draft: draft)
             case .links(let title, let items): LinksCard(title: title, links: items)
             case .chart(let chart): ChartCard(chart: chart)
             case .progress(let title, let items): ProgressCard(title: title, goals: items)

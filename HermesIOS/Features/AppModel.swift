@@ -217,13 +217,28 @@ final class AppModel {
 
     /// Set by `hermesios://voice` (widget); the chat opens the voice sheet, also after a cold launch.
     var pendingVoiceLaunch = false
+    /// Requests from outside the app (widgets, Siri and Shortcuts, the share sheet), done one at a time (see LaunchRequests).
+    var launchQueue: [LaunchRequest] = []
+    @ObservationIgnored var launching = false
     @ObservationIgnored private var widgetRefreshedAt = Date.distantPast
     @ObservationIgnored private var widgetUnavailable = false
 
-    /// `hermesios://voice` opens a call; any other widget link just opens the app.
+    /// `hermesios://voice` opens a call, `open?profile=` the agent's chat, `ask?profile=&text=` fills its composer with a
+    /// sentence (a link never sends by itself); any other widget link just opens the app.
     func handle(url: URL) {
         guard url.scheme == "hermesios" else { return }
-        if url.host == "voice" { pendingVoiceLaunch = true }
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func value(_ name: String) -> String? { query.first { $0.name == name }?.value.flatMap { $0.isEmpty ? nil : $0 } }
+        switch url.host {
+        case "voice":
+            if let profile = value("profile") { enqueue(LaunchRequest(profile: profile, kind: .voice)) } else { pendingVoiceLaunch = true }
+        case "open":
+            if let profile = value("profile") { enqueue(LaunchRequest(profile: profile, kind: .open)) }
+        case "ask":
+            if let text = value("text") { enqueue(LaunchRequest(profile: value("profile"), kind: .ask(text: String(text.prefix(1_000)), send: false))) }
+        default:
+            break
+        }
     }
 
     /// Saves the Noriven snapshot for the widgets and asks WidgetKit to redraw. Best effort and quiet:
@@ -243,6 +258,7 @@ final class AppModel {
         hasBooted = true
         defer { notificationRoutingReady = true; booting = false }
         PushNotifications.shared.suppressesPresentation = { [weak self] envelope in self?.suppressesBanner(for: envelope) ?? false }
+        LaunchBridge.shared.attach { [weak self] request in self?.enqueue(request) }
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--demo") { loadDemo(); return }
         #endif
@@ -534,6 +550,7 @@ final class AppModel {
         guard generation == connectionGeneration, self.socket === socket else { return }
         guard case .array = result["profiles"] else { throw RPCFailure("Hermes a renvoyé une liste de profils invalide.") }
         profiles = result["profiles"].array.map(AgentProfile.init)
+        SharedProfiles.write(profiles.filter { $0.hidden != true }.map { SharedProfile(name: $0.name, title: $0.title) })
         let canonical = result["profiles"].array.compactMap { row -> Conversation? in
             let session = row["canonical_session"]
             guard !session["id"].string.isEmpty else { return nil }

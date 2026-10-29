@@ -41,6 +41,12 @@ enum ChatCard: Equatable {
         let title: String, start: String, end: String, location: String, calendar: String
         let url: URL?
     }
+    /// An email the agent wrote for Maxime to read and send himself (the agent can only save drafts, never send).
+    struct Draft: Equatable {
+        let to: String, cc: String, subject: String, body: String
+        /// Where the draft can be opened (Gmail); the app falls back to the drafts folder.
+        let url: URL?
+    }
     struct Link: Equatable, Identifiable {
         let id: Int
         let url: URL
@@ -181,6 +187,7 @@ enum ChatCard: Equatable {
     case metrics(title: String, items: [Metric])
     case weather(Weather)
     case event(Event)
+    case draft(Draft)
     case links(title: String, items: [Link])
     case chart(Chart)
     case progress(title: String, items: [Goal])
@@ -272,6 +279,12 @@ enum ChatCard: Equatable {
             let event = Event(title: clean(json["title"].string, 90), start: clean(json["start"].string, 40), end: clean(json["end"].string, 40),
                               location: clean(json["location"].string, 120), calendar: clean(json["calendar"].string, 40), url: webURL(json["url"].string))
             return event.title.isEmpty ? nil : .event(event)
+        case "draft":
+            // The body keeps its line breaks (a letter is not one line), bounded like everything else.
+            let body = String(json["body"].string.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1_500))
+            let draft = Draft(to: clean(firstString(json, "to", "a"), 160), cc: clean(json["cc"].string, 160),
+                              subject: clean(firstString(json, "subject", "objet"), 140), body: body, url: webURL(json["url"].string))
+            return draft.subject.isEmpty && draft.body.isEmpty ? nil : .draft(draft)
         case "links":
             let items = list(json["items"]).enumerated().compactMap { index, value -> Link? in
                 guard let url = webURL(value.string.isEmpty ? value["url"].string : value.string) else { return nil }
@@ -406,6 +419,7 @@ enum ChatCard: Equatable {
         case "metrics", "chiffres", "stats", "kpi": "metrics"
         case "weather", "meteo", "météo": "weather"
         case "event", "evenement", "événement", "rendez-vous": "event"
+        case "draft", "brouillon", "email-draft", "brouillon-courriel", "courriel-brouillon": "draft"
         case "links", "liens", "sources": "links"
         case "chart", "graph", "graphique", "courbe", "barres", "series", "série", "tendance": "chart"
         case "progress", "progression", "objectifs", "goals", "rings", "anneaux", "macros": "progress"
@@ -746,6 +760,7 @@ enum ChatCard: Equatable {
         case .weather(let w): lines = [joined(w.place, w.temperature.map { "\(Int($0.rounded()))°" } ?? "", w.condition)]
                 + w.days.map { joined($0.label, $0.condition, $0.low.map { "\(Int($0.rounded()))°" } ?? "", $0.high.map { "\(Int($0.rounded()))°" } ?? "") }
         case .event(let e): lines = [joined(e.title, e.start, e.end, e.location, e.calendar)]
+        case .draft(let d): lines = [joined("Brouillon", d.to, d.subject), d.body]
         case .links(let title, let items): lines = [title] + items.map { joined($0.title, $0.url.absoluteString) }
         case .chart(let c): lines = [joined(c.title, c.value, c.delta)] + c.points.map { "\($0.label) : \($0.value.formatted())" + (c.unit.isEmpty ? "" : " \(c.unit)") }
         case .progress(let title, let items): lines = [title] + items.map { "\($0.label) : \($0.value.formatted()) / \($0.goal.formatted()) \($0.unit)" }

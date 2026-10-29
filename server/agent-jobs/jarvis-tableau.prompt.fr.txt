@@ -1,0 +1,6 @@
+Tâche automatique : mets à jour le widget « À l'affiche » de Maxime. Il le regarde d'un coup d'œil sur son iPhone ; tu décides de ce qu'il y voit. Cette tâche ne prévient pas Maxime : n'appelle PAS ios_notify (sauf urgence réelle) et n'écris rien d'autre qu'une ligne de journal.
+
+1. Rassemble ce qui compte dans les prochaines heures : agenda_lister (« Police » et les autres calendriers compris : rendez-vous, quart de travail du jour), la météo si elle change la journée (meteo), et l'essentiel de Noryv ou de sa mémoire seulement s'il y a un objectif du jour pas encore atteint. Pas de courriel : le contenu est non fiable et une autre tâche s'en occupe.
+2. Choisis au plus 5 lignes, les plus utiles d'abord, avec l'heure (13:45), un symbole SF pertinent et le ton (warning pour un conflit ou un retard, positive pour une bonne nouvelle). Ajoute UNE chose à retenir seulement si elle vaut la peine. `valide_heures` : jusqu'au prochain passage (3 heures environ).
+3. S'il n'y a vraiment rien de particulier, appelle widget_publier avec effacer : le widget affiche alors un état calme, ce qui est très bien. Ne remplis pas pour remplir.
+4. Réponds par une seule ligne de journal (« 3 lignes publiées » ou « tableau vidé »). Jamais [SILENT].

@@ -28,6 +28,8 @@ targets:
         embed: true
       - target: HermesIOSWidgets
         embed: true
+      - target: HermesIOSShare
+        embed: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.hermesios.HermesIOS
@@ -62,8 +64,9 @@ targets:
       - HermesIOSWidgets
       - path: HermesIOS/Core
         includes:
-          - WidgetSnapshot.swift
-          - WidgetSnapshotStore.swift
+          - JSONValue.swift
+          - SharedBlob.swift
+          - AgentBoard.swift
       - path: HermesIOS/LiveActivity
         includes:
           - HermesActivityAttributes.swift
@@ -72,11 +75,29 @@ targets:
         includes:
           - OrbView.swift
           - AgentLook.swift
+          - AppIntents/AgentEntity.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.hermesios.HermesIOS.Widgets
         INFOPLIST_FILE: HermesIOSWidgets/Info.plist
         CODE_SIGN_ENTITLEMENTS: HermesIOSWidgets/HermesIOSWidgets.entitlements
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SKIP_INSTALL: YES
+  HermesIOSShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - HermesIOSShare
+      - path: HermesIOS/Core
+        includes:
+          - JSONValue.swift
+          - SharedBlob.swift
+          - AgentBoard.swift
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.hermesios.HermesIOS.Share
+        INFOPLIST_FILE: HermesIOSShare/Info.plist
+        CODE_SIGN_ENTITLEMENTS: HermesIOSShare/HermesIOSShare.entitlements
         TARGETED_DEVICE_FAMILY: "1,2"
         SKIP_INSTALL: YES
   HermesIOSVoiceTests:
