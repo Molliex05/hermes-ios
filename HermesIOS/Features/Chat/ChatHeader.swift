@@ -22,7 +22,7 @@ struct ChatHeaderContainer: View {
             hasConversation: model.selected != nil,
             actionsDisabled: model.transcript.running || model.sending || model.voiceActive || model.state != .connected,
             hasUnread: model.hasUnread(profile: model.profile), agentName: model.agent?.name ?? "default",
-            running: model.transcript.running, activity: model.transcript.activity,
+            running: model.transcript.running, activity: model.transcript.activityLabel,
             compress: compress, newChat: newChat, switchAgent: switchAgent, history: history, menu: menu
         ).equatable()
     }

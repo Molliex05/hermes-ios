@@ -43,7 +43,7 @@ struct ChatTranscriptView: View {
                     if let live { MessageView(message: live, agent: agent).equatable().id("live:" + live.id).environment(\.cardsInteractive, true) }
                     if let activity = transcript.activity, transcript.running {
                         ActivityRow(
-                            title: activityTitle(activity, steps: transcript.toolSteps),
+                            title: transcript.activityLabel ?? activity,
                             sending: model.sending,
                             connected: model.state == .connected,
                             // Same rule as Transcript.isWaitingForResponse(at:), evaluated once
@@ -53,7 +53,7 @@ struct ChatTranscriptView: View {
                         ).equatable()
                     }
                     if !transcript.toolSteps.isEmpty {
-                        ToolActivityView(steps: transcript.toolSteps, expanded: toolsExpanded) { toolsExpanded.toggle() }.equatable()
+                        ToolActivityView(steps: transcript.toolSteps, expanded: toolsExpanded, running: transcript.running) { toolsExpanded.toggle() }.equatable()
                     }
                     if let failure = transcript.failure, !failure.isEmpty {
                         Label(failure, systemImage: "exclamationmark.circle").font(.subheadline).foregroundStyle(AppTheme.accent)
@@ -124,10 +124,6 @@ struct ChatTranscriptView: View {
         }
     }
 
-    private func activityTitle(_ activity: String, steps: [Transcript.ToolStep]) -> String {
-        guard let step = steps.last(where: { $0.name == activity }) else { return activity }
-        return step.title + "…"
-    }
 }
 
 /// Coalesces follow-the-stream scrolls to the stream's flush cadence (~30 fps).
@@ -202,10 +198,8 @@ private struct ActivityRow: View, Equatable {
 
     var body: some View {
         HStack(spacing: 9) {
-            Image(systemName: "sparkle")
-                .foregroundStyle(AppTheme.accent)
-                .symbolEffect(.pulse, options: .repeating, isActive: !reduceMotion)
-                .accessibilityHidden(true)
+            // The agent's own network, thinking.
+            OrbView(phase: .thinking, animated: !reduceMotion, compact: true).frame(width: 20, height: 20)
             TimelineView(.periodic(from: .now, by: 1)) { context in
                 Text(sending ? "Transmission à Hermès…"
                      : connected && waitingFrom.map { context.date >= $0 } == true
@@ -216,36 +210,133 @@ private struct ActivityRow: View, Equatable {
     }
 }
 
+/// The tools the agent uses, as a timeline: one symbol per kind of tool, what it works on, its time. While the agent
+/// works the last steps show by themselves; afterwards a compact summary opens the whole list.
 private struct ToolActivityView: View, Equatable {
     let steps: [Transcript.ToolStep]
     let expanded: Bool
+    let running: Bool
     let toggle: () -> Void
 
-    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.expanded == rhs.expanded && lhs.steps == rhs.steps }
+    nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.expanded == rhs.expanded && lhs.running == rhs.running && lhs.steps == rhs.steps }
+
+    private var shown: [Transcript.ToolStep] { expanded ? steps : running ? Array(steps.suffix(3)) : [] }
+    private var total: Double { steps.compactMap(\.duration).reduce(0, +) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button { toggle() } label: {
-                HStack(spacing: 7) {
-                    Image(systemName: "wrench.and.screwdriver")
-                    Text("\(steps.count) outil\(steps.count > 1 ? "s" : "") utilisé\(steps.count > 1 ? "s" : "")")
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down").font(.caption2)
-                }.font(.caption).foregroundStyle(.secondary).frame(minHeight: 44)
-            }.buttonStyle(.plain).accessibilityLabel("Activité des outils")
-                .accessibilityValue(expanded ? "Développée" : "Réduite").accessibilityIdentifier("tool-activity")
-            if expanded {
-                ForEach(steps) { step in
-                    HStack(alignment: .firstTextBaseline, spacing: 9) {
-                        Image(systemName: step.state == .completed ? "checkmark" : step.state == .stopped ? "minus" : "ellipsis")
-                            .foregroundStyle(step.state == .running ? AppTheme.accent : .secondary)
-                        Text(step.title)
-                        Spacer(minLength: 8)
-                        Text(step.state == .completed ? "Terminé" : step.state == .stopped ? "Arrêté" : "En cours")
-                            .foregroundStyle(.secondary)
-                    }.font(.caption).padding(.vertical, 5)
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: { Haptics.select(); toggle() }) { summary }
+                .buttonStyle(PressableStyle())
+                .accessibilityLabel("Activité des outils")
+                .accessibilityValue(expanded ? "Développée" : "Réduite")
+                .accessibilityIdentifier("tool-activity")
+            if !shown.isEmpty {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, step in
+                        ToolStepRow(step: step, last: index == shown.count - 1)
+                            .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
+                    }
                 }
+                .padding(.top, 10).padding(.leading, 4)
             }
         }
+        .animation(.snappy(duration: 0.3), value: steps)
+        .animation(.snappy(duration: 0.3), value: expanded)
+    }
+
+    /// Stacked symbols of the tools used, how many, how long.
+    private var summary: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: -5) {
+                ForEach(Array(Self.kinds(steps).prefix(4).enumerated()), id: \.offset) { _, symbol in
+                    Image(systemName: symbol).font(.system(size: 10, weight: .semibold)).foregroundStyle(AppTheme.accent)
+                        .frame(width: 22, height: 22)
+                        .background(AppTheme.surface, in: Circle())
+                        .overlay(Circle().strokeBorder(AppTheme.accent.opacity(0.25)))
+                }
+            }
+            Text(label).font(.caption.weight(.medium)).foregroundStyle(.primary.opacity(0.75)).contentTransition(.numericText())
+            Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                .rotationEffect(.degrees(expanded ? 180 : 0))
+        }
+        .padding(.leading, 5).padding(.trailing, 12).padding(.vertical, 5)
+        .background(AppTheme.surface.opacity(0.7), in: Capsule())
+        .overlay(Capsule().strokeBorder(AppTheme.line))
+        .frame(minHeight: 44)
+    }
+
+    private var label: String {
+        let count = steps.count, tools = "\(count) outil\(count > 1 ? "s" : "")"
+        if running && steps.contains(where: { $0.state == .running }) { return "\(tools) · en cours" }
+        return total >= 0.05 ? "\(tools) · \(ToolStepRow.time(total))" : tools
+    }
+
+    /// The kinds of tools used, each once, most recent first.
+    private static func kinds(_ steps: [Transcript.ToolStep]) -> [String] {
+        var seen = Set<String>()
+        return steps.reversed().map(\.symbol).filter { seen.insert($0).inserted }
+    }
+}
+
+private struct ToolStepRow: View {
+    let step: Transcript.ToolStep
+    let last: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 11) {
+            VStack(spacing: 0) {
+                Image(systemName: step.symbol).font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .symbolEffect(.pulse, options: .repeating, isActive: step.state == .running && !reduceMotion)
+                    .frame(width: 26, height: 26)
+                    .background(tint.opacity(0.13), in: Circle())
+                if !last { Rectangle().fill(AppTheme.line).frame(width: 1.5).frame(maxHeight: .infinity).padding(.vertical, 3) }
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(step.title).font(.caption.weight(.semibold))
+                if !step.context.isEmpty {
+                    Text(step.context).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+            .padding(.top, 4).padding(.bottom, last ? 0 : 12)
+            Spacer(minLength: 8)
+            trailing.padding(.top, 5)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(step.state == .completed ? "Terminé" : step.state == .stopped ? "Arrêté" : "En cours")
+    }
+
+    @ViewBuilder private var trailing: some View {
+        switch step.state {
+        case .running:
+            HStack(spacing: 6) {
+                if let started = step.startedAt {
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(Self.time(context.date.timeIntervalSince(started))).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
+                    }
+                }
+                ProgressView().controlSize(.mini)
+            }
+        case .completed:
+            HStack(spacing: 5) {
+                if let duration = step.duration { Text(Self.time(duration)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary) }
+                Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(CardPalette.positive)
+            }
+        case .stopped:
+            Text("Arrêté").font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    private var tint: Color { step.state == .stopped ? .secondary : AppTheme.accent }
+
+    /// « 0,4 s », « 4,1 s », « 12 s », « 1 min 05 ».
+    static func time(_ seconds: Double) -> String {
+        if seconds < 10 { return seconds.formatted(.number.precision(.fractionLength(1))) + " s" }
+        if seconds < 60 { return "\(Int(seconds.rounded())) s" }
+        let whole = Int(seconds.rounded())
+        return "\(whole / 60) min \(String(format: "%02d", whole % 60))"
     }
 }
 

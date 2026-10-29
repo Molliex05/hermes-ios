@@ -314,7 +314,8 @@ final class HermesIOSUITests: XCTestCase {
         let activity = app.buttons["tool-activity"]
         XCTAssertTrue(activity.waitForExistence(timeout: 30))
         activity.tap()
-        XCTAssertTrue(app.staticTexts["Commande"].waitForExistence(timeout: 3))
+        // A step reads as one element: « Commande, <what it runs> ».
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Commande")).firstMatch.waitForExistence(timeout: 3))
         XCUIDevice.shared.press(.home)
         sleep(55)
         app.activate()

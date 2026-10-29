@@ -1434,6 +1434,18 @@ final class AppModel {
         #if DEBUG
         // Every kind of rich card, to look at them (and for the UI tests).
         if ProcessInfo.processInfo.arguments.contains("--demo-calendar") { Task { await CalendarLink.seedDemoEvent() } }
+        // The agent at work: tools done and running (`--demo-tools`).
+        if ProcessInfo.processInfo.arguments.contains("--demo-tools") {
+            transcript.messages.append(.init(role: "user", text: "Trouve-moi des maisons à Saint-Constant et vérifie mon agenda de jeudi."))
+            transcript.running = true
+            transcript.activity = "mcp__noriven__ops_get_host"
+            transcript.toolSteps = [
+                .init(id: "t1", name: "web_search", state: .completed, context: "maisons à vendre Saint-Constant moins de 500 000 $", duration: 1.8),
+                .init(id: "t2", name: "web_extract", state: .completed, context: "centris.ca/fr/maison~a-vendre~saint-constant", duration: 3.4),
+                .init(id: "t3", name: "agenda_lister", state: .completed, context: "jeudi 29 octobre · tous les agendas", duration: 0.6),
+                .init(id: "t4", name: "mcp__noriven__ops_get_host", state: .running, startedAt: Date().addingTimeInterval(-2))
+            ]
+        }
         // The agent asks a few questions, one at a time (`choices` with `questions`).
         if ProcessInfo.processInfo.arguments.contains("--demo-questions") {
             let fence = "```"
