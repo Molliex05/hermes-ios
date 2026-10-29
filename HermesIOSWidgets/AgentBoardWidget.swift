@@ -457,7 +457,8 @@ struct BoardWidgetView: View {
     /// A weather symbol in its own colours (a yellow sun, a grey cloud); an unknown name is a plain cloud.
     private func wx(_ symbol: String, _ size: CGFloat) -> some View {
         Image(systemName: UIImage(systemName: symbol) != nil ? symbol : "cloud.fill").symbolRenderingMode(.multicolor)
-            .font(.system(size: size)).accessibilityHidden(true)
+            .font(.system(size: size)).frame(width: size * 1.35, height: size * 1.15)       // one box for every symbol: a cloud and a sun differ in height, and what sits under them must line up
+            .accessibilityHidden(true)
     }
 
     private func degrees(_ value: Int?) -> String { value.map { "\($0)°" } ?? "–" }
