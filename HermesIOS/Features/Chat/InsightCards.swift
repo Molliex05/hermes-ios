@@ -883,7 +883,7 @@ struct BriefCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(brief.sections.enumerated()), id: \.element.id) { index, section in
                     if index > 0 { Divider().padding(.leading, 52) }
-                    BriefSectionView(section: section)
+                    BriefSectionView(section: section, day: ChatCard.spokenDay(brief.date))
                 }
                 if !brief.focus.isEmpty {
                     HStack(alignment: .top, spacing: 10) {
@@ -909,6 +909,8 @@ struct BriefCard: View {
 
 private struct BriefSectionView: View {
     let section: ChatCard.BriefSection
+    /// The day the summary is about (its date line); today when it does not say.
+    let day: Date?
     @Environment(\.openURL) private var openURL
     @Environment(\.chatReply) private var reply
     @Environment(\.cardsInteractive) private var interactive
@@ -949,16 +951,17 @@ private struct BriefSectionView: View {
         }
         if let url = line.url {
             Button { Haptics.select(); openURL(url) } label: { row.contentShape(Rectangle()) }.buttonStyle(PressableStyle())
-        } else if section.kind == .agenda, let minutes = ChatCard.minutes(line.time),
-                  let start = Calendar.current.date(bySettingHour: minutes / 60 % 24, minute: minutes % 60, second: 0, of: .now) {
-            // The morning summary's agenda is today's: a line opens its event.
-            Button { openInCalendar(CalendarEventRequest(title: line.text, start: start), using: calendarEvent) } label: { row.contentShape(Rectangle()) }
-                .buttonStyle(PressableStyle()).accessibilityHint("Ouvre l’événement dans Calendrier")
         } else if !line.reply.isEmpty, let reply, interactive {
+            // The agent's own follow-up for this line comes first.
             Button {
                 guard !sent.contains(line.id), reply.send(line.reply) else { return }
                 Haptics.send(); sent.insert(line.id)
             } label: { row.contentShape(Rectangle()) }.buttonStyle(PressableStyle()).disabled(sent.contains(line.id))
+        } else if section.kind == .agenda, let minutes = ChatCard.minutes(line.time),
+                  let start = Calendar.current.date(bySettingHour: minutes / 60 % 24, minute: minutes % 60, second: 0, of: day ?? .now) {
+            // An agenda line opens its event, on the day the summary is about.
+            Button { openInCalendar(CalendarEventRequest(title: line.text, start: start), using: calendarEvent) } label: { row.contentShape(Rectangle()) }
+                .buttonStyle(PressableStyle()).accessibilityHint("Ouvre l’événement dans Calendrier")
         } else {
             row
         }

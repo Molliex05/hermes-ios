@@ -56,7 +56,8 @@ private enum ActivityStyle {
     }
 }
 
-/// The app's orb, still: Live Activities redraw only when their state changes.
+/// The app's orb, still: Live Activities redraw only when their state changes. Drawn as a small mark (filling its frame)
+/// in its dark colours, since the activity's background is always dark.
 private struct ActivityOrb: View {
     let state: HermesActivityAttributes.ContentState
     /// The agent's own illustration (its standard look: the widgets do not see choices made in the app).
@@ -64,7 +65,8 @@ private struct ActivityOrb: View {
     let size: CGFloat
     var body: some View {
         ZStack {
-            OrbView(phase: ActivityStyle.orbPhase(state), animated: false, look: .standard(for: profile)).frame(width: size, height: size)
+            OrbView(phase: ActivityStyle.orbPhase(state), animated: false, look: .standard(for: profile), compact: true)
+                .environment(\.colorScheme, .dark).frame(width: size, height: size)
             if state.muted {
                 Image(systemName: "mic.slash.fill").font(.system(size: size * 0.34, weight: .bold)).foregroundStyle(.white)
                     .shadow(color: .black.opacity(0.4), radius: 2)

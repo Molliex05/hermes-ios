@@ -231,9 +231,10 @@ enum ChatCard: Equatable {
             let asked = json["questions"].array.isEmpty ? [json] : Array(json["questions"].array.prefix(6))
             let questions = asked.enumerated().compactMap { index, value -> Question? in
                 let options = list(firstNonNull(value, "options", "items", "choices")).enumerated().compactMap { number, option -> Option? in
-                    let label = clean(option.string.isEmpty ? firstString(option, "label", "text", "title", "reply") : option.string, 80)
+                    let plain = display(option)                                    // a bare answer: "Oui", or a number such as 2
+                    let label = clean(plain.isEmpty ? firstString(option, "label", "text", "title", "reply") : plain, 80)
                     guard !label.isEmpty else { return nil }
-                    let reply = clean(option.string.isEmpty ? firstString(option, "reply", "send") : "", 160)
+                    let reply = clean(plain.isEmpty ? firstString(option, "reply", "send") : "", 160)
                     return Option(id: number, label: label, reply: reply.isEmpty ? label : reply,
                                   detail: clean(firstString(option, "detail", "description", "subtitle"), 100), icon: symbolName(option["icon"].string))
                 }
@@ -533,12 +534,30 @@ enum ChatCard: Equatable {
             return (index, titleScore * 1_000 - gap / 60)
         }
         if let best = scored.max(by: { $0.score < $1.score }) { return best.index }
+        // A card with a date and no time starts at midnight, like the day's all-day events: no guessing then.
+        guard Calendar.current.startOfDay(for: start) != start else { return nil }
         let sameTime = candidates.indices.filter { abs(candidates[$0].start.timeIntervalSince(start)) < 90 }
         return sameTime.count == 1 ? sameTime[0] : nil
     }
 
     private static func folded(_ text: String) -> String {
         text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "fr_CA")).filter { $0.isLetter || $0.isNumber }
+    }
+
+    /// The day a summary is about, as it is written (« Jeudi 29 octobre », « 1er novembre 2026 ») or in ISO: the
+    /// closest such day to `now` when the year is left out. nil when the text names no day.
+    static func spokenDay(_ raw: String, near now: Date = .now) -> Date? {
+        let calendar = Calendar.current
+        if let moment = date(raw) { return calendar.startOfDay(for: moment) }
+        let text = raw.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "fr_CA")).lowercased()
+        let months = ["janvier", "fevrier", "mars", "avril", "mai", "juin", "juillet", "aout", "septembre", "octobre", "novembre", "decembre"]
+        guard let match = text.firstMatch(of: /(\d{1,2})(?:er)?\s+([a-z]+)(?:\s+(\d{4}))?/), let day = Int(match.1),
+              let month = months.firstIndex(of: String(match.2)).map({ $0 + 1 }) else { return nil }
+        let year = calendar.component(.year, from: now)
+        let years = match.3.flatMap { Int($0) }.map { [$0] } ?? [year - 1, year, year + 1]
+        return years.compactMap { calendar.date(from: DateComponents(year: $0, month: month, day: day)) }
+            .filter { calendar.component(.month, from: $0) == month }                  // « 31 novembre » is no day
+            .min { abs($0.timeIntervalSince(now)) < abs($1.timeIntervalSince(now)) }
     }
 
     /// The local day of an ISO date or date and time, as « 2026-10-29 »; nil without a date.

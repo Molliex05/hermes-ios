@@ -23,6 +23,7 @@ struct ChatView: View {
     @State private var sheet: ChatSheet?
     @State private var pinnedToBottom = true
     @State private var bottomVisible = true
+    @State private var headerFolded = false
     @State private var toolsExpanded = false
     /// A web page opened from a reply, shown in the in-app browser.
     @State private var webPage: WebPage?
@@ -35,10 +36,13 @@ struct ChatView: View {
             VStack(spacing: 0) {
                 ChatHeaderContainer(model: model, compress: { compressing = true }, newChat: { model.newChat(); focused = true },
                                     switchAgent: { present(.agents) }, history: { present(.history) }, menu: { present(.menu) },
-                                    collapsed: focused || !pinnedToBottom)
-                ChatTranscriptView(model: model, pinnedToBottom: $pinnedToBottom, bottomVisible: $bottomVisible,
+                                    collapsed: focused || headerFolded)
+                ChatTranscriptView(model: model, pinnedToBottom: $pinnedToBottom, bottomVisible: $bottomVisible, headerFolded: $headerFolded,
                                    toolsExpanded: $toolsExpanded, suggest: { model.draft = $0; focused = true })
             }
+            // A full page over the chat (voice, menu, history, a web or event page): the chat's orbs rest meanwhile. Set
+            // here, below the sheets, so the voice page's own orb keeps moving.
+            .environment(\.orbsAsleep, (sheet != nil && sheet != .agents) || webPage != nil || eventPage != nil)
             .background { ChatBackdrop(model: model) }
             // Links in replies open their app when they are universal links (Gmail, GitHub, YouTube…), otherwise the in-app
             // browser; quick-reply cards answer as if typed.

@@ -179,7 +179,8 @@ struct ClarificationCard: View, Equatable {
                          multiple: question.multiSelect, allowsOther: true,
                          position: total > 1 ? (total - pending.count, total) : nil, enabled: !busy, finishLabel: "Répondre",
                          answer: { respond($0, to: question) },
-                         skip: (label: "Ne pas répondre", action: {
+                         // Hermes takes one answer for the whole request: skipping drops every question left.
+                         skip: (label: total > 1 ? "Ignorer ces questions" : "Ne pas répondre", action: {
                              busy = true
                              Task { _ = await model.dismissClarification(request: payload); busy = false }
                          }))

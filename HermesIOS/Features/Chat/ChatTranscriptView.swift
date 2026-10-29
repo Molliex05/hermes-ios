@@ -7,6 +7,8 @@ struct ChatTranscriptView: View {
     let model: AppModel
     @Binding var pinnedToBottom: Bool
     @Binding var bottomVisible: Bool
+    /// The header's title folds away once the reader is well up the conversation.
+    @Binding var headerFolded: Bool
     @Binding var toolsExpanded: Bool
     let suggest: (String) -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -115,6 +117,10 @@ struct ChatTranscriptView: View {
         follower.distance = distance
         let visible = distance <= 55
         if bottomVisible != visible { bottomVisible = visible }
+        // Folds past 140 pt from the end, unfolds within 20: a glance up does not fold it, and the header's own change
+        // of height (about 60 pt) cannot flip it back.
+        let fold = headerFolded ? distance > 20 : distance > 140
+        if headerFolded != fold { headerFolded = fold }
         if !follower.dragging, visible, !pinnedToBottom { pinnedToBottom = true }
         let target = $position
         if ScrollGap.isPastEnd(distance) { follower.heal { target.wrappedValue.scrollTo(edge: .bottom) } }
@@ -287,7 +293,7 @@ private struct ToolStepRow: View {
         HStack(alignment: .top, spacing: 11) {
             VStack(spacing: 0) {
                 Image(systemName: step.symbol).font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(tint).accessibilityHidden(true)
                     .symbolEffect(.pulse, options: .repeating, isActive: step.state == .running && !reduceMotion)
                     .frame(width: 26, height: 26)
                     .background(tint.opacity(0.13), in: Circle())
@@ -306,6 +312,7 @@ private struct ToolStepRow: View {
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .combine)
         .accessibilityValue(step.state == .completed ? "Terminé" : step.state == .stopped ? "Arrêté" : "En cours")
+        .accessibilityIdentifier("tool-step")
     }
 
     @ViewBuilder private var trailing: some View {
@@ -317,15 +324,16 @@ private struct ToolStepRow: View {
                         Text(Self.time(context.date.timeIntervalSince(started))).font(.caption2.monospacedDigit()).foregroundStyle(.secondary)
                     }
                 }
-                ProgressView().controlSize(.mini)
+                ProgressView().controlSize(.mini).accessibilityHidden(true)
             }
         case .completed:
             HStack(spacing: 5) {
                 if let duration = step.duration { Text(Self.time(duration)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary) }
-                Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(CardPalette.positive)
+                Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(CardPalette.positive).accessibilityHidden(true)
             }
         case .stopped:
-            Text("Arrêté").font(.caption2).foregroundStyle(.secondary)
+            // The row's value already says it.
+            Text("Arrêté").font(.caption2).foregroundStyle(.secondary).accessibilityHidden(true)
         }
     }
 

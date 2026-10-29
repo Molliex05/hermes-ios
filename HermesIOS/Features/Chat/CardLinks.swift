@@ -33,10 +33,7 @@ extension EnvironmentValues {
         switch EKEventStore.authorizationStatus(for: .event) {
         case .fullAccess: break
         case .notDetermined:
-            let granted = await withCheckedContinuation { continuation in
-                store.requestFullAccessToEvents { granted, _ in continuation.resume(returning: granted) }
-            }
-            guard granted else { return nil }
+            guard await requestAccess() else { return nil }
         default: return nil
         }
         let window = store.predicateForEvents(withStart: request.start.addingTimeInterval(-86_400),
@@ -47,6 +44,14 @@ extension EnvironmentValues {
         return match.map { events[$0] }
     }
 
+    /// EventKit answers on a queue of its own: the handler is @Sendable so Swift does not expect it on the main actor
+    /// (it would stop the app the moment Maxime answers the permission alert).
+    private static func requestAccess() async -> Bool {
+        await withCheckedContinuation { continuation in
+            store.requestFullAccessToEvents { @Sendable granted, _ in continuation.resume(returning: granted) }
+        }
+    }
+
     /// Calendar on that day and time (the only link Calendar offers: it cannot open one event).
     static func openDay(_ date: Date) {
         if let url = URL(string: "calshow:\(Int(date.timeIntervalSinceReferenceDate))") { UIApplication.shared.open(url) }
@@ -55,10 +60,7 @@ extension EnvironmentValues {
     #if DEBUG
     /// Puts the demo's barber appointment in the simulator's calendar, to try the event page (`--demo-calendar`).
     static func seedDemoEvent() async {
-        let granted = await withCheckedContinuation { continuation in
-            store.requestFullAccessToEvents { granted, _ in continuation.resume(returning: granted) }
-        }
-        guard granted, let start = ChatCard.date("2026-10-29T17:00"), let calendar = store.defaultCalendarForNewEvents else { return }
+        guard await requestAccess(), let start = ChatCard.date("2026-10-29T17:00"), let calendar = store.defaultCalendarForNewEvents else { return }
         let existing = store.events(matching: store.predicateForEvents(withStart: start, end: start.addingTimeInterval(3_600), calendars: nil))
         guard !existing.contains(where: { $0.title == "Barbier du Village" }) else { return }
         let event = EKEvent(eventStore: store)
@@ -75,9 +77,11 @@ struct EventPage: Identifiable {
     let event: EKEvent
 }
 
-/// The event page already has « Supprimer l’événement » in its list: its toolbar would show a second one.
+/// The event page already has « Supprimer l’événement » in its list: its toolbar would show a second one. An invitation
+/// keeps its toolbar, where Accepter, Peut-être and Refuser are.
 private final class EventNavigationController: UINavigationController {
-    override func setToolbarHidden(_ hidden: Bool, animated: Bool) { super.setToolbarHidden(true, animated: animated) }
+    var keepsToolbar = false
+    override func setToolbarHidden(_ hidden: Bool, animated: Bool) { super.setToolbarHidden(keepsToolbar ? hidden : true, animated: animated) }
 }
 
 /// Apple's own event page (time, place, alerts, attendees, edit), as in Calendar.
@@ -94,6 +98,7 @@ struct EventPageView: UIViewControllerRepresentable {
         controller.allowsCalendarPreview = true
         controller.delegate = context.coordinator
         let navigation = EventNavigationController(rootViewController: controller)
+        navigation.keepsToolbar = event.hasAttendees && event.organizer?.isCurrentUser == false
         navigation.navigationBar.tintColor = UIColor(AppTheme.accent)
         return navigation
     }

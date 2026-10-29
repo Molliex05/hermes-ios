@@ -68,6 +68,8 @@ struct ChatHeader: View, Equatable {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 2) {
                 HeaderGlyph(symbol: "line.3.horizontal", label: "Menu", id: "app-navigation", badge: hasUnread, action: menu)
+                // Folded, the actions join the right side: the same room on the left keeps the agent centred.
+                if collapsed { Color.clear.frame(width: 44, height: 44).accessibilityHidden(true) }
                 Spacer(minLength: 4)
                 agentChip
                 Spacer(minLength: 4)
@@ -120,6 +122,7 @@ struct ChatHeader: View, Equatable {
             Text(hasConversation ? "\(messageCount) message\(messageCount > 1 ? "s" : "")" : "Avec \(agentTitle)")
                 .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
                 .accessibilityLabel(demo ? "Aperçu interactif" : "Connecté à Hermes")
+                .accessibilityValue(hasConversation ? "\(messageCount) message\(messageCount > 1 ? "s" : "")" : "Avec \(agentTitle)")
                 .accessibilityIdentifier("connection-status")
         }
     }

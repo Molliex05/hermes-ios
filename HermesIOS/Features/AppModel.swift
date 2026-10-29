@@ -625,7 +625,8 @@ final class AppModel {
         saveCurrent()
         let generation = UUID(); selectionGeneration = generation
         selected = cached ?? ChatSnapshot(storedID: conversation.id, profile: conversation.profile, title: title ?? conversation.title)
-        if let title { selected?.title = title }
+        // The server's title wins over the one kept on the phone: a conversation renamed elsewhere shows its new name.
+        if let title { selected?.title = title } else if conversation.title != "Nouvelle conversation" { selected?.title = conversation.title }
         profile = conversation.profile
         chatError = nil; conversationActivity.visit(profile: conversation.profile)
         transcript = Transcript(messages: selected?.messages ?? [], lastSequence: selected?.lastSequence ?? 0)

@@ -202,6 +202,7 @@ private struct GroupChatView: View {
                     if ["message.user", "message.member"].contains(event["kind"].string) {
                         let member = room["members"].array.first { $0["member_id"] == event["actor"]["id"] }
                         MessageView(message: .init(id: event["event_id"].string, role: event["kind"].string == "message.user" ? "user" : "assistant", text: event["payload"]["text"].string), agent: member?["display_name"].string ?? event["actor"]["id"].string)
+                            .environment(\.agentLook, AgentLooks.shared.look(for: member?["profile"].string ?? event["actor"]["id"].string))
                     } else if event["kind"].string == "room.status" {
                         Text(event["payload"]["status"].string).font(.caption).foregroundStyle(.secondary)
                     }

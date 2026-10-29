@@ -295,6 +295,25 @@ final class ChatCardsTests: XCTestCase {
         XCTAssertNil(ChatCard.bestEventMatch(title: "Dentiste", start: at("10:00"), among: events), "nothing fits: no guess")
         let twoAtOnce: [(title: String, start: Date)] = [("Réunion A", day), ("Réunion B", day)]
         XCTAssertNil(ChatCard.bestEventMatch(title: "Appel", start: day, among: twoAtOnce), "two events at that time: no guess")
+        let holiday: [(title: String, start: Date)] = [("Halloween", ChatCard.date("2026-10-31")!)]
+        XCTAssertNil(ChatCard.bestEventMatch(title: "Party", start: ChatCard.date("2026-10-31")!, among: holiday), "a date alone: no guess on the all-day event")
+        XCTAssertEqual(ChatCard.bestEventMatch(title: "Halloween", start: ChatCard.date("2026-10-31")!, among: holiday), 0)
+    }
+
+    func testTheSummaryKnowsTheDayItIsAbout() {
+        let now = ChatCard.date("2026-10-28T20:00")!
+        let day = { (text: String) in ChatCard.spokenDay(text, near: now).map { Calendar.current.dateComponents([.year, .month, .day], from: $0) } }
+        XCTAssertEqual(day("Jeudi 29 octobre"), DateComponents(year: 2026, month: 10, day: 29))
+        XCTAssertEqual(day("1er janvier"), DateComponents(year: 2027, month: 1, day: 1), "the nearest year")
+        XCTAssertEqual(day("Mercredi 3 décembre 2025"), DateComponents(year: 2025, month: 12, day: 3))
+        XCTAssertEqual(day("2026-10-30"), DateComponents(year: 2026, month: 10, day: 30))
+        XCTAssertNil(day("31 novembre")); XCTAssertNil(day("Bonne journée"))
+    }
+
+    func testChoicesAcceptNumbersAsAnswers() {
+        guard case .choices(let choices)? = ChatCard.parse("{\"type\":\"choices\",\"questions\":[{\"prompt\":\"Combien de chambres ?\",\"options\":[2,3,4]}]}")
+        else { return XCTFail() }
+        XCTAssertEqual(choices.questions.first?.options.map(\.label), ["2", "3", "4"])
     }
 
     func testChoicesAskSeveralQuestionsOneAtATime() {

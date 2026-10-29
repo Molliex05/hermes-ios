@@ -14,16 +14,17 @@ public struct Transcript: Sendable {
         public var startedAt: Date?
 
         /// The tool's own name, without an MCP server prefix (« mcp__noriven__ops_get_host » is « ops_get_host »).
+        /// The server and the tool are split by a double underscore; either may hold single ones (« google_lite »).
         public var baseName: String {
-            guard name.hasPrefix("mcp__") else { return name }
-            return name.split(separator: "_", omittingEmptySubsequences: true).count > 2
-                ? String(name.dropFirst(5).drop { $0 != "_" }.drop { $0 == "_" }) : name
+            let parts = mcpParts
+            return parts.count > 1 ? parts.dropFirst().joined(separator: "__") : name
         }
         /// The MCP server a tool comes from (noriven, noryv, memoire), empty for built-in tools.
         public var server: String {
-            guard name.hasPrefix("mcp__") else { return "" }
-            return String(name.dropFirst(5).prefix { $0 != "_" })
+            let parts = mcpParts
+            return parts.count > 1 ? parts[0] : ""
         }
+        private var mcpParts: [String] { name.hasPrefix("mcp__") ? String(name.dropFirst(5)).components(separatedBy: "__") : [] }
 
         public var title: String {
             switch baseName {
@@ -103,7 +104,8 @@ public struct Transcript: Sendable {
     public var activityLabel: String? {
         guard let activity else { return nil }
         if let step = toolSteps.last(where: { $0.name == activity }) { return step.title + "…" }
-        if activity.hasPrefix("mcp__") || (activity.contains("_") && !activity.contains(" ")) {
+        // A tool's raw name before its step exists (« terminal », « meteo », « web_search »), never a sentence.
+        if activity.hasPrefix("mcp__") || activity.allSatisfy({ ($0.isASCII && $0.isLowercase) || $0.isNumber || $0 == "_" }) {
             return ToolStep(id: "", name: activity, state: .running).title + "…"
         }
         return activity
@@ -302,6 +304,13 @@ public struct Transcript: Sendable {
     /// is retained, rebuild that tail exactly. Otherwise overlap the retained delta suffix
     /// with the cumulative in-flight text. A completion always replaces the entire answer.
     public mutating func recover(_ payload: JSONValue, events: [JSONValue], latestSequence: Int) {
+        // The replay starts the tools over: each keeps the moment it really started, for its clock and its duration.
+        let started = Dictionary(toolSteps.compactMap { step in step.startedAt.map { (step.id, $0) } }, uniquingKeysWith: { first, _ in first })
+        defer {
+            for index in toolSteps.indices where toolSteps[index].startedAt != nil {
+                if let start = started[toolSteps[index].id] { toolSteps[index].startedAt = start }
+            }
+        }
         hydrate(payload)
         lastSequence = 0
         let ordered = events.sorted { $0["seq"].int < $1["seq"].int }

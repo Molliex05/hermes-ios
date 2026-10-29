@@ -23,6 +23,7 @@ struct OrbView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.agentLook) private var currentLook
+    @Environment(\.orbsAsleep) private var asleep
     @State private var motion = OrbMotion()
 
     var body: some View {
@@ -31,7 +32,10 @@ struct OrbView: View {
         let target = OrbMotion.Target(listening: phase == .listening, thinking: phase == .thinking, speaking: phase == .speaking,
                                       level: reduceMotion ? 0 : heard)
         let drawn = look ?? currentLook
-        TimelineView(.animation(minimumInterval: compact ? 1.0 / 30.0 : 1.0 / 60.0, paused: !animating)) { timeline in
+        // 60 frames a second only for the large orb at work; a breathing or small orb looks the same at 30. Covered by a
+        // page, the orb holds its last frame instead of snapping back to rest.
+        let interval = compact || phase == .idle ? 1.0 / 30.0 : 1.0 / 60.0
+        TimelineView(.animation(minimumInterval: interval, paused: !animating || asleep)) { timeline in
             Canvas { context, size in
                 let time = animating ? timeline.date.timeIntervalSinceReferenceDate : 0
                 let state = animating ? motion.step(time: time, target: target) : motion.settle(target: target)
@@ -39,6 +43,11 @@ struct OrbView: View {
             }
         }.accessibilityHidden(true)
     }
+}
+
+extension EnvironmentValues {
+    /// True while a page covers the chat: its orbs stop moving until the page closes.
+    @Entry var orbsAsleep = false
 }
 
 /// Draws one frame of an agent's neural network: small points and fine links laid out by the agent's personality.
@@ -57,7 +66,8 @@ private struct OrbArtist {
         let center = CGPoint(x: size.width / 2, y: size.height / 2)
         let live = max(state.listening, state.speaking)
         let breath = 0.01 * sin(time * 1.3) * (1 + state.thinking)
-        let radius = side / 2 * CGFloat((compact ? 0.9 : 0.66) * (1 + state.energy * 0.08) + breath)
+        // Small marks keep their outer points, lit and drifting, inside the frame: the canvas cuts anything past it.
+        let radius = side / 2 * CGFloat((compact ? 0.78 : 0.66) * (1 + state.energy * 0.08) + breath)
         if !compact {
             let glow = 0.06 + 0.09 * live + 0.05 * state.energy
             let halo = Path(ellipseIn: CGRect(x: 1, y: 1, width: size.width - 2, height: size.height - 2))
@@ -72,7 +82,7 @@ private struct OrbArtist {
         var canvas = context
         if dark && !compact { canvas.blendMode = .plusLighter }      // light adds up on a dark page (large orb only)
         let base = dark ? palette.light : palette.main
-        let glow = dark && !compact ? Color.white : dark ? palette.main : palette.light
+        let glow = dark ? Color.white : palette.light
         let spark = dark ? Color.white : palette.deep
         // A slow drift: the network is never frozen while it animates (the sphere turns instead).
         let nodes = rawNodes.enumerated().map { index, node -> Node in
@@ -173,8 +183,10 @@ private struct OrbArtist {
             let head = CGPoint(x: signal.from.x + (signal.to.x - signal.from.x) * CGFloat(signal.progress),
                                y: signal.from.y + (signal.to.y - signal.from.y) * CGFloat(signal.progress))
             let size = radius * (compact ? 0.08 : 0.045), halo = size * 3.2
-            canvas.fill(Path(ellipseIn: CGRect(x: head.x - halo, y: head.y - halo, width: halo * 2, height: halo * 2)),
-                        with: .radialGradient(Gradient(colors: [spark.opacity(0.45 * state.thinking), spark.opacity(0)]), center: head, startRadius: 0, endRadius: halo))
+            if !compact {
+                canvas.fill(Path(ellipseIn: CGRect(x: head.x - halo, y: head.y - halo, width: halo * 2, height: halo * 2)),
+                            with: .radialGradient(Gradient(colors: [spark.opacity(0.45 * state.thinking), spark.opacity(0)]), center: head, startRadius: 0, endRadius: halo))
+            }
             canvas.fill(Path(ellipseIn: CGRect(x: head.x - size, y: head.y - size, width: size * 2, height: size * 2)),
                         with: .color(Color.white.opacity(0.95 * state.thinking)))
         }
@@ -193,24 +205,13 @@ private struct OrbArtist {
         case .sphere:
             // Points on a turning globe: nearer points are larger and brighter.
             let count = compact ? 12 : 32, spin = state.phase * 0.4, tilt = 0.38
-            var unit: [(Double, Double, Double)] = []
             for index in 0..<count {
-                let y = 1 - 2 * (Double(index) + 0.5) / Double(count), ring = max(0, 1 - y * y).squareRoot(), angle = Double(index) * golden
-                let x0 = cos(angle) * ring, z0 = sin(angle) * ring
-                unit.append((x0, y, z0))
+                let (x0, y, z0) = Self.spherePoint(index, of: count)
                 let xr = x0 * cos(spin) + z0 * sin(spin), zr = -x0 * sin(spin) + z0 * cos(spin)
                 let yt = y * cos(tilt) - zr * sin(tilt), zt = y * sin(tilt) + zr * cos(tilt)
                 nodes.append(Node(x: xr * 0.95, y: yt * 0.95, depth: (zt + 1) / 2))
             }
-            var seen = Set<Int>()
-            for (i, a) in unit.enumerated() {
-                let nearest = unit.indices.filter { $0 != i }.sorted { j, k in
-                    let dj = pow(a.0 - unit[j].0, 2) + pow(a.1 - unit[j].1, 2) + pow(a.2 - unit[j].2, 2)
-                    let dk = pow(a.0 - unit[k].0, 2) + pow(a.1 - unit[k].1, 2) + pow(a.2 - unit[k].2, 2)
-                    return dj < dk
-                }.prefix(3)
-                for j in nearest where seen.insert(min(i, j) * 100 + max(i, j)).inserted { links.append((i, j)) }
-            }
+            links = Self.sphereLinks[count] ?? Self.sphereGraph(count)
         case .flower:
             // Hermès' flower as a network: six arms of points around a centre.
             let radii: [Double] = compact ? [0.5, 0.95] : [0.26, 0.48, 0.71, 0.94], turn = state.phase * 0.25
@@ -240,14 +241,19 @@ private struct OrbArtist {
         case .cluster:
             // A loose swarm that drifts; links follow whoever is close.
             let count = compact ? 10 : 24
-            nodes.append(Node(x: 0.02 * sin(time * 0.7), y: 0.02 * cos(time * 0.6), weight: 1.3))
+            nodes.append(Node(x: 0, y: 0, weight: 1.3))
             for index in 1..<count {
                 let h1 = Self.fraction(sin(Double(index) * 12.9898) * 43758.5453), h2 = Self.fraction(sin(Double(index) * 78.233) * 12345.678)
                 let angle = Double(index) * golden + h1 * 0.8, reach = 0.28 + 0.68 * h2.squareRoot()
-                nodes.append(Node(x: cos(angle) * reach + 0.07 * sin(time * 0.6 + Double(index) * 1.7),
-                                  y: sin(angle) * reach + 0.07 * cos(time * 0.5 + Double(index) * 2.3), weight: 0.4 + 0.4 * (1 - reach)))
+                nodes.append(Node(x: cos(angle) * reach, y: sin(angle) * reach, weight: 0.4 + 0.4 * (1 - reach)))
             }
+            // Linked at rest, then drifting: a link never pops in or out, and a signal never jumps to another link.
             linkClose(compact ? 0.78 : 0.56)
+            nodes[0].x += 0.02 * sin(time * 0.7); nodes[0].y += 0.02 * cos(time * 0.6)
+            for index in 1..<count {
+                nodes[index].x += 0.07 * sin(time * 0.6 + Double(index) * 1.7)
+                nodes[index].y += 0.07 * cos(time * 0.5 + Double(index) * 2.3)
+            }
         case .layers:
             // A deep-learning diagram: columns of points, every point linked to the next column.
             let counts = compact ? [2, 3, 2] : [3, 4, 4, 3], spacing = compact ? 0.62 : 0.46
@@ -275,6 +281,30 @@ private struct OrbArtist {
             linkClose(spacing * 1.05)
         }
         return (nodes, links)
+    }
+
+    /// A point of the sphere at rest, spread evenly over the globe.
+    private static func spherePoint(_ index: Int, of count: Int) -> (Double, Double, Double) {
+        let y = 1 - 2 * (Double(index) + 0.5) / Double(count), ring = max(0, 1 - y * y).squareRoot(), angle = Double(index) * 2.399963
+        return (cos(angle) * ring, y, sin(angle) * ring)
+    }
+
+    /// Each point of the sphere linked to its three nearest neighbours. The sphere turns as a whole, so this never
+    /// changes: worked out once for the two sizes.
+    private static let sphereLinks: [Int: [(Int, Int)]] = Dictionary(uniqueKeysWithValues: [12, 32].map { ($0, sphereGraph($0)) })
+
+    private static func sphereGraph(_ count: Int) -> [(Int, Int)] {
+        let unit = (0..<count).map { spherePoint($0, of: count) }
+        func distance(_ i: Int, _ j: Int) -> Double {
+            let dx = unit[i].0 - unit[j].0, dy = unit[i].1 - unit[j].1, dz = unit[i].2 - unit[j].2
+            return dx * dx + dy * dy + dz * dz
+        }
+        var links: [(Int, Int)] = [], seen = Set<Int>()
+        for i in unit.indices {
+            for j in unit.indices.filter({ $0 != i }).sorted(by: { distance(i, $0) < distance(i, $1) }).prefix(3)
+            where seen.insert(min(i, j) * 100 + max(i, j)).inserted { links.append((i, j)) }
+        }
+        return links
     }
 
     private static func fraction(_ value: Double) -> Double { value - value.rounded(.down) }

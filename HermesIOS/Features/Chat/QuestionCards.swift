@@ -99,8 +99,9 @@ struct QuestionStep: View {
     @ViewBuilder private var other: some View {
         if writing {
             HStack(spacing: 8) {
-                TextField("Votre réponse…", text: $text, axis: .vertical)
-                    .lineLimit(1...4).focused($focused).submitLabel(.send).onSubmit(sendTyped)
+                // One line: the keyboard's Envoyer sends (a field that grows would insert a line break instead).
+                TextField("Votre réponse…", text: $text)
+                    .focused($focused).submitLabel(.send).onSubmit(sendTyped)
                     .padding(.horizontal, 12).padding(.vertical, 10)
                     .background(AppTheme.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(AppTheme.accent.opacity(0.5)))
@@ -126,18 +127,20 @@ struct QuestionStep: View {
                 }
                 .padding(.horizontal, 12).padding(.vertical, 11).contentShape(Rectangle())
             }
-            .buttonStyle(PressableStyle()).disabled(!enabled)
+            .buttonStyle(PressableStyle()).disabled(!enabled || tapped != nil)
+            .accessibilityLabel("Autre réponse…")
         }
     }
 
+    /// Held while a tapped answer is on its way, so it cannot land on another question.
     private var footer: some View {
         HStack(spacing: 16) {
             if let back {
                 Button { Haptics.select(); back() } label: { Label("Précédente", systemImage: "chevron.left").font(.subheadline.weight(.medium)) }
-                    .buttonStyle(.plain).foregroundStyle(.secondary).disabled(!enabled)
+                    .buttonStyle(.plain).foregroundStyle(.secondary).disabled(!enabled || tapped != nil)
             }
             if let skip {
-                Button(skip.label) { skip.action() }.font(.subheadline).buttonStyle(.plain).foregroundStyle(.secondary).disabled(!enabled)
+                Button(skip.label) { skip.action() }.font(.subheadline).buttonStyle(.plain).foregroundStyle(.secondary).disabled(!enabled || tapped != nil)
             }
             Spacer(minLength: 0)
             if multiple {
@@ -167,8 +170,9 @@ struct QuestionStep: View {
     }
 
     private func sendTyped() {
-        guard !typed.isEmpty, enabled else { return }
-        if multiple { finish() } else { let reply = typed; text = ""; focused = false; answer(reply) }
+        guard !typed.isEmpty, enabled, tapped == nil else { return }
+        // The text stays until the next question replaces this one: an answer that could not be sent is not lost.
+        if multiple { finish() } else { focused = false; answer(typed) }
     }
 
     private func finish() {
@@ -215,7 +219,7 @@ struct ChoicesCard: View {
                              position: count > 1 ? (step, count) : nil,
                              finishLabel: step + 1 < count ? "Continuer" : "Envoyer",
                              answer: advance,
-                             back: step > 0 ? { withAnimation(.snappy(duration: 0.35)) { answers.removeLast(); step -= 1 } } : nil)
+                             back: step > 0 ? { withAnimation(.snappy(duration: 0.35)) { if !answers.isEmpty { answers.removeLast() }; step = answers.count } } : nil)
                     .id(step)
                     .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
                                             removal: .move(edge: .leading).combined(with: .opacity)))
