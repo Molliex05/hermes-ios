@@ -7,6 +7,8 @@ enum ChatMarkdown {
         case paragraph(String), heading(Int, String), quote(String)
         case item(depth: Int, marker: String, text: String, checked: Bool?)
         case code(language: String, text: String), table([[String]]), rule
+        /// A ```ui fence: a rich card described in JSON (see `ChatCard`). `complete` is false while it still streams.
+        case card(String, complete: Bool)
     }
 
     /// A point where parsing can resume from scratch: the UTF-8 offset of a line that follows a
@@ -41,15 +43,16 @@ enum ChatMarkdown {
                 while offsetLine < i { lineOffset += lines[offsetLine].utf8.count + 1; offsetLine += 1 }
                 checkpoint = Checkpoint(utf8Offset: lineOffset, blockCount: blocks.count)
             }
-            if let fence = fenceStart(line) {
+            if let fence = fence(line) {
                 flush(); i += 1
                 var code: [String] = []
+                var closed = false
                 while i < lines.count {
-                    let candidate = lines[i].trimmingCharacters(in: .whitespaces)
-                    if candidate.count >= fence.count && candidate.allSatisfy({ $0 == fence.character }) { break }
+                    if fence.closes(lines[i]) { closed = true; break }
                     code.append(lines[i]); i += 1
                 }
-                blocks.append(.code(language: fence.language, text: code.joined(separator: "\n")))
+                if ChatCard.isCardFence(fence.language) { blocks.append(.card(code.joined(separator: "\n"), complete: closed)) }
+                else { blocks.append(.code(language: fence.language, text: code.joined(separator: "\n"))) }
                 if i < lines.count { i += 1 }
                 continue
             }
@@ -125,7 +128,18 @@ enum ChatMarkdown {
         lhs.utf8.count == rhs.utf8.count && sameUTF8Prefix(lhs, rhs, count: lhs.utf8.count)
     }
 
-    private static func fenceStart(_ line: String) -> (character: Character, count: Int, language: String)? {
+    /// The line that opens a fenced block: up to three spaces, then three or more backticks or tildes and an optional
+    /// language. The one definition used by the parser, the spoken-text filter and card detection.
+    struct Fence: Equatable {
+        let character: Character, count: Int, language: String
+        /// A line made only of the same mark, at least as many times, closes the block.
+        func closes(_ line: String) -> Bool {
+            let candidate = line.trimmingCharacters(in: .whitespaces)
+            return candidate.count >= count && candidate.allSatisfy { $0 == character }
+        }
+    }
+
+    static func fence(_ line: String) -> Fence? {
         guard line.prefix(while: { $0 == " " }).count <= 3 else { return nil }
         let trimmed = line.trimmingCharacters(in: .whitespaces)
         guard let first = trimmed.first, first == "`" || first == "~" else { return nil }
@@ -133,7 +147,26 @@ enum ChatMarkdown {
         guard count >= 3 else { return nil }
         let language = String(trimmed.dropFirst(count)).trimmingCharacters(in: .whitespaces)
         guard first != "`" || !language.contains("`") else { return nil }
-        return (first, count, language)
+        return Fence(character: first, count: count, language: language)
+    }
+
+    /// The text with every ```ui card removed (code and everything else kept), and whether there was one.
+    static func withoutCards(_ source: String) -> (text: String, hadCards: Bool) {
+        var kept: [String] = [], open: Fence?, inCard = false, hadCards = false
+        for line in normalized(source).components(separatedBy: "\n") {
+            if let current = open {
+                if current.closes(line) { open = nil; if !inCard { kept.append(line) }; inCard = false; continue }
+                if !inCard { kept.append(line) }
+                continue
+            }
+            if let start = fence(line) {
+                open = start; inCard = ChatCard.isCardFence(start.language)
+                if inCard { hadCards = true } else { kept.append(line) }
+                continue
+            }
+            kept.append(line)
+        }
+        return (kept.joined(separator: "\n"), hadCards)
     }
 
     private static func listItem(_ line: String) -> Block? {

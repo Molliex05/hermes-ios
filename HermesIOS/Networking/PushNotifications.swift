@@ -8,6 +8,13 @@ final class PushNotifications {
     static let shared = PushNotifications()
     private static let path = "/api/plugins/hermes-ios-push"
     var pendingTarget: NotificationTarget?
+    /// Text typed in the notification's « Répondre » field; kept in memory only, bound to the target it answers.
+    private var pendingReply: (target: String, text: String)?
+    /// Category the server puts on every alert that targets a conversation (see `notification_payload`).
+    nonisolated static let replyCategory = "hermes.reply", replyAction = "hermes.reply.text"
+    /// Buttons that answer in one touch: what each one says to the agent (nil: just dismiss, nothing is sent).
+    nonisolated static let detailsAction = "hermes.reply.details", laterAction = "hermes.reply.later", acknowledgeAction = "hermes.reply.ok"
+    nonisolated static let canned: [String: String] = [detailsAction: "Donne-moi plus de détails.", laterAction: "Rappelle-moi ça dans une heure."]
     var statuses: [UUID: String] = [:]
     var busy = Set<UUID>()
     var authorized = false
@@ -30,7 +37,21 @@ final class PushNotifications {
         }
     }
 
+    /// The « Répondre » action opens the app on the conversation and sends what was typed (`.foreground`: the whole
+    /// app and its connection are alive, unlike a background launch).
+    private func registerCategories() {
+        let reply = UNTextInputNotificationAction(identifier: Self.replyAction, title: "Répondre", options: [.foreground],
+                                                  textInputButtonTitle: "Envoyer", textInputPlaceholder: "Votre réponse")
+        // The one-touch answers open the app too: the conversation must be alive to receive them. « Compris » only clears the alert.
+        let details = UNNotificationAction(identifier: Self.detailsAction, title: "Détailler", options: [.foreground])
+        let later = UNNotificationAction(identifier: Self.laterAction, title: "Plus tard", options: [.foreground])
+        let acknowledge = UNNotificationAction(identifier: Self.acknowledgeAction, title: "Compris", options: [])
+        let category = UNNotificationCategory(identifier: Self.replyCategory, actions: [reply, details, later, acknowledge], intentIdentifiers: [], options: [])
+        UNUserNotificationCenter.current().setNotificationCategories([category])
+    }
+
     func configure(_ saved: [SavedConnection]) async {
+        registerCategories()
         connections = saved
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         authorized = [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus)
@@ -64,9 +85,18 @@ final class PushNotifications {
         for id in enabled { statuses[id] = "L’enregistrement auprès d’Apple a échoué. Réessayez." }
     }
 
-    func open(_ target: NotificationTarget) {
+    func open(_ target: NotificationTarget, reply: String? = nil) {
         pendingTarget = target
+        let text = reply?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        pendingReply = text.isEmpty ? nil : (target.id, String(text.prefix(4_000)))
         defaults.set(try? JSONEncoder().encode(target), forKey: "push.target")
+    }
+
+    /// The reply typed on this notification, handed over once.
+    func takeReply(for target: NotificationTarget) -> String? {
+        guard let pending = pendingReply, pending.target == target.id else { return nil }
+        pendingReply = nil
+        return pending.text
     }
 
     func opened(_ target: NotificationTarget) {
@@ -200,12 +230,23 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         PushNotifications.shared.registrationFailed()
     }
 
+    /// Completion-handler form on purpose: the system finishes it with UIKit state-restoration work that asserts the main
+    /// thread. An async override ran off the main thread and crashed the app on every tap, so the handler is called
+    /// from the main actor.
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
-        if let data = try? JSONSerialization.data(withJSONObject: response.notification.request.content.userInfo),
-           let json = try? JSONValue.decode(data), let target = NotificationTarget(json) {
-            Task { @MainActor in PushNotifications.shared.open(target) }
+        let payload = try? JSONSerialization.data(withJSONObject: response.notification.request.content.userInfo)
+        // « Répondre » carries the typed text, « Détailler » and « Plus tard » a ready sentence; a plain tap just opens the
+        // conversation, and « Compris » does nothing more than clear the alert.
+        let action = response.actionIdentifier
+        let reply = action == PushNotifications.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : PushNotifications.canned[action]
+        let done = CompletionBox(completionHandler)
+        if action == PushNotifications.acknowledgeAction { Task { @MainActor in done.call() }; return }
+        Task { @MainActor in
+            if let payload, let json = try? JSONValue.decode(payload), let target = NotificationTarget(json) {
+                PushNotifications.shared.open(target, reply: reply)
+            }
+            done.call()
         }
-        completionHandler()
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
@@ -216,4 +257,11 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         let silent = await MainActor.run { envelope.map { $0.kind != .tool && (PushNotifications.shared.suppressesPresentation?($0) ?? false) } ?? false }
         return silent ? [] : [.banner, .sound, .list]
     }
+}
+
+/// Hands a system completion handler to the main actor (it is not `Sendable`, but is called exactly once).
+private final class CompletionBox: @unchecked Sendable {
+    private var handler: (() -> Void)?
+    init(_ handler: @escaping () -> Void) { self.handler = handler }
+    func call() { handler?(); handler = nil }
 }

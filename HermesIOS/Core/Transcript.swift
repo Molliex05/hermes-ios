@@ -7,16 +7,86 @@ public struct Transcript: Sendable {
         public var id: String
         public var name: String
         public var state: State
+        /// What the tool works on, as Hermes previews it (a search, a file, a command); may be empty.
+        public var context = ""
+        /// Seconds the tool took, once it is done.
+        public var duration: Double?
+        public var startedAt: Date?
+
+        /// The tool's own name, without an MCP server prefix (« mcp__noriven__ops_get_host » is « ops_get_host »).
+        /// The server and the tool are split by a double underscore; either may hold single ones (« google_lite »).
+        public var baseName: String {
+            let parts = mcpParts
+            return parts.count > 1 ? parts.dropFirst().joined(separator: "__") : name
+        }
+        /// The MCP server a tool comes from (noriven, noryv, memoire), empty for built-in tools.
+        public var server: String {
+            let parts = mcpParts
+            return parts.count > 1 ? parts[0] : ""
+        }
+        private var mcpParts: [String] { name.hasPrefix("mcp__") ? String(name.dropFirst(5)).components(separatedBy: "__") : [] }
+
         public var title: String {
-            switch name {
+            switch baseName {
             case "terminal": "Commande"
             case "web_search": "Recherche web"
-            case "web_extract", "browse": "Consultation web"
+            case "web_extract", "browse", "browser_navigate": "Lecture d’une page"
             case "read_file": "Lecture de fichier"
             case "write_file", "patch": "Modification de fichier"
+            case "search_files": "Recherche de fichiers"
             case "clarify": "Question"
-            default: name.replacingOccurrences(of: "_", with: " ")
+            case "memory": "Mémoire"
+            case "session_search": "Recherche dans l’historique"
+            case "vision_analyze": "Analyse d’image"
+            case "image_generate": "Création d’image"
+            case "text_to_speech": "Voix"
+            case "todo", "todo_write": "Liste de tâches"
+            case "delegate_task": "Délégation"
+            case "cronjob": "Tâche planifiée"
+            case "skill_view", "skills_list": "Compétence"
+            case "meteo": "Météo"
+            case "nouvelles": "Nouvelles"
+            case "ios_notify": "Notification"
+            case "gmail_chercher": "Recherche de courriels"
+            case "gmail_lire": "Lecture d’un courriel"
+            case "gmail_trier", "gmail_dossiers": "Tri des courriels"
+            case "gmail_brouillon": "Brouillon de courriel"
+            case "agenda_lister", "agenda_calendriers": "Agenda"
+            case "agenda_creer": "Ajout à l’agenda"
+            case "agenda_modifier": "Modification de l’agenda"
+            case "agenda_supprimer": "Suppression dans l’agenda"
+            case "noriven_chiffres": "Chiffres de Noriven"
+            case "umami_stats": "Visites du site"
+            case "gsc_performance", "gsc_inspect_url": "Search Console"
+            case "ops_get_host": "État du serveur"
+            case "ops_list_services", "ops_get_service": "Services"
+            case "ops_get_backups": "Sauvegardes"
+            case "ops_get_logs": "Journaux du serveur"
+            case let tool where tool.hasPrefix("finance_"): "Finances"
+            case let tool where tool.hasPrefix("analytics_"): "Analyse de données"
+            case let tool where tool.contains("nutrition") || tool.contains("meal"): "Nutrition"
+            case let tool where tool.contains("cardio") || tool.contains("activities") || tool.contains("run_route"): "Activités"
+            case let tool where tool.hasPrefix("noryv_"): "Entraînement"
+            case let tool where tool.hasPrefix("memory_"): "Mémoire de Noriven"
+            default:
+                baseName.replacingOccurrences(of: "_", with: " ").prefix(1).uppercased() + baseName.replacingOccurrences(of: "_", with: " ").dropFirst()
             }
+        }
+
+        /// An SF Symbol for the kind of tool.
+        public var symbol: String {
+            let tool = baseName.lowercased()
+            let kinds: [(String, [String])] = [
+                ("magnifyingglass", ["search", "chercher", "query"]), ("globe", ["web", "browse", "extract", "navigate"]),
+                ("terminal", ["terminal", "command"]), ("pencil", ["write", "patch", "brouillon"]), ("doc.text", ["file"]),
+                ("brain", ["memory", "memoire", "remember"]), ("photo", ["vision", "image"]), ("cloud.sun", ["meteo", "weather"]),
+                ("newspaper", ["nouvelles", "news"]), ("envelope", ["gmail", "mail"]), ("calendar", ["agenda", "calendar"]),
+                ("bell", ["notify", "push"]), ("checklist", ["todo", "task"]), ("dollarsign.circle", ["finance", "chiffres"]),
+                ("chart.bar", ["analytics", "umami", "gsc", "stats"]), ("server.rack", ["ops_", "host", "service", "backup", "logs"]),
+                ("fork.knife", ["nutrition", "meal"]), ("figure.run", ["noryv", "cardio", "workout", "activit"]), ("clock", ["cron"]),
+                ("person.2", ["delegate"]), ("sparkles", ["skill"]), ("questionmark.bubble", ["clarify"]), ("waveform", ["speech", "voice"]),
+            ]
+            return kinds.first { _, words in words.contains { tool.contains($0) } }?.0 ?? "wrench.and.screwdriver"
         }
     }
     public var messages: [ChatMessage] = []
@@ -29,6 +99,17 @@ public struct Transcript: Sendable {
     public var credential: JSONValue?
     public var failure: String?
     public var lastActivityAt = Date()
+
+    /// What the agent is doing, in words: a tool's French name (« État du serveur… ») rather than its raw name.
+    public var activityLabel: String? {
+        guard let activity else { return nil }
+        if let step = toolSteps.last(where: { $0.name == activity }) { return step.title + "…" }
+        // A tool's raw name before its step exists (« terminal », « meteo », « web_search »), never a sentence.
+        if activity.hasPrefix("mcp__") || activity.allSatisfy({ ($0.isASCII && $0.isLowercase) || $0.isNumber || $0 == "_" }) {
+            return ToolStep(id: "", name: activity, state: .running).title + "…"
+        }
+        return activity
+    }
 
     public func isWaitingForResponse(at date: Date) -> Bool {
         running && approval == nil && clarification == nil && credential == nil
@@ -115,12 +196,25 @@ public struct Transcript: Sendable {
     private mutating func updateTool(_ payload: JSONValue, completed: Bool) {
         let id = payload["tool_id"].string, name = payload["name"].string
         guard !id.isEmpty, !name.isEmpty else { return }
+        let preview = Self.preview(payload["context"].string.isEmpty ? payload["preview"].string : payload["context"].string)
+        let took: Double? = if case .number(let seconds) = payload["duration_s"], seconds.isFinite, seconds >= 0 { seconds } else { nil }
         if let index = toolSteps.firstIndex(where: { $0.id == id }) {
-            if completed { toolSteps[index].state = .completed }
+            if completed {
+                toolSteps[index].state = .completed
+                toolSteps[index].duration = took ?? toolSteps[index].startedAt.map { Date().timeIntervalSince($0) }
+            }
+            if toolSteps[index].context.isEmpty { toolSteps[index].context = preview }
         } else {
-            toolSteps.append(ToolStep(id: id, name: name, state: completed ? .completed : .running))
+            toolSteps.append(ToolStep(id: id, name: name, state: completed ? .completed : .running, context: preview,
+                                      duration: completed ? took : nil, startedAt: completed ? nil : Date()))
             if toolSteps.count > 40 { toolSteps.removeFirst(toolSteps.count - 40) }
         }
+    }
+
+    /// One readable line: no line breaks, at most 90 characters.
+    private static func preview(_ text: String) -> String {
+        let line = text.split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        return line.count > 90 ? String(line.prefix(89)) + "…" : line
     }
 
     private mutating func finishOpenTools() {
@@ -210,6 +304,13 @@ public struct Transcript: Sendable {
     /// is retained, rebuild that tail exactly. Otherwise overlap the retained delta suffix
     /// with the cumulative in-flight text. A completion always replaces the entire answer.
     public mutating func recover(_ payload: JSONValue, events: [JSONValue], latestSequence: Int) {
+        // The replay starts the tools over: each keeps the moment it really started, for its clock and its duration.
+        let started = Dictionary(toolSteps.compactMap { step in step.startedAt.map { (step.id, $0) } }, uniquingKeysWith: { first, _ in first })
+        defer {
+            for index in toolSteps.indices where toolSteps[index].startedAt != nil {
+                if let start = started[toolSteps[index].id] { toolSteps[index].startedAt = start }
+            }
+        }
         hydrate(payload)
         lastSequence = 0
         let ordered = events.sorted { $0["seq"].int < $1["seq"].int }

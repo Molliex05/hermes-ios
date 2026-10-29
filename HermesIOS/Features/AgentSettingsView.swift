@@ -131,6 +131,7 @@ private struct AgentSettingsRoot: View {
                         }.accessibilityIdentifier("settings-identity")
                     }
                 } footer: { Text("Ces réglages appartiennent à cet agent et sont enregistrés sur son serveur Hermes.").font(.footnote) }
+                AgentLookSection(profile: profile)
             }
             SettingsFeedback(store: store, placeholders: !search.isEmpty)
             if !search.isEmpty {

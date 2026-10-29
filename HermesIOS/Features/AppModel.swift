@@ -116,6 +116,8 @@ final class AppModel {
     var botMode = true
     var opening = false
     var sending = false
+    /// Changes when the chat should put the cursor in the composer (a notification opened the conversation).
+    var composerFocusRequest = UUID()
     var demo = false
     var hasBooted = false
     /// True until the saved connections are read: no onboarding flash on a cold start.
@@ -215,13 +217,30 @@ final class AppModel {
 
     /// Set by `hermesios://voice` (widget); the chat opens the voice sheet, also after a cold launch.
     var pendingVoiceLaunch = false
+    /// Requests from outside the app (widgets, Siri and Shortcuts, the share sheet), done one at a time (see LaunchRequests).
+    var launchQueue: [LaunchRequest] = []
+    @ObservationIgnored var launching = false
+    /// Share-sheet items already queued (they stay in the inbox until handled, so they must not be queued twice).
+    @ObservationIgnored var queuedShareIDs = Set<String>()
     @ObservationIgnored private var widgetRefreshedAt = Date.distantPast
     @ObservationIgnored private var widgetUnavailable = false
 
-    /// `hermesios://voice` opens a call; any other widget link just opens the app.
+    /// `hermesios://voice` opens a call, `open?profile=` the agent's chat, `ask?profile=&text=` fills its composer with a
+    /// sentence (a link never sends by itself); any other widget link just opens the app.
     func handle(url: URL) {
         guard url.scheme == "hermesios" else { return }
-        if url.host == "voice" { pendingVoiceLaunch = true }
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func value(_ name: String) -> String? { query.first { $0.name == name }?.value.flatMap { $0.isEmpty ? nil : $0 } }
+        switch url.host {
+        case "voice":
+            if let profile = value("profile") { enqueue(LaunchRequest(profile: profile, kind: .voice)) } else { pendingVoiceLaunch = true }
+        case "open":
+            if let profile = value("profile") { enqueue(LaunchRequest(profile: profile, kind: .open)) }
+        case "ask":
+            if let text = value("text") { enqueue(LaunchRequest(profile: value("profile"), kind: .ask(text: String(text.prefix(1_000)), send: false))) }
+        default:
+            break
+        }
     }
 
     /// Saves the Noriven snapshot for the widgets and asks WidgetKit to redraw. Best effort and quiet:
@@ -229,8 +248,12 @@ final class AppModel {
     func refreshWidgets(retryUnavailable: Bool = false) async {
         if retryUnavailable { widgetUnavailable = false }      // a new connection retries a plugin installed meanwhile
         guard !demo, !widgetUnavailable, let http, Date.now.timeIntervalSince(widgetRefreshedAt) > 15 * 60 else { return }
-        widgetRefreshedAt = .now
-        if await WidgetRefresh.run(using: http) == .unavailable { widgetUnavailable = true }
+        // The wait starts only once the boards are saved: a network blip does not block the next try for a quarter of an hour.
+        switch await WidgetRefresh.run(using: http) {
+        case .saved: widgetRefreshedAt = .now
+        case .unavailable: widgetUnavailable = true
+        case .failed: break
+        }
     }
 
     /// The connection is wanted while the app is visible or a voice call is running.
@@ -241,6 +264,8 @@ final class AppModel {
         hasBooted = true
         defer { notificationRoutingReady = true; booting = false }
         PushNotifications.shared.suppressesPresentation = { [weak self] envelope in self?.suppressesBanner(for: envelope) ?? false }
+        WidgetRefresh.removeOldFinanceSnapshot()
+        LaunchBridge.shared.attach { [weak self] request in self?.enqueue(request) }
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--demo") { loadDemo(); return }
         #endif
@@ -312,7 +337,31 @@ final class AppModel {
         navigationRevision = UUID()
         let row: JSONValue = ["id": .string(target.sessionID), "title": "Conversation"]
         await openConversation(Conversation(row, profile: target.profile))
-        if !Task.isCancelled { PushNotifications.shared.opened(target) }
+        guard !Task.isCancelled else { return }
+        if let reply = PushNotifications.shared.takeReply(for: target) { await sendNotificationReply(reply, target: target) }
+        else { composerFocusRequest = UUID() }         // ready to write: the keyboard opens on the conversation
+        PushNotifications.shared.opened(target)
+    }
+
+    /// The text typed on a notification's « Répondre » field goes to the conversation it came from, once that
+    /// conversation is open and idle. If it cannot be sent (agent still answering, connection down) it is left in the
+    /// composer, never lost and never sent to another conversation.
+    private func sendNotificationReply(_ text: String, target: NotificationTarget) async {
+        let previous = draft
+        for _ in 0..<40 {
+            if selected?.storedID == target.sessionID, state == .connected, !opening, !sending, !transcript.running { break }
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+        }
+        draft = text
+        if selected?.storedID == target.sessionID, canSend {
+            await send()
+            // Consumed: the reader's own draft comes back. Refused: the reply stays in front of them.
+            draft = draft.isEmpty ? previous : (previous.isEmpty ? draft : previous + "\n" + draft)
+        } else {
+            draft = previous.isEmpty ? text : previous + "\n" + text
+            notice = "Votre réponse est prête dans le champ : touchez Envoyer."
+            composerFocusRequest = UUID()
+        }
     }
 
     func addConnection(_ connection: SavedConnection, username: String, password: String, token: String) async throws {
@@ -352,6 +401,7 @@ final class AppModel {
         connectionGeneration = UUID(); selectionGeneration = UUID()
         let generation = connectionGeneration
         activeConnection = connection; demo = false; state = .connecting; routines = []
+        widgetRefreshedAt = .distantPast                      // another server: its boards, not the previous one's
         let ordered = [connection] + connections.filter { $0.id != connection.id }
         if ordered != connections { connections = ordered; try? await cache.save(connections, key: "connections") }
         guard generation == connectionGeneration else { return }
@@ -508,6 +558,8 @@ final class AppModel {
         guard generation == connectionGeneration, self.socket === socket else { return }
         guard case .array = result["profiles"] else { throw RPCFailure("Hermes a renvoyé une liste de profils invalide.") }
         profiles = result["profiles"].array.map(AgentProfile.init)
+        SharedProfiles.write(profiles.filter { $0.hidden != true }.map { SharedProfile(name: $0.name, title: $0.title) })
+        AgentShortcuts.updateAppShortcutParameters()          // Siri learns the agents' names
         let canonical = result["profiles"].array.compactMap { row -> Conversation? in
             let session = row["canonical_session"]
             guard !session["id"].string.isEmpty else { return nil }
@@ -599,7 +651,8 @@ final class AppModel {
         saveCurrent()
         let generation = UUID(); selectionGeneration = generation
         selected = cached ?? ChatSnapshot(storedID: conversation.id, profile: conversation.profile, title: title ?? conversation.title)
-        if let title { selected?.title = title }
+        // The server's title wins over the one kept on the phone: a conversation renamed elsewhere shows its new name.
+        if let title { selected?.title = title } else if conversation.title != "Nouvelle conversation" { selected?.title = conversation.title }
         profile = conversation.profile
         chatError = nil; conversationActivity.visit(profile: conversation.profile)
         transcript = Transcript(messages: selected?.messages ?? [], lastSequence: selected?.lastSequence ?? 0)
@@ -712,8 +765,29 @@ final class AppModel {
     func send() async {
         guard canSend else { return }
         chatError = nil
-        if demo { await demoReply(); return }
+        if demo { let text = draft; draft = ""; await demoReply(text); return }
         do { _ = try await submit(draft.trimmingCharacters(in: .whitespacesAndNewlines), consumeDraft: true) }
+        catch is CancellationError { }
+        catch {
+            if (error as? RPCFailure)?.sessionOwnedElsewhere == true || error.localizedDescription == RPCFailure.ownershipMessage { notice = error.localizedDescription }
+            else { chatError = error.localizedDescription }
+        }
+    }
+
+    /// Whether a card's quick reply can go now: Hermès connected and free, no voice call.
+    var canSendQuickReply: Bool {
+        !importingAttachments && !voiceActive && (state == .connected || demo) && !opening && !sending && !transcript.running
+            && (selected == nil || !(selected?.runtimeID.isEmpty ?? true) || demo)
+    }
+
+    /// A quick reply from a card, sent as its own message: the typed draft and its attachments stay where they are, and
+    /// the text is never read as a slash command.
+    func sendQuickReply(_ text: String) async {
+        let reply = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reply.isEmpty, canSendQuickReply else { return }
+        chatError = nil
+        if demo { await demoReply(reply); return }
+        do { _ = try await submit(reply, consumeDraft: false) }
         catch is CancellationError { }
         catch {
             if (error as? RPCFailure)?.sessionOwnedElsewhere == true || error.localizedDescription == RPCFailure.ownershipMessage { notice = error.localizedDescription }
@@ -932,6 +1006,7 @@ final class AppModel {
     }
 
     @discardableResult func answerClarification(_ text: String, request: JSONValue, qid: String? = nil) async -> Bool {
+        if demo { return true }                     // the preview has no server to lock answers with
         guard let socket else { return false }
         let generation = selectionGeneration
         do {
@@ -1354,11 +1429,26 @@ final class AppModel {
         }
         Keychain.delete(connection.id.uuidString)
         NotificationKeyStore.remove(for: connection.id)
+        // What the widgets, Siri and the share sheet knew of this server goes with it.
+        AgentBoardStore.clear(); BoardDismissals.clear(); SharedProfiles.write([]); widgetRefreshedAt = .distantPast
+        if connections.count <= 1 { ShareInbox.remove(ids: Set(ShareInbox.read().map(\.id))) }
+        WidgetCenter.shared.reloadAllTimelines()
         connections.removeAll { $0.id == connection.id }
         await cache.removeChats(connection: connection.id.uuidString)
         do { try await cache.remove(connection.id.uuidString); try await cache.remove(connection.id.uuidString + "-groups"); try await cache.save(connections, key: "connections") }
         catch { notice = error.localizedDescription }
     }
+
+    #if DEBUG
+    /// A run of about 8 km around Saint-Constant, as `[lat,lon]` pairs for the demo route card.
+    private static var demoLoop: String {
+        (0..<48).map { step -> String in
+            let angle = Double(step) / 47 * 2 * .pi
+            return String(format: "[%.5f,%.5f]", 45.3706 + 0.0105 * sin(angle) + 0.0012 * sin(angle * 3),
+                          -73.5653 + 0.016 * (1 - cos(angle)) + 0.0015 * sin(angle * 2))
+        }.joined(separator: ",")
+    }
+    #endif
 
     func loadDemo() {
         demo = true; state = .connected; hasBotProtocol = true
@@ -1372,6 +1462,238 @@ final class AppModel {
             .init(role: "user", text: "J’aimerais une journée un peu plus légère."),
             .init(role: "assistant", text: "On fait de la place.\n\nChoisis **une seule chose** qui rendrait ta journée satisfaisante. Le reste peut attendre.\n\nQu’est-ce qui compte le plus pour toi aujourd’hui ?")
         ]
+        #if DEBUG
+        // Every kind of rich card, to look at them (and for the UI tests).
+        if ProcessInfo.processInfo.arguments.contains("--demo-calendar") { Task { await CalendarLink.seedDemoEvent() } }
+        // The agent at work: tools done and running (`--demo-tools`).
+        if ProcessInfo.processInfo.arguments.contains("--demo-tools") {
+            transcript.messages.append(.init(role: "user", text: "Trouve-moi des maisons à Saint-Constant et vérifie mon agenda de jeudi."))
+            transcript.running = true
+            transcript.activity = "mcp__noriven__ops_get_host"
+            transcript.toolSteps = [
+                .init(id: "t1", name: "web_search", state: .completed, context: "maisons à vendre Saint-Constant moins de 500 000 $", duration: 1.8),
+                .init(id: "t2", name: "web_extract", state: .completed, context: "centris.ca/fr/maison~a-vendre~saint-constant", duration: 3.4),
+                .init(id: "t3", name: "agenda_lister", state: .completed, context: "jeudi 29 octobre · tous les agendas", duration: 0.6),
+                .init(id: "t4", name: "mcp__noriven__ops_get_host", state: .running, startedAt: Date().addingTimeInterval(-2))
+            ]
+        }
+        // The agent asks a few questions, one at a time (`choices` with `questions`).
+        if ProcessInfo.processInfo.arguments.contains("--demo-questions") {
+            let fence = "```"
+            transcript.messages = [
+                .init(role: "user", text: "Aide-moi à chercher une maison."),
+                .init(role: "assistant", text: """
+                Avec plaisir. Trois questions pour bien cibler :
+
+                \(fence)ui
+                {"type":"choices","questions":[
+                {"prompt":"Quel budget maximum ?","options":[{"label":"450 000 $","detail":"Maisons à rafraîchir, terrains plus petits","icon":"dollarsign.circle"},{"label":"500 000 $","detail":"Le gros de l’offre à Saint-Constant","icon":"house"},{"label":"550 000 $","detail":"Plus récent, garage double","icon":"sparkles"}]},
+                {"prompt":"Quels secteurs ?","multiple":true,"options":["Saint-Constant","Delson","Candiac","La Prairie"]},
+                {"prompt":"Le plus important ?","options":[{"label":"Un grand terrain","icon":"leaf"},{"label":"Un garage","icon":"car"},{"label":"Près de l’autoroute 30","icon":"road.lanes"}]}]}
+                \(fence)
+                """)
+            ]
+        }
+        // Hermes' own clarification request (its `clarify` tool), several questions.
+        if ProcessInfo.processInfo.arguments.contains("--demo-clarify") {
+            transcript.clarification = .object([
+                "rpc_id": "demo", "request_id": "demo-clarify",
+                "questions": .array([
+                    .object(["qid": "q1", "question": "Pour le souper de vendredi, je réserve où ?", "choices": .array(["Chez Julie", "Au restaurant", "On reste à la maison"])]),
+                    .object(["qid": "q2", "question": "Pour combien de personnes ?", "choices": .array(["2", "4", "6"])])
+                ])
+            ])
+        }
+        if ProcessInfo.processInfo.arguments.contains("--demo-cards") {
+            let fence = "```"
+            transcript.messages = [
+                .init(role: "user", text: "Trouve-moi des maisons à Saint-Constant sous 500 000 $"),
+                .init(role: "assistant", text: """
+                J’ai trouvé quatre maisons qui collent à ton budget. La deuxième a le plus grand terrain.
+
+                \(fence)ui
+                {"type":"carousel","title":"Maisons à vendre · Saint-Constant","items":[
+                {"title":"Cottage rénové, 3 chambres","subtitle":"Rue des Érables · garage double","price":"479 000 $","image":"https://picsum.photos/seed/maison-erables/600/400","url":"https://www.apple.com","badges":["3 ch.","2 sdb","Garage"]},
+                {"title":"Plain-pied avec grand terrain","subtitle":"Montée Saint-Régis · 9 800 pi²","price":"449 900 $","image":"https://picsum.photos/seed/maison-terrain/600/400","url":"https://www.apple.com","badges":["3 ch.","1 sdb"]},
+                {"title":"Jumelé récent","subtitle":"Secteur Le Petit-Village","price":"499 000 $","image":"https://picsum.photos/seed/maison-jumele/600/400","url":"https://www.apple.com","badges":["4 ch.","2 sdb"],"rating":4.6},
+                {"title":"Bungalow à rafraîchir","subtitle":"Près de la gare · idéal premier achat","price":"399 000 $","image":"https://picsum.photos/seed/maison-bungalow/600/400","url":"https://www.apple.com","badges":["2 ch.","1 sdb"]}]}
+                \(fence)
+
+                \(fence)ui
+                {"type":"choices","options":["Planifie des visites","Seulement avec garage","Élargis à Candiac"]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Un bon barbier près de chez moi ?"),
+                .init(role: "assistant", text: """
+                Trois barbiers bien notés à moins de 10 minutes :
+
+                \(fence)ui
+                {"type":"places","title":"Barbiers près de Saint-Constant","items":[
+                {"name":"Barbier du Village","address":"Rue Saint-Pierre, Saint-Constant","lat":45.3706,"lon":-73.5653,"note":"Sans rendez-vous le samedi","phone":"450 555 0101"},
+                {"name":"Studio Coupe Delson","address":"Boulevard Georges-Gagné, Delson","lat":45.3727,"lon":-73.5466,"note":"Ouvert jusqu’à 20 h"},
+                {"name":"La Lame Candiac","address":"Chemin Saint-François-Xavier, Candiac","lat":45.3836,"lon":-73.5199,"note":"Réservation en ligne"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Il fera quoi cette semaine ?"),
+                .init(role: "assistant", text: """
+                Frais et assez ensoleillé, avec de la pluie jeudi.
+
+                \(fence)ui
+                {"type":"weather","place":"Saint-Constant","now":{"temp":7,"condition":"Partiellement nuageux","feels":4},"days":[
+                {"day":"Mer","high":9,"low":2,"condition":"Soleil"},{"day":"Jeu","high":8,"low":4,"condition":"Pluie"},
+                {"day":"Ven","high":11,"low":3,"condition":"Nuageux"},{"day":"Sam","high":13,"low":5,"condition":"Ensoleillé"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Où en est Noriven ce mois-ci ?"),
+                .init(role: "assistant", text: """
+                Un bon mois : le revenu monte et les dépenses restent stables.
+
+                \(fence)ui
+                {"type":"metrics","title":"Noriven · octobre","items":[{"label":"Revenu","value":"12 400 $","delta":"+8 %"},{"label":"Dépenses","value":"4 150 $","delta":"+1 %","trend":"flat"},{"label":"Profit","value":"8 250 $","delta":"+12 %"},{"label":"MRR","value":"3 900 $","delta":"-2 %"}]}
+                \(fence)
+                """),
+                .init(role: "assistant", text: """
+                Résumé du jour : quart de jour jusqu’à 15 h, barbier à 17 h, ciel gris et 7°. Hier, protéines un peu basses.
+
+                \(fence)ui
+                {"type":"brief","greeting":"Bonjour Maxime","date":"Jeudi 29 octobre","weather":{"temp":7,"condition":"Nuageux","high":9,"low":2},
+                "sections":[{"kind":"agenda","title":"Aujourd’hui","items":[{"time":"06:45","text":"Quart de jour","detail":"jusqu’à 15 h"},{"time":"17:00","text":"Barbier du Village"},{"time":"18:30","text":"Souper chez Julie"}]},
+                {"kind":"training","items":[{"text":"Pull · dos et biceps","detail":"45 min"}]},
+                {"kind":"nutrition","text":"Hier : 2 150 kcal sur 2 400 et 128 g de protéines sur 160. Vise un dîner riche en protéines."},
+                {"kind":"email","items":[{"text":"Facture AWS d’octobre","detail":"84,20 $","reply":"Montre-moi la facture AWS"},{"text":"2 courriels classés dans Infolettres"}]},
+                {"kind":"news","items":[{"titre":"Pont Mercier, Jacques-Cartier : nos ponts arrivent-ils en fin de vie?","source":"Le Reflet","url":"https://www.lereflet.qc.ca/","il_y_a":"il y a 4 h"},
+                {"titre":"iPhone Duo could capture nearly 30% of foldable market in 2027","source":"9to5Mac","url":"https://9to5mac.com/","image":"https://picsum.photos/seed/iphone-duo/300/300","il_y_a":"il y a 45 min"}]}],
+                "focus":"Une seule chose : 20 minutes de mobilité après le quart."}
+                \(fence)
+                """),
+                .init(role: "user", text: "Quoi de neuf dans les nouvelles ?"),
+                .init(role: "assistant", text: """
+                Trois titres ce soir, dont un près de chez toi.
+
+                \(fence)ui
+                {"type":"news","title":"À la une","items":[
+                {"titre":"Pont Mercier, Jacques-Cartier : nos ponts arrivent-ils en fin de vie?","source":"Le Reflet","url":"https://www.lereflet.qc.ca/","image":"https://picsum.photos/seed/pont-mercier/800/450","il_y_a":"il y a 4 h"},
+                {"titre":"Ottawa instaure de nouvelles amendes visant les conseils frauduleux","source":"Le Devoir","url":"https://www.ledevoir.com/","il_y_a":"il y a 49 min"},
+                {"titre":"iPhone Duo could capture nearly 30% of foldable market in 2027","source":"9to5Mac","url":"https://9to5mac.com/","image":"https://picsum.photos/seed/iphone-duo/300/300","il_y_a":"il y a 45 min"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Et le MRR de Glutax sur six mois ?"),
+                .init(role: "assistant", text: """
+                Il monte depuis mai ; l’objectif de 4 000 $ est en vue.
+
+                \(fence)ui
+                {"type":"chart","title":"MRR Glutax","unit":"$","value":"3 900 $","delta":"+22 %","goal":4000,"points":[{"label":"mai","value":3200},{"label":"juin","value":3350},{"label":"juil.","value":3300},{"label":"août","value":3550},{"label":"sept.","value":3720},{"label":"oct.","value":3900}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "État du VPS ?"),
+                .init(role: "assistant", text: """
+                Tout tourne normalement. Seul le contrôle des sauvegardes ne répond pas : il cherche encore sur Google Drive.
+
+                \(fence)ui
+                {"type":"status","title":"noriven-prod","subtitle":"En ligne depuis 7 j 22 h · 14 conteneurs","gauges":[{"label":"CPU","value":9,"unit":"%"},{"label":"Mémoire","value":2.1,"max":7.8,"unit":"Go"},{"label":"Disque","value":27.6,"max":115,"unit":"Go"}],
+                "items":[{"name":"Noriven","state":"ok","detail":"4 services"},{"name":"Glutax","state":"ok","detail":"3 services"},{"name":"Minori","state":"ok","detail":"2 services"},{"name":"Authentification","state":"ok","detail":"3 services"},{"name":"Sauvegardes","state":"unknown","detail":"Contrôle absent"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Mes dépenses d’octobre ?"),
+                .init(role: "assistant", text: """
+                Six dépenses ce mois-ci, surtout l’hébergement.
+
+                \(fence)ui
+                {"type":"list","title":"Dépenses · octobre","items":[
+                {"title":"AWS","subtitle":"Hébergement · 12 oct.","value":"84,20 $","icon":"server.rack","tone":"negative","reply":"Détaille la facture AWS"},
+                {"title":"Hetzner","subtitle":"Serveur de prod · 1 oct.","value":"62,00 $","icon":"cpu","tone":"negative"},
+                {"title":"Apple Developer","subtitle":"Abonnement annuel","value":"129,00 $","icon":"apple.logo","badge":"Annuel","tone":"warning"},
+                {"title":"Figma","subtitle":"Design · 5 oct.","value":"20,00 $","icon":"paintpalette","tone":"negative"},
+                {"title":"Google Workspace","subtitle":"Courriels · 3 oct.","value":"8,40 $","icon":"envelope","tone":"negative"},
+                {"title":"Remboursement Stripe","subtitle":"Frais corrigés","value":"+12,00 $","icon":"arrow.uturn.backward","tone":"positive"},
+                {"title":"Domaine noriven.com","subtitle":"Renouvellement","value":"24,99 $","icon":"globe","tone":"negative"}],
+                "total":{"label":"Total du mois","value":"316,59 $"}}
+                \(fence)
+                """),
+                .init(role: "user", text: "Il me reste combien pour aujourd’hui ?"),
+                .init(role: "assistant", text: """
+                Il te reste 550 kcal et 40 g de protéines : un souper riche en protéines ferait la job.
+
+                \(fence)ui
+                {"type":"progress","title":"Aujourd’hui","items":[{"label":"Calories","value":1850,"goal":2400,"unit":"kcal"},{"label":"Protéines","value":120,"goal":160,"unit":"g"},{"label":"Glucides","value":190,"goal":260,"unit":"g"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "C’est quoi ma journée demain ?"),
+                .init(role: "assistant", text: """
+                Quart de jour, puis le barbier et un souper. Tu as une pause libre en fin de journée.
+
+                \(fence)ui
+                {"type":"agenda","title":"Jeudi 29 octobre","items":[
+                {"title":"Quart de jour","start":"2026-10-29T06:45","end":"2026-10-29T15:00","calendar":"Travail","location":"Poste de quartier"},
+                {"title":"Barbier du Village","start":"2026-10-29T17:00","end":"2026-10-29T17:45","calendar":"Personnel","location":"Rue Saint-Pierre"},
+                {"title":"Souper chez Julie","start":"2026-10-29T18:30","end":"2026-10-29T21:00","calendar":"Famille"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Ma séance d’hier ?"),
+                .init(role: "assistant", text: """
+                Belle séance : record au développé couché.
+
+                \(fence)ui
+                {"type":"workout","title":"Push · pectoraux","subtitle":"Mardi · 52 min","stats":[{"label":"Volume","value":"8 450 kg"},{"label":"Séries","value":"18"},{"label":"Durée","value":"52 min"}],
+                "exercises":[{"name":"Développé couché","sets":"4 × 8","weight":"82,5 kg","done":true,"note":"Record"},{"name":"Développé incliné haltères","sets":"3 × 10","weight":"30 kg","done":true},{"name":"Dips lestés","sets":"3 × 8","weight":"+10 kg","done":true},{"name":"Écarté à la poulie","sets":"3 × 12","weight":"15 kg","done":false}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Et ma course de ce matin ?"),
+                .init(role: "assistant", text: """
+                8,2 km à 5:02 du kilomètre, ton meilleur temps sur ce parcours.
+
+                \(fence)ui
+                {"type":"route","title":"Course du matin","stats":[{"label":"Distance","value":"8,2 km"},{"label":"Allure","value":"5:02 /km"},{"label":"Durée","value":"41:20"}],"points":[\(Self.demoLoop)]}
+                \(fence)
+
+                \(fence)ui
+                {"type":"chart","title":"Kilomètres par semaine","style":"bar","unit":"km","delta":"+14 %","points":[{"label":"S38","value":18},{"label":"S39","value":22},{"label":"S40","value":15},{"label":"S41","value":24},{"label":"S42","value":21},{"label":"S43","value":26}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Ajoute le barbier jeudi à 17 h"),
+                .init(role: "assistant", text: """
+                C’est noté dans ton agenda Personnel, sans conflit avec ton quart.
+
+                \(fence)ui
+                {"type":"event","title":"Barbier du Village","start":"2026-10-29T17:00","end":"2026-10-29T17:45","location":"Rue Saint-Pierre, Saint-Constant","calendar":"Personnel"}
+                \(fence)
+                """),
+                .init(role: "user", text: "Et l’annonce d’Apple ?"),
+                .init(role: "assistant", text: """
+                Tout est ici : https://www.apple.com/newsroom/
+
+                \(fence)ui
+                {"type":"choices","options":["Résume-la","Autre chose"]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Merci"),
+                // The last reply holds a card and a link preview: it must stay reachable (VoiceOver, UI tests).
+                .init(role: "assistant", text: """
+                Avec plaisir. Le résumé complet est ici : https://www.apple.com/newsroom/
+
+                \(fence)ui
+                {"type":"choices","options":["Bonne soirée","Un dernier truc"]}
+                \(fence)
+                """)
+            ]
+        }
+        #endif
+        #if DEBUG
+        // A long history of rows with very different heights (headings, lists, code), like a real conversation.
+        if ProcessInfo.processInfo.arguments.contains("--demo-long-history") {
+            var many: [ChatMessage] = []
+            for index in 0..<120 {
+                many.append(.init(role: "user", text: String(repeating: "Question \(index) ", count: 1 + index % 5)))
+                let body = (0..<(1 + index % 6)).map { part in
+                    "Paragraphe \(part) de la réponse \(index). " + String(repeating: "Un peu de texte pour varier la hauteur. ", count: 1 + (part + index) % 4)
+                }.joined(separator: "\n\n")
+                let list = index % 3 == 0 ? "\n\n- point un\n- point deux\n- point trois" : ""
+                let code = index % 4 == 0 ? "\n\n```\nlet valeur = \(index)\nprint(valeur)\n```" : ""
+                many.append(.init(role: "assistant", text: "## Réponse \(index)\n\n" + body + list + code))
+            }
+            transcript.messages = many
+        }
+        #endif
         sessions = []
         // Preview history uses the same rows and navigation as a connected profile.
         for agent in profiles {
@@ -1413,10 +1735,17 @@ final class AppModel {
         }
     }
 
-    private func demoReply() async {
-        let text = draft; draft = ""
+    private func demoReply(_ text: String) async {
+        #if DEBUG
+        // Emulates the network round trip before a real message shows up (session creation, persistence).
+        if ProcessInfo.processInfo.arguments.contains("--demo-slow-send") { try? await Task.sleep(for: .milliseconds(220)) }
+        #endif
         transcript.messages.append(.init(role: "user", text: text))
         transcript.running = true
+        #if DEBUG
+        // Keeps the reply running long enough to look at the header's working state.
+        if ProcessInfo.processInfo.arguments.contains("--demo-long-reply") { try? await Task.sleep(for: .seconds(12)) }
+        #endif
         for word in "Ceci est un aperçu d’Hermès iOS. Connectez votre agent Hermes pour retrouver vos conversations, vos profils et vos outils.".split(separator: " ") {
             try? await Task.sleep(for: .milliseconds(60))
             transcript.apply(["type": "message.delta", "payload": ["text": .string(String(word) + " ")]])

@@ -10,6 +10,18 @@ _spec = importlib.util.spec_from_file_location("hermes_widgets_snapshot", Path(_
 snapshot_module = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = snapshot_module
 _spec.loader.exec_module(snapshot_module)
+_agenda_spec = importlib.util.spec_from_file_location("hermes_widgets_agenda", Path(__file__).resolve().parent.parent / "agenda.py")
+agenda_module = importlib.util.module_from_spec(_agenda_spec)
+sys.modules[_agenda_spec.name] = agenda_module
+_agenda_spec.loader.exec_module(agenda_module)
+_board_spec = importlib.util.spec_from_file_location("hermes_widgets_board", Path(__file__).resolve().parent.parent / "board.py")
+board_module = importlib.util.module_from_spec(_board_spec)
+sys.modules[_board_spec.name] = board_module
+_board_spec.loader.exec_module(board_module)
+_weather_spec = importlib.util.spec_from_file_location("hermes_widgets_weather", Path(__file__).resolve().parent.parent / "weather.py")
+weather_module = importlib.util.module_from_spec(_weather_spec)
+sys.modules[_weather_spec.name] = weather_module
+_weather_spec.loader.exec_module(weather_module)
 log = logging.getLogger("hermes_widgets")
 
 router = APIRouter()
@@ -27,3 +39,11 @@ async def get_snapshot():
     except Exception as error:      # never forward upstream text
         log.warning("Widget snapshot unavailable (%s)", type(error).__name__)
         raise HTTPException(503, "Les chiffres Noriven sont momentanément indisponibles.") from None
+
+
+@router.get("/board")
+def get_board():
+    """Every agent's « À l'affiche » board (written by the agents themselves) and, for profiles with Google, the next events
+    straight from the calendar, and the weather of the place, for the iPhone widget. A plain `def`: the Google and weather calls
+    block, FastAPI runs it in a thread."""
+    return weather_module.with_weather(board_module.with_agendas(board_module.load_all(), source=agenda_module.upcoming))

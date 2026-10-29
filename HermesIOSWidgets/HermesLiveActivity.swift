@@ -14,7 +14,7 @@ struct HermesLiveActivity: Widget {
                 .widgetURL(URL(string: context.attributes.kind == "call" ? "hermesios://voice" : "hermesios://open"))
         } dynamicIsland: { context in
             DynamicIsland {
-                DynamicIslandExpandedRegion(.leading) { ActivityOrb(state: context.state, size: 44).padding(.leading, 4) }
+                DynamicIslandExpandedRegion(.leading) { ActivityOrb(state: context.state, profile: context.attributes.profile, size: 44).padding(.leading, 4) }
                 DynamicIslandExpandedRegion(.trailing) { ActivityClock(state: context.state).padding(.trailing, 6) }
                 DynamicIslandExpandedRegion(.center) {
                     VStack(spacing: 1) {
@@ -24,13 +24,13 @@ struct HermesLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) { ActivityButtons(kind: context.attributes.kind, state: context.state, stale: context.isStale).padding(.top, 6) }
             } compactLeading: {
-                ActivityOrb(state: context.state, size: 22)
+                ActivityOrb(state: context.state, profile: context.attributes.profile, size: 22)
             } compactTrailing: {
                 if context.state.isFinished { Image(systemName: "checkmark").font(.caption.weight(.bold)).foregroundStyle(ActivityStyle.accent) }
                 else if context.state.muted { Image(systemName: "mic.slash.fill").font(.caption).foregroundStyle(ActivityStyle.accent) }
                 else { ActivityClock(state: context.state).frame(maxWidth: 46) }
             } minimal: {
-                ActivityOrb(state: context.state, size: 20)
+                ActivityOrb(state: context.state, profile: context.attributes.profile, size: 20)
             }
             .keylineTint(ActivityStyle.accent)
         }
@@ -56,13 +56,17 @@ private enum ActivityStyle {
     }
 }
 
-/// The app's orb, still: Live Activities redraw only when their state changes.
+/// The app's orb, still: Live Activities redraw only when their state changes. Drawn as a small mark (filling its frame)
+/// in its dark colours, since the activity's background is always dark.
 private struct ActivityOrb: View {
     let state: HermesActivityAttributes.ContentState
+    /// The agent's own illustration (its standard look: the widgets do not see choices made in the app).
+    let profile: String
     let size: CGFloat
     var body: some View {
         ZStack {
-            OrbView(phase: ActivityStyle.orbPhase(state), animated: false).frame(width: size, height: size)
+            OrbView(phase: ActivityStyle.orbPhase(state), animated: false, look: .standard(for: profile), compact: true)
+                .environment(\.colorScheme, .dark).frame(width: size, height: size)
             if state.muted {
                 Image(systemName: "mic.slash.fill").font(.system(size: size * 0.34, weight: .bold)).foregroundStyle(.white)
                     .shadow(color: .black.opacity(0.4), radius: 2)
@@ -126,7 +130,7 @@ private struct LockScreenActivity: View {
     var body: some View {
         VStack(spacing: 12) {
             HStack(spacing: 12) {
-                ActivityOrb(state: context.state, size: 50)
+                ActivityOrb(state: context.state, profile: context.attributes.profile, size: 50)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(context.state.title).font(.headline).foregroundStyle(.white).lineLimit(1)
                     Text(context.isStale && context.attributes.kind == "call" ? "Appel interrompu" : context.state.detail).font(.subheadline).foregroundStyle(ActivityStyle.detailColor(context.state)).lineLimit(1)

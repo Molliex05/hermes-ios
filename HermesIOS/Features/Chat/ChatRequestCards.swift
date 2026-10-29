@@ -144,8 +144,6 @@ struct CredentialCard: View, Equatable {
 struct ClarificationCard: View, Equatable {
     let payload: JSONValue
     let model: AppModel
-    @State private var answers: [String: String] = [:]
-    @State private var selections: [String: Set<String>] = [:]
     @State private var busy = false
     @State private var answered = Set<String>()
 
@@ -172,41 +170,23 @@ struct ClarificationCard: View, Equatable {
     static func hasPendingQuestions(_ payload: JSONValue) -> Bool { !pendingQuestions(payload).isEmpty }
 
     var body: some View {
-        let visible = Self.pendingQuestions(payload).filter { !answered.contains($0.id) }
-        // Locally answered questions disappear at once; no empty card while the sync catches up.
-        if !visible.isEmpty {
-            VStack(alignment: .leading, spacing: 14) {
-                Label("À vous de choisir", systemImage: "bubble.left.and.text.bubble.right").font(.subheadline.weight(.semibold))
-                ForEach(visible) { question($0) }
-                Button("Ne pas répondre") {
-                    busy = true
-                    Task { _ = await model.dismissClarification(request: payload); busy = false }
-                }.font(.caption).disabled(busy)
-            }.hermesCard()
-        }
-    }
-
-    @ViewBuilder private func question(_ q: Question) -> some View {
-        Text(q.question).font(.subheadline)
-        let key = q.id
-        ForEach(Array(q.choices.enumerated()), id: \.offset) { _, choice in
-            Button {
-                if q.multiSelect {
-                    if selections[key, default: []].contains(choice) { selections[key]?.remove(choice) }
-                    else { selections[key, default: []].insert(choice) }
-                } else { respond(choice, to: q) }
-            } label: {
-                HStack { Text(choice); if selections[key, default: []].contains(choice) { Image(systemName: "checkmark") } }
-            }.buttonStyle(AppBorderedButtonStyle()).disabled(busy)
-        }
-        HStack {
-            TextField("Votre réponse…", text: Binding(get: { answers[key] ?? "" }, set: { answers[key] = $0 })).textFieldStyle(.roundedBorder)
-            Button {
-                let selected = q.choices.filter { selections[key, default: []].contains($0) }
-                respond((selected + [answers[key] ?? ""]).filter { !$0.isEmpty }.joined(separator: ", "), to: q)
-            } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }
-                .accessibilityLabel("Répondre")
-                .disabled(((answers[key] ?? "").isEmpty && selections[key, default: []].isEmpty) || busy)
+        let pending = Self.pendingQuestions(payload).filter { !answered.contains($0.id) }
+        let total = max(payload["questions"].array.count, pending.count)
+        // One question at a time; an answered one gives way to the next at once, no empty card while the sync catches up.
+        if let question = pending.first {
+            QuestionStep(prompt: question.question,
+                         options: question.choices.enumerated().map { ChatCard.Option(id: $0.offset, label: $0.element, reply: $0.element, detail: "", icon: "") },
+                         multiple: question.multiSelect, allowsOther: true,
+                         position: total > 1 ? (total - pending.count, total) : nil, enabled: !busy, finishLabel: "Répondre",
+                         answer: { respond($0, to: question) },
+                         // Hermes takes one answer for the whole request: skipping drops every question left.
+                         skip: (label: total > 1 ? "Ignorer ces questions" : "Ne pas répondre", action: {
+                             busy = true
+                             Task { _ = await model.dismissClarification(request: payload); busy = false }
+                         }))
+                .id(question.id)
+                .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity), removal: .move(edge: .leading).combined(with: .opacity)))
+                .accessibilityIdentifier("clarification-card")
         }
     }
 
@@ -214,8 +194,7 @@ struct ClarificationCard: View, Equatable {
         busy = true
         Task {
             if await model.answerClarification(text, request: payload, qid: q.id) {
-                answered.insert(q.id)
-                answers[q.id] = ""; selections[q.id] = []
+                _ = withAnimation(.snappy(duration: 0.35)) { answered.insert(q.id) }
             }
             busy = false
         }

@@ -14,12 +14,13 @@ struct ComposerState: Equatable {
     var voiceDisabled = false
     var attachDisabled = false
     var attachOpen = false
+    var focused = false
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.running == rhs.running && lhs.canSend == rhs.canSend && lhs.sending == rhs.sending
             && lhs.importing == rhs.importing && lhs.chatError == rhs.chatError && lhs.hasUnread == rhs.hasUnread
             && lhs.agentName == rhs.agentName && lhs.agentTitle == rhs.agentTitle
-            && lhs.voiceDisabled == rhs.voiceDisabled && lhs.attachDisabled == rhs.attachDisabled && lhs.attachOpen == rhs.attachOpen
+            && lhs.voiceDisabled == rhs.voiceDisabled && lhs.attachDisabled == rhs.attachDisabled && lhs.attachOpen == rhs.attachOpen && lhs.focused == rhs.focused
             && lhs.attachments.map(\.id) == rhs.attachments.map(\.id) && lhs.attachments.map(\.name) == rhs.attachments.map(\.name)
     }
 }
@@ -49,7 +50,8 @@ struct ChatComposerContainer: View {
             agentTitle: model.agent?.title ?? "Hermes",
             voiceDisabled: model.sending || model.opening || running || (!model.demo && model.state != .connected),
             attachDisabled: model.sending || model.importingAttachments || attachments.count >= 4,
-            attachOpen: attachOpen
+            attachOpen: attachOpen,
+            focused: focused.wrappedValue
         )
         ChatComposer(model: model, state: state, focused: focused, attachOpen: $attachOpen, present: present,
                      attach: attach, willSend: willSend).equatable()
@@ -120,8 +122,10 @@ struct ChatComposer: View, Equatable {
                 }
             }.padding(.horizontal, 6).padding(.vertical, 4)
                 .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(AppTheme.line))
-                .shadow(color: .black.opacity(0.06), radius: 18, y: 5)
+                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(state.focused ? AppTheme.accent.opacity(0.55) : AppTheme.line, lineWidth: state.focused ? 1.4 : 1))
+                .softShadow(1.2)
+                .shadow(color: AppTheme.accent.opacity(state.focused ? 0.16 : 0), radius: 14)
+                .animation(.easeOut(duration: 0.22), value: state.focused)
                 .animation(.spring(response: 0.32, dampingFraction: 0.82), value: showsSend)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("composer-surface")

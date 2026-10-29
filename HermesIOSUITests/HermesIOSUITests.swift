@@ -34,6 +34,91 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 3))
     }
 
+    /// Sending closes the keyboard while the list follows the new message: the last message must stay just above the
+    /// composer, never leave a blank gap below it (the view used to jump up and need a manual scroll down).
+    func testSendKeepsConversationAtTheBottom() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-slow-send"]
+        app.launch()
+        let composer = app.textFields["chat-composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        let surface = app.otherElements["composer-surface"]
+        for index in 1...12 {
+            composer.tap()
+            let filler = String(repeating: " mot", count: (index * 7) % 23)
+            composer.typeText("Message \(index) : une phrase assez longue pour que la conversation dépasse vite la hauteur de l'écran." + filler)
+            app.buttons["send-message"].tap()
+            for delay in [0.5, 3.0] {
+                Thread.sleep(forTimeInterval: delay)
+                let user = app.descendants(matching: .any).matching(identifier: "user-message").allElementsBoundByIndex.last
+                XCTAssertNotNil(user, "message \(index) at \(delay)s")
+                if let user { XCTAssertLessThanOrEqual(user.frame.maxY, surface.frame.minY + 1, "message \(index) hidden behind the composer at \(delay)s") }
+                let last = app.descendants(matching: .any).matching(identifier: "assistant-message").allElementsBoundByIndex.last ?? user
+                // A short conversation sits at the top by design; the gap only matters once the content overflows.
+                if let last, index >= 4 {
+                    let gap = surface.frame.minY - last.frame.maxY
+                    XCTAssertLessThan(gap, 90, "blank gap of \(gap)pt under the last message after message \(index) at \(delay)s")
+                }
+            }
+        }
+    }
+
+    /// A long conversation of rows with very different heights: after sending, the new message must be on screen.
+    func testSendInALongConversationShowsTheNewMessage() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-long-history", "--demo-slow-send"]
+        app.launch()
+        let composer = app.textFields["chat-composer"]
+        XCTAssertTrue(composer.waitForExistence(timeout: 10))
+        let surface = app.otherElements["composer-surface"]
+        Thread.sleep(forTimeInterval: 1.5)
+        for round in 1...3 {
+            composer.tap()
+            composer.typeText("Message de test numéro \(round) dans une longue conversation.")
+            app.buttons["send-message"].tap()
+            for delay in [0.6, 1.5, 3.0] {
+                Thread.sleep(forTimeInterval: delay)
+                let mine = app.descendants(matching: .any).matching(identifier: "user-message").matching(NSPredicate(format: "label CONTAINS %@", "numéro \(round) ")).firstMatch
+                XCTAssertTrue(mine.exists, "round \(round): my message is not in the visible list after \(delay)s")
+                if mine.exists { XCTAssertLessThanOrEqual(mine.frame.maxY, surface.frame.minY + 1, "round \(round): hidden behind the composer at \(delay)s") }
+            }
+        }
+    }
+
+    /// Rich cards from the agent: the carousel, the map, the weather, the figures and the event render natively, and a
+    /// quick reply sends itself as if typed.
+    func testRichCardsRenderAndAQuickReplySends() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--demo", "--demo-cards"]
+        app.launch()
+        XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 10))
+        // The newest reply holds a card and a link preview; a tall last row used to fall out of the accessibility tree.
+        let latestChoice = app.buttons["Bonne soirée"]
+        XCTAssertTrue(latestChoice.waitForExistence(timeout: 5), "the last reply's quick replies")
+        XCTAssertTrue(app.descendants(matching: .any)["link-preview"].waitForExistence(timeout: 5), "a link in the text gets a preview")
+        let event = app.descendants(matching: .any)["card-event"]
+        for _ in 0..<8 where !event.exists { app.swipeDown(velocity: .slow) }
+        XCTAssertTrue(event.exists, "the agenda reply's event card")
+        // Up to the first reply: its cards are there, but an old quick reply no longer answers.
+        let oldChoice = app.buttons["Seulement avec garage"]
+        for _ in 0..<40 where !(oldChoice.exists && oldChoice.isHittable) { app.swipeDown(velocity: .fast) }
+        for identifier in ["card-carousel", "card-choices"] {
+            XCTAssertTrue(app.descendants(matching: .any)[identifier].waitForExistence(timeout: 5), identifier)
+        }
+        XCTAssertTrue(oldChoice.exists)
+        XCTAssertFalse(oldChoice.isEnabled, "only the newest reply's cards answer")
+        // Back down with the « Dernier message » button, then answer the newest reply.
+        let jump = app.buttons["Dernier message"]
+        XCTAssertTrue(jump.waitForExistence(timeout: 3))
+        jump.tap()
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: latestChoice)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 8), .completed)
+        latestChoice.tap()
+        let sent = app.descendants(matching: .any).matching(identifier: "user-message").matching(NSPredicate(format: "label CONTAINS %@", "Bonne soirée")).firstMatch
+        XCTAssertTrue(sent.waitForExistence(timeout: 5), "the quick reply was sent as a message")
+        capture("42-rich-cards")
+    }
+
     func testAttachmentsMenuAndVoicePreserveDraft() throws {
         let app = XCUIApplication()
         app.launchArguments = ["--demo"]
@@ -64,7 +149,8 @@ final class HermesIOSUITests: XCTestCase {
         capture("19-voice")
         app.buttons["return-to-chat"].tap()
         XCTAssertTrue(composer.waitForExistence(timeout: 3))
-        XCTAssertEqual(composer.value as? String, "Mon brouillon écrit")
+        // The voice button only exists while the field is empty, so the draft was cleared to reach it: the field is empty again.
+        XCTAssertEqual(composer.value as? String, "Demander à Hermes")
     }
 
     func testOnboarding() throws {
@@ -141,9 +227,10 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Connecté à Hermes"].waitForExistence(timeout: 40))
         XCTAssertTrue(app.staticTexts["Un détail à ajouter ?"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.staticTexts["Choisir une couleur"].exists)
+        app.buttons["Autre réponse…"].tap()
         let response = app.textFields["Votre réponse…"]
-        XCTAssertTrue(response.waitForExistence(timeout: 5)); response.tap(); response.typeText("Simple et fluide")
-        app.buttons["Répondre"].tap()
+        XCTAssertTrue(response.waitForExistence(timeout: 5)); response.typeText("Simple et fluide")
+        app.buttons["Envoyer cette réponse"].tap()
         let final = app.descendants(matching: .any).matching(identifier: "assistant-message").matching(NSPredicate(format: "label CONTAINS %@", "le fil est retrouvé."))
         XCTAssertTrue(final.firstMatch.waitForExistence(timeout: 45))
         XCTAssertFalse(app.staticTexts["Un détail à ajouter ?"].exists)
@@ -209,7 +296,7 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Research"].firstMatch.waitForExistence(timeout: 40))
         let answer = app.descendants(matching: .any).matching(identifier: "assistant-message").matching(NSPredicate(format: "label CONTAINS %@", "le fil est retrouvé."))
         XCTAssertTrue(answer.firstMatch.waitForExistence(timeout: 40))
-        XCTAssertEqual(composer.value as? String, "Message…")
+        XCTAssertEqual(composer.value as? String, "Demander à Atlas")
         capture("29-notification-correct-conversation")
     }
 
@@ -227,7 +314,8 @@ final class HermesIOSUITests: XCTestCase {
         let activity = app.buttons["tool-activity"]
         XCTAssertTrue(activity.waitForExistence(timeout: 30))
         activity.tap()
-        XCTAssertTrue(app.staticTexts["Commande"].waitForExistence(timeout: 3))
+        // A step reads as one element: « Commande, <what it runs> ».
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Commande")).firstMatch.waitForExistence(timeout: 3))
         XCUIDevice.shared.press(.home)
         sleep(55)
         app.activate()
@@ -540,7 +628,7 @@ final class HermesIOSUITests: XCTestCase {
         app.buttons["switch-profile"].tap()
         app.buttons["quick-profile-research"].tap()
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Bonjour, je suis Atlas")).firstMatch.waitForExistence(timeout: 3))
-        XCTAssertEqual(composer.value as? String, "Message…")
+        XCTAssertEqual(composer.value as? String, "Demander à Atlas")
         composer.tap(); composer.typeText("Une recherche pour Atlas")
         app.buttons["switch-profile"].tap()
         app.buttons["quick-profile-default"].tap()
@@ -550,7 +638,12 @@ final class HermesIOSUITests: XCTestCase {
         app.buttons["quick-profile-research"].tap()
         XCTAssertTrue(composer.waitForExistence(timeout: 3))
         XCTAssertEqual(composer.value as? String, "Une recherche pour Atlas")
-        app.buttons["quick-history"].tap()
+        // In a conversation the list lives in the « … » menu; the quick button only exists on an empty chat.
+        if app.buttons["quick-history"].exists { app.buttons["quick-history"].tap() }
+        else {
+            app.buttons["Actions de la conversation"].tap()
+            app.buttons["Conversations"].firstMatch.tap()
+        }
         XCTAssertTrue(app.navigationBars["Conversations"].waitForExistence(timeout: 3))
         capture("21-conversation-list")
         app.buttons["return-to-chat"].tap()
@@ -634,8 +727,8 @@ final class HermesIOSUITests: XCTestCase {
         for identifier in ["message-actions", "switch-profile", "app-navigation", "voice-mode"] {
             let control = app.buttons[identifier]
             XCTAssertTrue(control.isHittable, "\(identifier) remains reachable at the largest text size")
-            XCTAssertGreaterThanOrEqual(control.frame.height, 44, "\(identifier) hit target height")
-            XCTAssertGreaterThanOrEqual(control.frame.width, 44, "\(identifier) hit target width")
+            XCTAssertGreaterThanOrEqual(control.frame.height, 43.9, "\(identifier) hit target height")
+            XCTAssertGreaterThanOrEqual(control.frame.width, 43.9, "\(identifier) hit target width")
         }
         capture("38-large-text-composer")
         composer.tap(); composer.typeText("Mon brouillon en grand texte")

@@ -5,12 +5,14 @@ struct MarkdownText: View {
     /// Stable identity of the text (a message id). With it, parses are cached and a streamed
     /// message only re-parses its last block; without it the text is parsed on each render.
     var cacheKey: String? = nil
+    /// False while the message still streams: an unclosed card fence is then still arriving, not abandoned.
+    var settled = true
     var body: some View {
         let blocks = cacheKey.map { MarkdownCache.shared.blocks(id: $0, text: text) } ?? ChatMarkdown.parse(text)
         VStack(alignment: .leading, spacing: 12) {
             // Unchanged blocks compare equal and skip their body (inline Markdown parsing, layout).
             ForEach(blocks.indices, id: \.self) { index in
-                MarkdownBlockView(block: blocks[index]).equatable()
+                MarkdownBlockView(block: blocks[index], settled: settled).equatable()
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
@@ -19,6 +21,7 @@ struct MarkdownText: View {
 
 private struct MarkdownBlockView: View, Equatable {
     let block: ChatMarkdown.Block
+    let settled: Bool
     var body: some View {
         switch block {
         case .paragraph(let text): inline(text).font(.body).lineSpacing(5)
@@ -57,6 +60,7 @@ private struct MarkdownBlockView: View, Equatable {
             }.background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 14))
                 .clipShape(RoundedRectangle(cornerRadius: 14)).accessibilityIdentifier("markdown-table")
         case .rule: Divider().padding(.vertical, 5)
+        case .card(let json, let complete): RichCardView(json: json, complete: complete || settled).equatable()
         }
     }
 

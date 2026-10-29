@@ -97,6 +97,8 @@ def decrypt_content(key: bytes, event_id: str, enc: str) -> dict:
 
 def strip_markdown(text) -> str:
     t = str(text or "")
+    # Rich cards (```ui JSON fences, drawn natively by the app) never reach a notification.
+    t = re.sub(r"(?msi)^[ \t]*(```|~~~)[ \t]*(?:ui|hermes-ui|card|carte)[ \t]*\n.*?(?:^[ \t]*\1[ \t]*$|\Z)", " ", t)
     t = re.sub(r"```[^\n]*\n?", " ", t)                          # fence markers (keep the code text)
     t = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", t)              # images -> alt
     t = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", t)               # links -> label
@@ -156,6 +158,9 @@ def thread_id(row) -> str:
     return hashlib.sha256((base + (f':{row["session"]}' if row["session"] else "")).encode()).hexdigest()
 
 
+REPLY_CATEGORY = "hermes.reply"
+
+
 def notification_payload(row):
     """APNs JSON for an outbox row. `enc` (when present) is already sealed for the target device."""
     enc, kind = row.get("enc"), row.get("kind") or "turn"
@@ -169,6 +174,7 @@ def notification_payload(row):
     hermes = {"version": 1, "connection_id": row["connection"], "profile": row["profile"]}
     if row["session"]:
         hermes["session_id"] = row["session"]
+        aps["category"] = REPLY_CATEGORY        # the app registers it: a « Répondre » text action
     hermes.update({"event_id": row["event"], "kind": kind})
     if enc:
         aps["mutable-content"] = 1

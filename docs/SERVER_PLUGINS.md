@@ -6,7 +6,7 @@ Optional Hermes plugins that live in `server/`. They run inside the Hermes conta
 | --- | --- | --- |
 | `hermes-ios-push` | APNs alerts, Live Activity updates and silent widget refresh | Needs the Apple key on the server; see [NOTIFICATIONS.md](NOTIFICATIONS.md) |
 | `hermes-gemini-voix` | Gemini text-to-speech provider (custom voice) with a keep-alive HTTP session | Tier 1 quota is 100 TTS requests a day, 10 a minute; `tts.streaming.min_len: 90` groups short sentences. An optional fallback voice is off by default (`tts.gemini.fallback`) |
-| `hermes-widgets` | Compact Noriven figures snapshot for the finance widget, plus the `noriven_chiffres` tool | Dashboard route behind the dashboard's own auth; enable on the root and the Noriven profile |
+| `hermes-widgets` | The agents' own « À l'affiche » boards for the widget (`widget_publier` tool, `/board` route), plus the Noriven figures snapshot and the `noriven_chiffres` tool | Dashboard route behind the dashboard's own auth; enable on the root and the Noriven profile |
 | `hermes-meteo` | `meteo` tool backed by Open-Meteo (no key) | Default place in `meteo.lieu_defaut` |
 | `hermes-google-lite` | Gmail and Google Calendar for one account | See below |
 

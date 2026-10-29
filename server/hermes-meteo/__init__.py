@@ -90,14 +90,14 @@ def _locate(place: str) -> Optional[Dict[str, Any]]:
     name, _, rest = place.partition(",")
     data = _get(GEOCODING, {"name": name.strip(), "count": 10, "language": "fr", "format": "json"})
     results = data.get("results") or []
-    wanted = rest.strip().casefold()
-    if wanted:
-        narrowed = [r for r in results if wanted in " ".join(str(r.get(k) or "") for k in ("country", "admin1", "admin2")).casefold()]
-        results = narrowed or results
-    else:
-        # No region given: a namesake in the person's own country wins (the default place's country).
-        country = _preferred_country()
-        results = sorted(results, key=lambda r: 0 if country and r.get("country_code") == country else 1)
+    # "Québec, Canada" is two hints: a result matching more of them wins, then a namesake in the person's own country (the
+    # default place's), then Open-Meteo's own order. A hint that matches nothing never sends the search abroad.
+    hints = [part.strip().casefold() for part in rest.split(",") if part.strip()]
+    country = _preferred_country()
+    def score(result: Dict[str, Any]) -> tuple:
+        where = " ".join(str(result.get(k) or "") for k in ("country", "country_code", "admin1", "admin2")).casefold()
+        return (-sum(1 for hint in hints if hint in where), 0 if country and result.get("country_code") == country else 1)
+    results = sorted(results, key=score)
     return results[0] if results else None
 
 
