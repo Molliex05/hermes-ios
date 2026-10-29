@@ -1,48 +1,44 @@
 import Foundation
 
 /// Removes fenced blocks (code, rich cards) from a reply on its way to speech, chunk by chunk as it streams: a card's
-/// JSON or a code listing is never read aloud. A fence opens or closes only on a line that starts (after up to three
-/// spaces) with three backticks or tildes; characters that could be such a start are held until the line shows what it is,
-/// everything else passes through at once so speech starts as early as before.
+/// JSON or a code listing is never read aloud. Fences follow `ChatMarkdown.fence` exactly (same opener, same closing
+/// rule, same indentation), so what is spoken matches what is shown as text. A line that could open or close a fence is
+/// held until it ends; everything else passes through at once so speech starts as early as before.
 struct SpokenTextFilter {
-    private var inFence = false
-    private var atLineStart = true
-    private var held = ""
-    private var dropLine = false
+    /// The fence the text is inside, if any.
+    private var open: ChatMarkdown.Fence?
+    /// The current line, held while it could still be a fence line.
+    private var line = ""
+    /// Whether the current line is held (true) or already streaming through (false).
+    private var holding = true
 
     mutating func feed(_ chunk: String) -> String {
         var out = ""
         for character in chunk {
-            if character == "\n" {
-                if !held.isEmpty {
-                    if Self.isFence(held) { inFence.toggle(); dropLine = true } else if !inFence { out += held }
-                    held = ""
-                }
-                if !inFence && !dropLine { out.append(character) }
-                atLineStart = true; dropLine = false
+            if character == "\n" || character == "\r\n" {
+                out += endLine()
                 continue
             }
-            if atLineStart {
-                if character == "`" || character == "~" || (character == " " && held.count < 3 && !held.contains(where: { $0 != " " })) {
-                    held.append(character); continue
-                }
-                atLineStart = false
-                if Self.isFence(held) {                 // an opening fence with a language tag, e.g. ```ui
-                    inFence.toggle(); dropLine = true; held = ""; continue
-                }
-                if !inFence { out += held; out.append(character) }
-                held = ""
+            if character == "\r" { continue }
+            guard holding else {
+                if open == nil { out.append(character) }
                 continue
             }
-            if !inFence && !dropLine { out.append(character) }
+            line.append(character)
+            if !Self.couldBeFence(line) {
+                holding = false
+                if open == nil { out += line }
+                line = ""
+            }
         }
         return out
     }
 
     /// Text still held at the end of the reply (a last line that only looked like a possible fence).
     mutating func finish() -> String {
-        defer { held = ""; atLineStart = true; dropLine = false }
-        return inFence || Self.isFence(held) ? "" : held
+        defer { open = nil; line = ""; holding = true }
+        guard holding, !line.isEmpty, open == nil, ChatMarkdown.fence(line) == nil else { return "" }
+        return line
     }
 
     /// The whole text at once, for non-streamed speech.
@@ -51,9 +47,28 @@ struct SpokenTextFilter {
         return filter.feed(text) + filter.finish()
     }
 
-    private static func isFence(_ start: String) -> Bool {
-        let marks = start.drop { $0 == " " }
-        guard marks.count >= 3, let first = marks.first, first == "`" || first == "~" else { return false }
-        return marks.allSatisfy { $0 == first }
+    private mutating func endLine() -> String {
+        defer { line = ""; holding = true }
+        if let current = open {
+            if holding, current.closes(line) { open = nil }
+            return ""
+        }
+        if holding, let start = ChatMarkdown.fence(line) {
+            open = start
+            return ""
+        }
+        return holding ? line + "\n" : "\n"
+    }
+
+    /// Whether a line beginning like this may still turn out to open or close a fence: indentation (at most three
+    /// spaces, as ChatMarkdown allows), then backticks or tildes. Three or more marks keep the whole line held, since
+    /// only its end tells « ```ui » from « ```npm install``` », which is inline code.
+    private static func couldBeFence(_ prefix: String) -> Bool {
+        let body = prefix.drop { $0 == " " || $0 == "\t" }
+        guard prefix.prefix(while: { $0 == " " }).count <= 3 else { return false }
+        guard let first = body.first else { return true }
+        guard first == "`" || first == "~" else { return false }
+        let marks = body.prefix { $0 == first }.count
+        return marks >= 3 || marks == body.count
     }
 }

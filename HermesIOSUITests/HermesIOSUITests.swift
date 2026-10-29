@@ -93,17 +93,28 @@ final class HermesIOSUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.textFields["chat-composer"].waitForExistence(timeout: 10))
         // The newest reply holds a card and a link preview; a tall last row used to fall out of the accessibility tree.
-        XCTAssertTrue(app.buttons["Bonne soirée"].waitForExistence(timeout: 5), "the last reply's quick replies")
+        let latestChoice = app.buttons["Bonne soirée"]
+        XCTAssertTrue(latestChoice.waitForExistence(timeout: 5), "the last reply's quick replies")
         XCTAssertTrue(app.descendants(matching: .any)["link-preview"].waitForExistence(timeout: 5), "a link in the text gets a preview")
-        XCTAssertTrue(app.descendants(matching: .any)["card-event"].waitForExistence(timeout: 5), "the agenda reply's event card")
-        for _ in 0..<16 { app.swipeDown(velocity: .fast) }
+        let event = app.descendants(matching: .any)["card-event"]
+        for _ in 0..<8 where !event.exists { app.swipeDown(velocity: .slow) }
+        XCTAssertTrue(event.exists, "the agenda reply's event card")
+        // Up to the first reply: its cards are there, but an old quick reply no longer answers.
+        let oldChoice = app.buttons["Seulement avec garage"]
+        for _ in 0..<40 where !(oldChoice.exists && oldChoice.isHittable) { app.swipeDown(velocity: .fast) }
         for identifier in ["card-carousel", "card-choices"] {
             XCTAssertTrue(app.descendants(matching: .any)[identifier].waitForExistence(timeout: 5), identifier)
         }
-        let quickReply = app.buttons["Seulement avec garage"]
-        XCTAssertTrue(quickReply.waitForExistence(timeout: 3))
-        quickReply.tap()
-        let sent = app.descendants(matching: .any).matching(identifier: "user-message").matching(NSPredicate(format: "label CONTAINS %@", "Seulement avec garage")).firstMatch
+        XCTAssertTrue(oldChoice.exists)
+        XCTAssertFalse(oldChoice.isEnabled, "only the newest reply's cards answer")
+        // Back down with the « Dernier message » button, then answer the newest reply.
+        let jump = app.buttons["Dernier message"]
+        XCTAssertTrue(jump.waitForExistence(timeout: 3))
+        jump.tap()
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: latestChoice)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 8), .completed)
+        latestChoice.tap()
+        let sent = app.descendants(matching: .any).matching(identifier: "user-message").matching(NSPredicate(format: "label CONTAINS %@", "Bonne soirée")).firstMatch
         XCTAssertTrue(sent.waitForExistence(timeout: 5), "the quick reply was sent as a message")
         capture("42-rich-cards")
     }

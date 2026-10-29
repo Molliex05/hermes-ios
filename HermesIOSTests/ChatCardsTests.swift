@@ -229,6 +229,58 @@ final class ChatCardsTests: XCTestCase {
         XCTAssertNil(ChatCard.parse("{\"type\":\"brief\",\"greeting\":\"Bonjour\"}"), "a greeting alone is not a summary")
     }
 
+    func testSecondReviewEdgeCases() {
+        // Speech follows the renderer's fences exactly.
+        XCTAssertEqual(SpokenTextFilter.strip("```npm install``` lance tout.\nPuis la suite."), "```npm install``` lance tout.\nPuis la suite.",
+                       "inline triple-backtick code is text")
+        XCTAssertEqual(SpokenTextFilter.strip("Avant\n~~~\n```ui\n{\"a\":1}\n```\n~~~\nFin"), "Avant\nFin", "a fence closes only on its own mark")
+        XCTAssertEqual(SpokenTextFilter.strip("Code\r\n```ui\r\n{\"a\":1}\r\n```\r\nFin"), "Code\nFin", "CRLF text")
+        XCTAssertEqual(SpokenTextFilter.strip("Voici\n\t```ui\n{}\n```\nFin"), "Voici\nFin", "a tab-indented card")
+        var chunked = SpokenTextFilter()
+        let pieces = ["Bonjour.\n``", "`ui\n{\"type\":", "\"x\"}\n``", "`\nLa suite."]
+        XCTAssertEqual(pieces.map { chunked.feed($0) }.joined() + chunked.finish(), "Bonjour.\nLa suite.")
+
+        // Card detection and copy text use the same fences.
+        XCTAssertTrue(ChatCard.hasCards("Voir :\n~~~UI\n{}\n~~~")); XCTAssertFalse(ChatCard.hasCards("```ui json\n{}\n```"))
+        let reply = "Six dépenses.\n\n```ui\n{\"type\":\"list\",\"title\":\"Octobre\",\"items\":[{\"title\":\"AWS\",\"value\":\"84,20 $\"}],\"total\":\"84,20 $\"}\n```\n\n```python\nprint(1)\n```"
+        XCTAssertEqual(ChatCard.plainText(reply), "Six dépenses.\n\nOctobre\nAWS · 84,20 $\nTotal : 84,20 $\n\n```python\nprint(1)\n```")
+        XCTAssertEqual(ChatCard.stripCards(reply), "Six dépenses.\n\n\n```python\nprint(1)\n```")
+
+        // Previews: never quotes, code, private hosts or links that act; markup around a link is not part of it.
+        let links = ChatCard.links(in: """
+        Lis **https://example.com/a** et https://fr.wikipedia.org/wiki/Saint-Constant_(Québec), aussi https://example.com/a/.
+        > https://mail.example.com/unsubscribe?u=1
+        `https://code.example/x` https://192.168.1.10/admin https://app.example.com/login?next=1 https://news.example.com/2026/apple-keynote
+        """, limit: 6)
+        XCTAssertEqual(links.map(\.absoluteString), ["https://example.com/a", "https://fr.wikipedia.org/wiki/Saint-Constant_(Qu%C3%A9bec)",
+                                                     "https://news.example.com/2026/apple-keynote"])
+
+        // Numbers: the first one written; huge or impossible temperatures never reach the screen.
+        guard case .progress(_, let goals)? = ChatCard.parse("{\"type\":\"progress\",\"items\":[{\"label\":\"Protéines\",\"value\":\"128 g\",\"goal\":\"140–160 g\"},{\"label\":\"Kcal\",\"value\":\"1 850 / 2 400 kcal\",\"goal\":2400}]}") else { return XCTFail() }
+        XCTAssertEqual(goals.map(\.goal), [140, 2400]); XCTAssertEqual(goals[1].value, 1850)
+        guard case .weather(let tool)? = ChatCard.parse("""
+        {"type":"weather","lieu":"Saint-Constant","actuel":{"temperature_c":7,"ressenti_c":4,"conditions":"nuageux"},"jours":[{"date":"2026-10-29","conditions":"pluie","max_c":9,"min_c":2}]}
+        """) else { return XCTFail("the meteo tool's own keys") }
+        XCTAssertEqual(tool.temperature, 7); XCTAssertEqual(tool.days.first?.high, 9); XCTAssertFalse(tool.days.first?.label.isEmpty ?? true)
+        guard case .weather(let absurd)? = ChatCard.parse("{\"type\":\"weather\",\"now\":{\"temp\":1e19},\"days\":[{\"day\":\"Mer\",\"high\":9}]}") else { return XCTFail() }
+        XCTAssertNil(absurd.temperature)
+
+        // Times with an offset and no seconds, and over midnight.
+        let utc = "2026-10-29T10:45Z"
+        let expected = Calendar.current.dateComponents([.hour, .minute], from: ISO8601DateFormatter().date(from: "2026-10-29T10:45:00Z")!)
+        XCTAssertEqual(ChatCard.minutes(utc), expected.hour! * 60 + expected.minute!)
+        XCTAssertNotNil(ChatCard.date("2026-10-29T06:45-04:00")); XCTAssertNil(ChatCard.minutes("2026-10-29Tbonjour"))
+        XCTAssertEqual(ChatCard.minutes("2026-10-29T24:00"), 1440)
+        let week = [("Garde", "2026-10-29T08:00", "2026-10-30T09:00"), ("Souper", "2026-10-29T20:00", "2026-10-29T21:00")]
+            .enumerated().map { ChatCard.Slot(id: $0.offset, title: $0.element.0, start: $0.element.1, end: $0.element.2, location: "", calendar: "") }
+        XCTAssertEqual(ChatCard.freeTime(week), [:], "a slot that runs into the next day keeps the evening busy")
+
+        // Places at 0,0 are a placeholder; states as the instructions define them.
+        guard case .places(_, let places)? = ChatCard.parse("{\"type\":\"places\",\"items\":[{\"name\":\"Café\",\"address\":\"12 rue X\",\"lat\":0,\"lon\":0}]}") else { return XCTFail() }
+        XCTAssertFalse(places[0].hasCoordinate)
+        XCTAssertEqual(["arrêté", "stopped", "hors ligne", "stale", "paused"].map(ChatCard.health), [.down, .down, .down, .unknown, .warning])
+    }
+
     func testStatusDerivesTheWholeFromItsParts() {
         let json = """
         {"type":"vps","title":"noriven-prod","gauges":[{"label":"CPU","value":9,"unit":"%"},{"label":"Mémoire","value":2.1,"max":7.8,"unit":"Go"},{"label":"Disque","value":28},{"label":"","value":1,"max":2}],

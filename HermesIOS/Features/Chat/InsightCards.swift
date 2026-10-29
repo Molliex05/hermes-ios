@@ -12,6 +12,9 @@ enum CardPalette {
     static let colors: [Color] = [AppTheme.accent, Color(red: 0.2, green: 0.62, blue: 0.42), Color(red: 0.24, green: 0.48, blue: 0.86),
                                   Color(red: 0.92, green: 0.6, blue: 0.16), Color(red: 0.55, green: 0.38, blue: 0.82), Color(red: 0.12, green: 0.6, blue: 0.68)]
     static func color(_ index: Int) -> Color { colors[index % colors.count] }
+    /// Green and orange for text and figures: the system ones are too pale on white; dark mode keeps them.
+    static let positive = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .systemGreen : UIColor(red: 0.12, green: 0.52, blue: 0.26, alpha: 1) })
+    static let warning = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? .systemOrange : UIColor(red: 0.72, green: 0.38, blue: 0.0, alpha: 1) })
     /// The same name always gets the same colour, so a calendar keeps its colour from one reply to the next.
     static func color(for name: String) -> Color {
         guard !name.isEmpty else { return colors[0] }
@@ -31,7 +34,7 @@ private struct TrendLabel: View {
     var body: some View {
         Label(delta, systemImage: trend == .up ? "arrow.up.right" : trend == .down ? "arrow.down.right" : "minus")
             .font(.subheadline.weight(.semibold)).labelStyle(.titleAndIcon)
-            .foregroundStyle(trend == .up ? Color.green : trend == .down ? AppTheme.accent : .secondary)
+            .foregroundStyle(trend == .up ? CardPalette.positive : trend == .down ? AppTheme.accent : .secondary)
     }
 }
 
@@ -322,8 +325,9 @@ private struct ListRow: View {
     let row: ChatCard.Row
     @Environment(\.openURL) private var openURL
     @Environment(\.chatReply) private var reply
+    @Environment(\.cardsInteractive) private var interactive
     @State private var sent = false
-    private var replies: Bool { row.url == nil && !row.reply.isEmpty && reply != nil }
+    private var replies: Bool { row.url == nil && !row.reply.isEmpty && reply != nil && interactive }
 
     var body: some View {
         if row.url != nil || replies {
@@ -360,14 +364,14 @@ private struct ListRow: View {
     }
 
     private var tint: Color {
-        switch row.tone { case .positive: .green; case .warning: .orange; case .negative, .neutral: AppTheme.accent }
+        switch row.tone { case .positive: CardPalette.positive; case .warning: CardPalette.warning; case .negative, .neutral: AppTheme.accent }
     }
     private var valueColor: Color {
-        switch row.tone { case .positive: .green; case .negative: AppTheme.accent; case .warning: .orange; case .neutral: .primary }
+        switch row.tone { case .positive: CardPalette.positive; case .negative: AppTheme.accent; case .warning: CardPalette.warning; case .neutral: .primary }
     }
     private func act() {
         if let url = row.url { Haptics.select(); openURL(url) }
-        else if let reply, !sent { Haptics.send(); sent = true; reply.send(row.reply) }
+        else if let reply, !sent, reply.send(row.reply) { Haptics.send(); sent = true }
     }
 }
 
@@ -393,17 +397,17 @@ struct AgendaCard: View {
     let title: String
     let slots: [ChatCard.Slot]
 
-    /// Several days in one card get a small heading at each new day.
-    private var days: Set<String> { Set(slots.compactMap { ChatCard.day($0.start) }) }
-    private var free: [Int: Int] { ChatCard.freeTime(slots) }
 
     var body: some View {
+        // Worked out once per render (each reads every slot's date): several days get a heading at each new day.
+        let days = slots.map { ChatCard.day($0.start) }
+        let several = Set(days.compactMap { $0 }).count > 1
+        let free = ChatCard.freeTime(slots)
         VStack(alignment: .leading, spacing: 10) {
             CardTitle(text: title, symbol: "calendar")
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(slots.enumerated()), id: \.element.id) { index, slot in
-                    let previous = index > 0 ? slots[index - 1] : nil
-                    if days.count > 1, let day = ChatCard.day(slot.start), day != previous.flatMap({ ChatCard.day($0.start) }), let date = EventCard.date(slot.start) {
+                    if several, let day = days[index], index == 0 || day != days[index - 1], let date = EventCard.date(slot.start) {
                         Text(date.formatted(.dateTime.weekday(.wide).day().month(.wide)).capitalized)
                             .font(.caption.weight(.bold)).foregroundStyle(.secondary).textCase(.uppercase)
                             .padding(.horizontal, 14).padding(.top, index > 0 ? 12 : 4).padding(.bottom, 2)
@@ -439,7 +443,7 @@ private struct AgendaRow: View {
     private var content: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .trailing, spacing: 2) {
-                Text(Self.clock(slot.start)).font(.subheadline.weight(.semibold)).monospacedDigit()
+                Text(Self.clock(slot.start)).font(.subheadline.weight(.semibold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
                 if !slot.end.isEmpty, ChatCard.minutes(slot.end) != nil {
                     Text(Self.clock(slot.end)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 }
@@ -450,8 +454,8 @@ private struct AgendaRow: View {
                 HStack(spacing: 6) {
                     Text(slot.title).font(.subheadline.weight(.semibold)).multilineTextAlignment(.leading)
                     if now {
-                        Text("Maintenant").font(.caption2.weight(.bold)).foregroundStyle(.white)
-                            .padding(.horizontal, 6).padding(.vertical, 2).background(color, in: Capsule())
+                        Text("Maintenant").font(.caption2.weight(.bold)).foregroundStyle(.primary)
+                            .padding(.horizontal, 6).padding(.vertical, 2).background(color.opacity(0.25), in: Capsule())
                     }
                 }
                 if !slot.location.isEmpty {
@@ -572,7 +576,7 @@ private struct ExerciseRow: View {
                 Text(exercise.name).font(.subheadline.weight(.medium)).foregroundStyle(exercise.done == false ? Color.secondary : Color.primary)
                 if !exercise.note.isEmpty {
                     Label(exercise.note, systemImage: Self.noteSymbol(exercise.note)).font(.caption2.weight(.semibold))
-                        .foregroundStyle(.orange).labelStyle(.titleAndIcon)
+                        .foregroundStyle(CardPalette.warning).labelStyle(.titleAndIcon)
                 }
             }
             Spacer(minLength: 6)
@@ -670,7 +674,6 @@ private struct RouteMap: View {
 struct StatusCard: View {
     let status: ChatCard.Status
     @State private var filled = false
-    @State private var pulse = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -685,8 +688,8 @@ struct StatusCard: View {
                 }
                 Spacer(minLength: 6)
                 HStack(spacing: 6) {
-                    Circle().fill(Self.color(status.state)).frame(width: 8, height: 8)
-                        .overlay(Circle().stroke(Self.color(status.state).opacity(pulse ? 0 : 0.6), lineWidth: 2).scaleEffect(pulse ? 2.4 : 1))
+                    Image(systemName: "circle.fill").font(.system(size: 8)).foregroundStyle(Self.color(status.state))
+                        .symbolEffect(.pulse, options: .repeating, isActive: status.state == .ok && !reduceMotion)
                     Text(Self.label(status.state)).font(.caption.weight(.semibold)).foregroundStyle(Self.color(status.state))
                 }
                 .padding(.horizontal, 10).padding(.vertical, 6)
@@ -718,7 +721,6 @@ struct StatusCard: View {
         .onAppear {
             guard !reduceMotion else { filled = true; return }
             withAnimation(.spring(response: 0.9, dampingFraction: 0.85).delay(0.1)) { filled = true }
-            if status.state == .ok { withAnimation(.easeOut(duration: 1.6).repeatForever(autoreverses: false)) { pulse = true } }
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("card-status")
@@ -769,7 +771,8 @@ struct NewsCard: View {
                 if let lead = articles.first {
                     Button { open(lead) } label: {
                         ZStack(alignment: .bottomLeading) {
-                            CardImage(image: lead.image, page: lead.url).frame(height: 190).frame(maxWidth: .infinity).clipped()
+                            Color.clear.frame(height: 190).frame(maxWidth: .infinity)
+                                .overlay { CardImage(image: lead.image, page: lead.url) }.clipped()
                             LinearGradient(colors: [.clear, .black.opacity(0.78)], startPoint: .center, endPoint: .bottom)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(lead.title).font(.headline).foregroundStyle(.white).lineLimit(3).multilineTextAlignment(.leading)
@@ -779,7 +782,6 @@ struct NewsCard: View {
                         }
                     }
                     .buttonStyle(PressableStyle())
-                    .articleMenu(lead)
                 }
                 ForEach(articles.dropFirst()) { article in
                     Divider().padding(.leading, 84)
@@ -825,19 +827,7 @@ struct ArticleRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(PressableStyle())
-        .articleMenu(article)
         .accessibilityElement(children: .combine)
-    }
-}
-
-private extension View {
-    func articleMenu(_ article: ChatCard.Article) -> some View {
-        contextMenu {
-            if let url = article.url {
-                Button { UIPasteboard.general.url = url } label: { Label("Copier le lien", systemImage: "link") }
-                ShareLink(item: url) { Label("Partager", systemImage: "square.and.arrow.up") }
-            }
-        }
     }
 }
 
@@ -852,9 +842,9 @@ struct BriefCard: View {
         let hour = Calendar.current.component(.hour, from: .now), dark = scheme == .dark
         switch hour {
         case 5..<11: return dark ? [Color(red: 0.55, green: 0.27, blue: 0.22), Color(red: 0.32, green: 0.18, blue: 0.3)]
-                                 : [Color(red: 0.99, green: 0.68, blue: 0.47), Color(red: 0.9, green: 0.45, blue: 0.47)]
+                                 : [Color(red: 0.84, green: 0.4, blue: 0.27), Color(red: 0.66, green: 0.25, blue: 0.36)]
         case 11..<17: return dark ? [Color(red: 0.13, green: 0.3, blue: 0.5), Color(red: 0.08, green: 0.17, blue: 0.33)]
-                                  : [Color(red: 0.38, green: 0.66, blue: 0.94), Color(red: 0.25, green: 0.47, blue: 0.84)]
+                                  : [Color(red: 0.2, green: 0.45, blue: 0.78), Color(red: 0.13, green: 0.32, blue: 0.64)]
         default: return dark ? [Color(red: 0.2, green: 0.17, blue: 0.4), Color(red: 0.1, green: 0.08, blue: 0.22)]
                              : [Color(red: 0.42, green: 0.36, blue: 0.75), Color(red: 0.25, green: 0.2, blue: 0.5)]
         }
@@ -919,6 +909,8 @@ private struct BriefSectionView: View {
     let section: ChatCard.BriefSection
     @Environment(\.openURL) private var openURL
     @Environment(\.chatReply) private var reply
+    @Environment(\.cardsInteractive) private var interactive
+    @State private var sent: Set<Int> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -948,12 +940,17 @@ private struct BriefSectionView: View {
             Text(line.text).font(.subheadline).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 6)
             if !line.detail.isEmpty { Text(line.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
-            if line.url != nil || (!line.reply.isEmpty && reply != nil) { Image(systemName: "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(.tertiary) }
+            if line.url != nil || (!line.reply.isEmpty && reply != nil && interactive) {
+                Image(systemName: sent.contains(line.id) ? "checkmark" : "chevron.right").font(.caption2.weight(.bold)).foregroundStyle(.tertiary)
+            }
         }
         if let url = line.url {
             Button { Haptics.select(); openURL(url) } label: { row.contentShape(Rectangle()) }.buttonStyle(PressableStyle())
-        } else if !line.reply.isEmpty, let reply {
-            Button { Haptics.send(); reply.send(line.reply) } label: { row.contentShape(Rectangle()) }.buttonStyle(PressableStyle())
+        } else if !line.reply.isEmpty, let reply, interactive {
+            Button {
+                guard !sent.contains(line.id), reply.send(line.reply) else { return }
+                Haptics.send(); sent.insert(line.id)
+            } label: { row.contentShape(Rectangle()) }.buttonStyle(PressableStyle()).disabled(sent.contains(line.id))
         } else {
             row
         }

@@ -38,10 +38,14 @@ struct ChatView: View {
                                    toolsExpanded: $toolsExpanded, suggest: { model.draft = $0; focused = true })
             }
             .background { ChatBackdrop(model: model) }
-            // Links in replies open in the in-app browser; quick-reply cards answer as if typed.
+            // Links in replies open their app when they are universal links (Gmail, GitHub, YouTube…), otherwise the in-app
+            // browser; quick-reply cards answer as if typed.
             .environment(\.openURL, OpenURLAction { url in
                 guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http" else { return .systemAction }
-                webPage = WebPage(url: url)
+                Task { @MainActor in
+                    if await UIApplication.shared.open(url, options: [.universalLinksOnly: true]) { return }
+                    if sheet == nil { webPage = WebPage(url: url) }
+                }
                 return .handled
             })
             .environment(\.chatReply, ChatReplyAction { text in reply(text) })
@@ -129,9 +133,10 @@ struct ChatView: View {
                 model.pendingVoiceLaunch = false
                 if sheet != .voice { present(.voice) }
             }
-            .onChange(of: sheet) { _, value in model.setChatVisible(value == nil && bottomVisible) }
-            .onChange(of: bottomVisible) { _, visible in model.setChatVisible(sheet == nil && visible) }
-            .onAppear { model.setChatVisible(sheet == nil && bottomVisible) }
+            .onChange(of: sheet) { _, _ in updateVisibility() }
+            .onChange(of: webPage) { _, _ in updateVisibility() }
+            .onChange(of: bottomVisible) { _, _ in updateVisibility() }
+            .onAppear { updateVisibility() }
             .onDisappear { model.setChatVisible(false) }
         }
     }
@@ -165,21 +170,26 @@ struct ChatView: View {
         }
     }
 
-    /// A quick reply from a card: sent at once when the agent is free, otherwise left ready in the field.
-    private func reply(_ text: String) {
-        let previous = model.draft
-        model.draft = text
-        if model.canSend {
-            pinnedToBottom = true
-            Task { await model.send(); if !previous.isEmpty, model.draft.isEmpty { model.draft = previous } }
-        } else {
-            model.draft = previous.isEmpty ? text : previous + " " + text
-            focused = true
+    /// A quick reply from a card: sent at once as its own message when Hermès is free (the draft and its attachments stay
+    /// as they are). Otherwise nothing is sent and the card stays open; an empty field gets the text, ready to send.
+    private func reply(_ text: String) -> Bool {
+        guard model.canSendQuickReply else {
+            if model.draft.isEmpty { model.draft = text; focused = true }
+            return false
         }
+        pinnedToBottom = true
+        Task { await model.sendQuickReply(text) }
+        return true
     }
 
+    /// The chat counts as seen (no banner, read marks) only when nothing covers it and its end is on screen.
+    private func updateVisibility() { model.setChatVisible(sheet == nil && webPage == nil && bottomVisible) }
+
+    /// One presentation at a time: the in-app browser closes first, then the sheet opens once it is gone.
     private func present(_ page: ChatSheet) {
         focused = false
-        sheet = page
+        guard webPage != nil else { sheet = page; return }
+        webPage = nil
+        Task { try? await Task.sleep(for: .milliseconds(450)); sheet = page }
     }
 }

@@ -73,6 +73,7 @@ final class VoiceConversation {
     private static let waitingNotice = "Hermes attend votre réponse dans le chat. La conversation vocale reprendra ensuite."
     private static let busyNotice = "Hermes termine la réponse précédente…"
     private static let localVoiceNotice = "La voix du serveur est indisponible (quota). L’iPhone lit la réponse."
+    private static let cardOnlyNotice = "La réponse est dans le chat."
     /// Spoken once when the agent has been working in silence: after a tool starts, or after a slow start.
     private static let holdingLine = "Je regarde ça. "
     private static let holdingToolDelay: TimeInterval = 0.5
@@ -385,6 +386,11 @@ final class VoiceConversation {
         let text = reply.display
         answer = text
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw VoiceTurnIssue("Hermes n’a pas renvoyé de réponse à lire.") }
+        let spoken = SpokenTextFilter.strip(text)
+        if spoken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {     // only a card or code: nothing to read aloud
+            speechStream.stop(); notice = Self.cardOnlyNotice
+            return
+        }
         while !speechStream.needsFallback && !speechStream.drained {
             try await Task.sleep(for: .milliseconds(50)); try validate(attempt)
             if speechStream.hasAudio { phase = .speaking }
@@ -403,12 +409,12 @@ final class VoiceConversation {
         VoiceMetrics.shared.note("ttsWhy", text: "unavailable=\(speechStream.unavailable) fallback=\(speechStream.fallback) failure=\(speechStream.failure ?? "-") audio=\(speechStream.hasAudio) ended=\(speechStream.ended)")
         speechStream.stop()
         let speech: String
-        do { speech = try await voiceAPI.speech(SpokenTextFilter.strip(text)) }
+        do { speech = try await voiceAPI.speech(spoken) }
         catch is CancellationError { throw CancellationError() }
         catch {
             try validate(attempt)
             VoiceMetrics.shared.note("ttsLocal", 1)
-            try await speakLocally(text, attempt: attempt)
+            try await speakLocally(spoken, attempt: attempt)
             VoiceMetrics.shared.mark(.playbackEnd)
             VoiceMetrics.shared.finish(profile: tools.profile)
             return
@@ -428,7 +434,7 @@ final class VoiceConversation {
     /// The server's voice refused the reply: the iPhone reads it, so the call keeps talking. The text is in the chat anyway.
     private func speakLocally(_ text: String, attempt: UUID) async throws {
         notice = Self.localVoiceNotice
-        guard let rendered = await localSpeech.render(SpokenTextFilter.strip(text)) else {
+        guard let rendered = await localSpeech.render(text) else {
             throw VoiceTurnIssue("La voix du serveur est indisponible. La réponse reste dans le chat.")
         }
         try validate(attempt)
@@ -707,7 +713,7 @@ final class VoiceConversation {
                 if !self.awaitingUser { self.phase = .speaking }
             }
         }
-        let history = VoiceLiveProtocol.history(tools.app.transcript.messages.map { ($0.role, $0.text) })
+        let history = VoiceLiveProtocol.history(tools.app.transcript.messages.map { ($0.role, SpokenTextFilter.strip($0.text)) })
         await VoiceAudioEngine.settleAudioWork()
         try validate(attempt)
         do {
@@ -791,7 +797,7 @@ final class VoiceConversation {
     /// (`drain`) instead of awaiting each append.
     private func emitLive(done: Bool) {
         guard let live else { return }
-        let delta = liveCursor.delta(reply.text, done: done)
+        let delta = liveCursor.delta(SpokenTextFilter.strip(reply.text), done: done)
         for chunk in VoiceLiveProtocol.chunks(delta) {
             if liveFirstResultAt == nil {
                 liveFirstResultAt = ProcessInfo.processInfo.systemUptime

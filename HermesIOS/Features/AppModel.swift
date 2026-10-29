@@ -738,8 +738,29 @@ final class AppModel {
     func send() async {
         guard canSend else { return }
         chatError = nil
-        if demo { await demoReply(); return }
+        if demo { let text = draft; draft = ""; await demoReply(text); return }
         do { _ = try await submit(draft.trimmingCharacters(in: .whitespacesAndNewlines), consumeDraft: true) }
+        catch is CancellationError { }
+        catch {
+            if (error as? RPCFailure)?.sessionOwnedElsewhere == true || error.localizedDescription == RPCFailure.ownershipMessage { notice = error.localizedDescription }
+            else { chatError = error.localizedDescription }
+        }
+    }
+
+    /// Whether a card's quick reply can go now: Hermès connected and free, no voice call.
+    var canSendQuickReply: Bool {
+        !importingAttachments && !voiceActive && (state == .connected || demo) && !opening && !sending && !transcript.running
+            && (selected == nil || !(selected?.runtimeID.isEmpty ?? true) || demo)
+    }
+
+    /// A quick reply from a card, sent as its own message: the typed draft and its attachments stay where they are, and
+    /// the text is never read as a slash command.
+    func sendQuickReply(_ text: String) async {
+        let reply = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reply.isEmpty, canSendQuickReply else { return }
+        chatError = nil
+        if demo { await demoReply(reply); return }
+        do { _ = try await submit(reply, consumeDraft: false) }
         catch is CancellationError { }
         catch {
             if (error as? RPCFailure)?.sessionOwnedElsewhere == true || error.localizedDescription == RPCFailure.ownershipMessage { notice = error.localizedDescription }
@@ -1642,12 +1663,11 @@ final class AppModel {
         }
     }
 
-    private func demoReply() async {
+    private func demoReply(_ text: String) async {
         #if DEBUG
         // Emulates the network round trip before a real message shows up (session creation, persistence).
         if ProcessInfo.processInfo.arguments.contains("--demo-slow-send") { try? await Task.sleep(for: .milliseconds(220)) }
         #endif
-        let text = draft; draft = ""
         transcript.messages.append(.init(role: "user", text: text))
         transcript.running = true
         #if DEBUG

@@ -509,6 +509,7 @@ class Text(unittest.TestCase):
         text = 'Quatre maisons trouvées.\n\n```ui\n{"type":"carousel","items":[{"title":"A"}]}\n```\n\nBonne visite !'
         self.assertEqual(push.strip_markdown(text), 'Quatre maisons trouvées. Bonne visite !')
         self.assertEqual(push.strip_markdown('Code :\n```python\nprint(1)\n```'), 'Code : print(1)')
+        self.assertEqual(push.strip_markdown('Voilà.\n```UI\n{"type":"choices"}\n```'), 'Voilà.', "the fence language is case-insensitive")
 
     def test_markdown_is_stripped(self):
         md = '# Titre\n\nVoici **du gras**, de l\'*italique*, `du code` et [un lien](http://x.y/z).\n\n- point un\n- point deux\n\n> citation\n\n```python\nprint(1)\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n![alt](http://i/p.png) snake_case_name ~~barré~~'

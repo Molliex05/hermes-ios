@@ -2,13 +2,16 @@ import LinkPresentation
 import SafariServices
 import SwiftUI
 
-/// Lets a card answer in the conversation (a quick reply), as if typed. Set by the chat.
+/// Lets a card answer in the conversation (a quick reply), as if typed. Set by the chat. Returns whether the reply was
+/// sent; a card marks its choice only then.
 struct ChatReplyAction {
-    let send: @MainActor (String) -> Void
+    let send: @MainActor (String) -> Bool
 }
 
 extension EnvironmentValues {
     @Entry var chatReply: ChatReplyAction? = nil
+    /// Only the newest reply's cards still answer: an old « Oui » must not land in today's conversation.
+    @Entry var cardsInteractive = true
 }
 
 /// A web page shown in the in-app browser, so reading a link never leaves the conversation.
@@ -28,37 +31,75 @@ struct SafariView: UIViewControllerRepresentable {
     func updateUIViewController(_ controller: SFSafariViewController, context: Context) {}
 }
 
-/// Page title, preview picture and site icon, fetched once per address with Apple's LinkPresentation and kept in memory.
+/// Page title, preview picture and site icon, fetched once per address with Apple's LinkPresentation. Pictures are
+/// shrunk to what a card shows and kept in a bounded cache (emptied under memory pressure); failures are remembered
+/// for a while so a dead link is not fetched again each time its row comes back; at most three pages load at once.
 @MainActor final class LinkPreviewStore {
-    struct Preview { let title: String; let image: UIImage?; let icon: UIImage? }
+    /// Immutable once built, so it can cross from the fetching task to the views.
+    final class Preview: @unchecked Sendable {
+        let title: String, image: UIImage?, icon: UIImage?
+        init(title: String, image: UIImage?, icon: UIImage?) { self.title = title; self.image = image; self.icon = icon }
+    }
     static let shared = LinkPreviewStore()
-    private var cache: [URL: Preview] = [:]
+    private let cache: NSCache<NSURL, Preview> = {
+        let cache = NSCache<NSURL, Preview>()
+        cache.totalCostLimit = 24 * 1_024 * 1_024
+        return cache
+    }()
+    private var failures: [URL: Date] = [:]
     private var pending: [URL: Task<Preview?, Never>] = [:]
+    private var running = 0
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    /// What is already known, without waiting (a row that comes back shows its preview at once).
+    func cached(_ url: URL) -> Preview? { cache.object(forKey: url as NSURL) }
 
     func preview(for url: URL) async -> Preview? {
-        if let cached = cache[url] { return cached }
-        if let running = pending[url] { return await running.value }
+        if let cached = cached(url) { return cached }
+        if let failed = failures[url], Date.now.timeIntervalSince(failed) < 600 { return nil }
+        if let inFlight = pending[url] { return await inFlight.value }
         let task = Task { @MainActor () -> Preview? in
+            await self.acquire()
+            defer { self.release() }
             let provider = LPMetadataProvider()
             provider.timeout = 8
             guard let metadata = try? await provider.startFetchingMetadata(for: url) else { return nil }
-            let title = metadata.title ?? ""
-            let image = await Self.image(metadata.imageProvider)
-            let icon = await Self.image(metadata.iconProvider)
-            return Preview(title: title, image: image, icon: icon)
+            let image = await Self.image(metadata.imageProvider, side: 600)
+            let icon = await Self.image(metadata.iconProvider, side: 96)
+            return Preview(title: metadata.title ?? "", image: image, icon: icon)
         }
         pending[url] = task
         let result = await task.value
         pending[url] = nil
-        if let result { cache[url] = result }
+        if let result {
+            var cost = 0
+            for picture in [result.image, result.icon].compactMap({ $0 }) {
+                let pixels = picture.size.width * picture.size.height * picture.scale * picture.scale
+                cost += Int(pixels) * 4
+            }
+            cache.setObject(result, forKey: url as NSURL, cost: cost)
+        } else {
+            failures[url] = .now
+        }
         return result
     }
 
-    private static func image(_ provider: NSItemProvider?) async -> UIImage? {   // main actor, like the store
+    private func acquire() async {
+        if running < 3 { running += 1; return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    private func release() {
+        if waiting.isEmpty { running -= 1 } else { waiting.removeFirst().resume() }
+    }
+
+    private static func image(_ provider: NSItemProvider?, side: CGFloat) async -> UIImage? {   // main actor, like the store
         guard let provider, provider.canLoadObject(ofClass: UIImage.self) else { return nil }
-        return await withCheckedContinuation { continuation in
+        let loaded: UIImage? = await withCheckedContinuation { continuation in
             _ = provider.loadObject(ofClass: UIImage.self) { object, _ in continuation.resume(returning: object as? UIImage) }
         }
+        guard let loaded, max(loaded.size.width, loaded.size.height) > side else { return loaded }
+        return await loaded.byPreparingThumbnail(ofSize: CGSize(width: side, height: side * loaded.size.height / max(loaded.size.width, 1))) ?? loaded
     }
 }
 
@@ -68,6 +109,12 @@ struct LinkPreviewRow: View {
     var fallbackTitle = ""
     @State private var preview: LinkPreviewStore.Preview?
     @Environment(\.openURL) private var openURL
+
+    init(url: URL, fallbackTitle: String = "") {
+        self.url = url
+        self.fallbackTitle = fallbackTitle
+        _preview = State(initialValue: LinkPreviewStore.shared.cached(url))
+    }
 
     var body: some View {
         Button { Haptics.select(); openURL(url) } label: {
@@ -98,12 +145,9 @@ struct LinkPreviewRow: View {
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(AppTheme.line))
         }
         .buttonStyle(PressableStyle())
-        .contextMenu {
-            Button { UIPasteboard.general.url = url } label: { Label("Copier le lien", systemImage: "link") }
-            ShareLink(item: url) { Label("Partager", systemImage: "square.and.arrow.up") }
-        }
         .task(id: url) { if preview == nil { preview = await LinkPreviewStore.shared.preview(for: url) } }
         .accessibilityElement(children: .combine)
+        .accessibilityHint("Ouvre la page")
         .accessibilityIdentifier("link-preview")
     }
 

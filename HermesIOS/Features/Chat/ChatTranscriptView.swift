@@ -35,11 +35,12 @@ struct ChatTranscriptView: View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 27) {
                 LazyVStack(alignment: .leading, spacing: 27) {
-                    MessageHistory(messages: history, agent: agent)
+                    // Only the newest reply's cards still answer (quick replies, rows that send a message).
+                    MessageHistory(messages: history, agent: agent, latestID: live == nil ? transcript.messages.last?.id : nil)
                     // Its own identity namespace: reusing the message id here would make the
                     // lazy stack keep this row once the message settles into the history, and
                     // a completed turn recovered in one batch would stay at its first token.
-                    if let live { MessageView(message: live, agent: agent).equatable().id("live:" + live.id) }
+                    if let live { MessageView(message: live, agent: agent).equatable().id("live:" + live.id).environment(\.cardsInteractive, true) }
                     if let activity = transcript.activity, transcript.running {
                         ActivityRow(
                             title: activityTitle(activity, steps: transcript.toolSteps),
@@ -178,10 +179,12 @@ struct ChatTranscriptView: View {
 private struct MessageHistory: View, Equatable {
     let messages: [ChatMessage]
     let agent: String
+    let latestID: String?
     var body: some View {
         ForEach(messages) { message in
             MessageView(message: message, agent: agent)
                 .equatable().id(message.id)
+                .environment(\.cardsInteractive, message.id == latestID)
         }
     }
 }
@@ -360,6 +363,8 @@ struct MessageView: View, Equatable {
     let message: ChatMessage
     let agent: String
     private var user: Bool { message.role == "user" }
+    /// What Copy and Share give: your own words as typed; a reply with its cards turned into readable lines.
+    private var copyText: String { user ? message.text : ChatCard.plainText(message.text) }
     /// Your bubble keeps a small corner at its tail, like a speech bubble.
     private static let bubble = UnevenRoundedRectangle(topLeadingRadius: 22, bottomLeadingRadius: 22, bottomTrailingRadius: 7, topTrailingRadius: 22, style: .continuous)
     var body: some View {
@@ -371,7 +376,7 @@ struct MessageView: View, Equatable {
                 }
                 Group {
                     if user { Text(verbatim: message.text).lineSpacing(4) }
-                    else { MarkdownText(text: message.text, cacheKey: message.id.isEmpty ? nil : message.id) }
+                    else { MarkdownText(text: message.text, cacheKey: message.id.isEmpty ? nil : message.id, settled: !message.streaming) }
                 }
                     .textSelection(.enabled)
                     .padding(user ? 17 : 0)
@@ -383,23 +388,24 @@ struct MessageView: View, Equatable {
                 }
                 if !user && !message.streaming {
                     // Pages the reply points to, as previews (the agent need not do anything for these).
-                    let links = ChatCard.links(in: message.text, limit: 2)
+                    let links = message.text.contains("http") ? ChatCard.links(in: message.text, limit: 2) : []
                     if !links.isEmpty {
                         VStack(spacing: 8) { ForEach(links, id: \.self) { LinkPreviewRow(url: $0) } }
                     }
-                    MessageActions(text: ChatCard.stripCards(message.text))
+                    let plain = ChatCard.plainText(message.text)
+                    if !plain.isEmpty { MessageActions(text: plain) }
                 }
             }
             if !user { Spacer(minLength: 5) }
         }
         .appContextMenu {
-            AppMenuButton("Copier", systemImage: "doc.on.doc") { UIPasteboard.general.string = ChatCard.stripCards(message.text) }
-            ShareLink(item: ChatCard.stripCards(message.text)) {
+            AppMenuButton("Copier", systemImage: "doc.on.doc") { UIPasteboard.general.string = copyText }
+            ShareLink(item: copyText) {
                 AppMenuLabel(title: "Partager", systemImage: "square.and.arrow.up").padding(.horizontal, 16).frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
             }.buttonStyle(.plain)
         }
-        // A reply with cards keeps its buttons reachable (VoiceOver, taps); plain text reads as one element.
-        .accessibilityElement(children: !user && ChatCard.hasCards(message.text) ? .contain : .combine)
+        // A reply keeps its buttons reachable (cards, link previews, copy and share); a message you sent reads as one element.
+        .accessibilityElement(children: user ? .combine : .contain)
         .accessibilityIdentifier(user ? "user-message" : "assistant-message")
     }
 }

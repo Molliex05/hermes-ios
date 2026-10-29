@@ -10,9 +10,9 @@ struct RichCardView: View, Equatable {
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool { lhs.json == rhs.json && lhs.complete == rhs.complete }
 
     var body: some View {
-        if !complete {
-            CardSkeleton()
-        } else if let card = ChatCard.parse(json) {
+        // A card shows as soon as its JSON reads, even when the closing fence never came (a stopped or truncated reply);
+        // the placeholder only stands in while the reply still streams.
+        if let card = ChatCard.parse(json) {
             switch card {
             case .carousel(let title, let items): CarouselCard(title: title, items: items)
             case .places(let title, let items): PlacesCard(title: title, places: items)
@@ -31,6 +31,8 @@ struct RichCardView: View, Equatable {
             case .news(let title, let items): NewsCard(title: title, articles: items)
             case .brief(let brief): BriefCard(brief: brief)
             }
+        } else if !complete {
+            CardSkeleton()
         }
     }
 }
@@ -146,13 +148,6 @@ private struct CarouselItemCard: View {
             .clipShape(RoundedRectangle(cornerRadius: CardStyle.radius, style: .continuous))
         }
         .buttonStyle(PressableStyle())
-        .contextMenu {
-            if let url = item.url {
-                Button { openURL(url) } label: { Label("Ouvrir", systemImage: "safari") }
-                Button { UIPasteboard.general.url = url } label: { Label("Copier le lien", systemImage: "link") }
-                ShareLink(item: url) { Label("Partager", systemImage: "square.and.arrow.up") }
-            }
-        }
         .accessibilityElement(children: .combine)
     }
 }
@@ -162,6 +157,13 @@ struct CardImage: View {
     let image: URL?
     let page: URL?
     @State private var preview: UIImage?
+
+    init(image: URL?, page: URL?) {
+        self.image = image
+        self.page = page
+        _preview = State(initialValue: image == nil ? page.flatMap { LinkPreviewStore.shared.cached($0)?.image } : nil)
+    }
+
     var body: some View {
         ZStack {
             LinearGradient(colors: [AppTheme.accent.opacity(0.18), AppTheme.accent.opacity(0.05)], startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -191,6 +193,8 @@ struct CardImage: View {
 
 private struct ResolvedPlace: Identifiable, Equatable {
     let id: Int
+    /// Its number on the card (1, 2, 3…), the same on the pin and in the list.
+    let number: Int
     let place: ChatCard.Place
     let coordinate: CLLocationCoordinate2D
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -202,30 +206,36 @@ private struct PlacesCard: View {
     let title: String
     let places: [ChatCard.Place]
     @State private var resolved: [ResolvedPlace] = []
+    @State private var searched = false
     @State private var expanded = false
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             CardTitle(text: title, symbol: "map")
             VStack(spacing: 0) {
                 Button { Haptics.select(); expanded = true } label: {
-                    PlacesMap(places: resolved, interactive: false).frame(height: 180)
+                    PlacesMap(places: resolved, searching: !searched, interactive: false).frame(height: 180)
                         .overlay(alignment: .topTrailing) {
                             Image(systemName: "arrow.up.left.and.arrow.down.right").font(.caption.weight(.bold))
                                 .padding(8).background(.thinMaterial, in: Circle()).padding(10)
                         }
                 }.buttonStyle(.plain).accessibilityLabel("Agrandir la carte")
-                ForEach(places) { place in
-                    if place.id > 0 { Divider().padding(.leading, 52) }
-                    PlaceRow(index: place.id + 1, place: place, coordinate: resolved.first { $0.id == place.id }?.coordinate)
+                ForEach(Array(places.enumerated()), id: \.element.id) { index, place in
+                    if index > 0 { Divider().padding(.leading, 52) }
+                    PlaceRow(index: index + 1, place: place, coordinate: resolved.first { $0.id == place.id }?.coordinate)
                 }
             }
             .cardSurface()
             .clipShape(RoundedRectangle(cornerRadius: CardStyle.radius, style: .continuous))
         }
-        .task { resolved = await PlaceResolver.resolve(places) }
+        .task {
+            guard !searched else { return }
+            let found = await PlaceResolver.resolve(places)
+            guard !Task.isCancelled else { return }              // the row left the screen: the next visit asks the cache again
+            resolved = found; searched = true
+        }
         .sheet(isPresented: $expanded) {
             NavigationStack {
-                PlacesMap(places: resolved, interactive: true).ignoresSafeArea(edges: .bottom)
+                PlacesMap(places: resolved, searching: !searched, interactive: true).ignoresSafeArea(edges: .bottom)
                     .navigationTitle(title.isEmpty ? "Carte" : title).navigationBarTitleDisplayMode(.inline)
                     .toolbar { AppToolbarItem(placement: .confirmationAction) { AppCloseButton { expanded = false } } }
             }.presentationDetents([.large]).presentationDragIndicator(.visible)
@@ -236,24 +246,33 @@ private struct PlacesCard: View {
 
 private struct PlacesMap: View {
     let places: [ResolvedPlace]
+    let searching: Bool
     let interactive: Bool
     var body: some View {
         Map(initialPosition: framing, interactionModes: interactive ? .all : []) {
             ForEach(places) { item in
-                Marker(item.place.name.isEmpty ? item.place.address : item.place.name, monogram: Text("\(item.id + 1)"), coordinate: item.coordinate)
+                Marker(item.place.name.isEmpty ? item.place.address : item.place.name, monogram: Text("\(item.number)"), coordinate: item.coordinate)
                     .tint(AppTheme.accent)
             }
         }
         .mapStyle(.standard(pointsOfInterest: .excludingAll))
         .id(places.map(\.id))                                     // reframe once places are found
-        .overlay { if places.isEmpty { ProgressView().tint(.secondary) } }
+        .overlay {
+            if places.isEmpty {
+                if searching { ProgressView().tint(.secondary) }
+                else {
+                    Label("Introuvable sur la carte", systemImage: "mappin.slash").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        .padding(.horizontal, 12).padding(.vertical, 8).background(.thinMaterial, in: Capsule())
+                }
+            }
+        }
     }
 
     /// Room around the pins: a balloon rises above its point, a label hangs below it, and Apple's logo sits in the bottom corner.
     private var framing: MapCameraPosition {
         let lats = places.map(\.coordinate.latitude), lons = places.map(\.coordinate.longitude)
         guard let south = lats.min(), let north = lats.max(), let west = lons.min(), let east = lons.max() else { return .automatic }
-        let latSpan = max((north - south) * 2.4, 0.012), lonSpan = max((east - west) * 1.6, 0.012)
+        let latSpan = min(max((north - south) * 2.4, 0.012), 170), lonSpan = min(max((east - west) * 1.6, 0.012), 350)
         let center = CLLocationCoordinate2D(latitude: (north + south) / 2 - latSpan * 0.03, longitude: (east + west) / 2)
         return .region(MKCoordinateRegion(center: center, span: MKCoordinateSpan(latitudeDelta: latSpan, longitudeDelta: lonSpan)))
     }
@@ -290,7 +309,9 @@ private struct PlaceRow: View {
     }
 
     private var phoneURL: URL? {
-        let digits = place.phone.filter { $0.isNumber || $0 == "+" }
+        // « 450 555 0101 poste 12 » dials the main number; the extension is not part of it.
+        let main = place.phone.split(separator: /(?i)\s*(?:poste|ext\.?|x|#|,|;)\s*\d*/, maxSplits: 1).first.map(String.init) ?? place.phone
+        let digits = main.filter { $0.isNumber || $0 == "+" }
         return digits.count >= 7 ? URL(string: "tel:\(digits)") : nil
     }
 
@@ -304,24 +325,33 @@ private struct PlaceRow: View {
     }
 }
 
-/// Places without coordinates are looked up on Apple's map service (no location permission needed).
-private enum PlaceResolver {
-    @MainActor static func resolve(_ places: [ChatCard.Place]) async -> [ResolvedPlace] {
+/// Places without coordinates are looked up on Apple's map service (no location permission needed). Each address is
+/// searched once per launch, found or not, so scrolling back to a card never asks Apple again (searches are throttled).
+@MainActor private enum PlaceResolver {
+    private static var known: [String: CLLocationCoordinate2D?] = [:]
+
+    static func resolve(_ places: [ChatCard.Place]) async -> [ResolvedPlace] {
         var found: [ResolvedPlace] = []
-        for place in places {
+        for (index, place) in places.enumerated() {
             if let lat = place.latitude, let lon = place.longitude {
-                found.append(ResolvedPlace(id: place.id, place: place, coordinate: .init(latitude: lat, longitude: lon))); continue
+                found.append(ResolvedPlace(id: place.id, number: index + 1, place: place, coordinate: .init(latitude: lat, longitude: lon))); continue
             }
-            guard !place.query.isEmpty else { continue }
-            let request = MKLocalSearch.Request()
-            request.naturalLanguageQuery = place.query
-            guard let item = try? await MKLocalSearch(request: request).start().mapItems.first else { continue }
-            found.append(ResolvedPlace(id: place.id, place: place, coordinate: coordinate(of: item)))
+            guard !place.query.isEmpty, !Task.isCancelled else { continue }
+            if known[place.query] == nil {
+                let request = MKLocalSearch.Request()
+                request.naturalLanguageQuery = place.query
+                let item = try? await MKLocalSearch(request: request).start().mapItems.first
+                if Task.isCancelled { break }                     // left the screen: keep what was learned, stop asking
+                known[place.query] = .some(item.map(coordinate(of:)))
+            }
+            if case .some(.some(let point)) = known[place.query] {
+                found.append(ResolvedPlace(id: place.id, number: index + 1, place: place, coordinate: point))
+            }
         }
         return found
     }
 
-    @MainActor private static func coordinate(of item: MKMapItem) -> CLLocationCoordinate2D {
+    private static func coordinate(of item: MKMapItem) -> CLLocationCoordinate2D {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) { return item.location.coordinate }
         #endif
@@ -335,15 +365,17 @@ private struct ChoicesCard: View {
     let prompt: String
     let options: [String]
     @Environment(\.chatReply) private var reply
+    @Environment(\.cardsInteractive) private var interactive
     @State private var chosen: String?
+    private var live: Bool { reply != nil && interactive && chosen == nil }
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if !prompt.isEmpty { Text(prompt).font(.subheadline).foregroundStyle(.secondary) }
             FlowLayout(spacing: 8) {
                 ForEach(options, id: \.self) { option in
                     Button {
-                        guard chosen == nil else { return }
-                        Haptics.send(); chosen = option; reply?.send(option)
+                        guard live, let reply, reply.send(option) else { return }
+                        Haptics.send(); chosen = option
                     } label: {
                         HStack(spacing: 6) {
                             if chosen == option { Image(systemName: "checkmark").font(.caption.weight(.bold)) }
@@ -355,8 +387,8 @@ private struct ChoicesCard: View {
                         .overlay(Capsule().strokeBorder(AppTheme.accent.opacity(chosen == option ? 0 : 0.45)))
                     }
                     .buttonStyle(PressableStyle())
-                    .disabled(chosen != nil && chosen != option)
-                    .opacity(chosen != nil && chosen != option ? 0.45 : 1)
+                    .disabled(!live)
+                    .opacity(chosen != nil && chosen != option ? 0.45 : chosen == nil && !live ? 0.6 : 1)
                 }
             }
         }
@@ -405,7 +437,7 @@ private struct MetricsCard: View {
                         if !metric.delta.isEmpty {
                             Label(metric.delta, systemImage: metric.trend == .up ? "arrow.up.right" : metric.trend == .down ? "arrow.down.right" : "minus")
                                 .font(.caption.weight(.semibold)).labelStyle(.titleAndIcon)
-                                .foregroundStyle(metric.trend == .up ? Color.green : metric.trend == .down ? AppTheme.accent : .secondary)
+                                .foregroundStyle(metric.trend == .up ? CardPalette.positive : metric.trend == .down ? AppTheme.accent : .secondary)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading).padding(14)
@@ -448,9 +480,9 @@ private struct WeatherCard: View {
                 VStack(spacing: 8) {
                     ForEach(weather.days) { day in
                         HStack(spacing: 10) {
-                            Text(Self.shortDay(day.label)).font(.subheadline.weight(.medium)).frame(width: 44, alignment: .leading)
+                            Text(Self.shortDay(day.label)).font(.subheadline.weight(.medium)).lineLimit(1).minimumScaleFactor(0.7).frame(width: 46, alignment: .leading)
                             Image(systemName: ChatCard.weatherSymbol(day.condition)).symbolRenderingMode(.multicolor).frame(width: 26)
-                            Text(day.low.map { "\(Int($0.rounded()))°" } ?? "").font(.subheadline).opacity(0.75).frame(width: 34, alignment: .trailing)
+                            Text(day.low.map { "\(Int($0.rounded()))°" } ?? "").font(.subheadline).opacity(0.75).lineLimit(1).minimumScaleFactor(0.7).frame(width: 36, alignment: .trailing)
                             GeometryReader { geometry in
                                 let low = day.low ?? minimum, high = day.high ?? maximum
                                 let start = (low - minimum) / (maximum - minimum), end = (high - minimum) / (maximum - minimum)
@@ -459,7 +491,7 @@ private struct WeatherCard: View {
                                         .frame(width: max(6, geometry.size.width * (end - start))).offset(x: geometry.size.width * start)
                                 }
                             }.frame(height: 5)
-                            Text(day.high.map { "\(Int($0.rounded()))°" } ?? "").font(.subheadline.weight(.semibold)).frame(width: 34, alignment: .trailing)
+                            Text(day.high.map { "\(Int($0.rounded()))°" } ?? "").font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7).frame(width: 36, alignment: .trailing)
                         }
                     }
                 }
@@ -519,7 +551,7 @@ struct EventCard: View {
             Spacer(minLength: 0)
         }
         .padding(14).cardSurface()
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("card-event")
     }
 

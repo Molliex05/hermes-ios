@@ -197,14 +197,14 @@ enum ChatCard: Equatable {
                 let name = clean(value["name"].string.isEmpty ? value["title"].string : value["name"].string, 80)
                 let address = clean(value["address"].string, 140)
                 let lat = number(value["lat"]) ?? number(value["latitude"]), lon = number(value["lon"]) ?? number(value["lng"]) ?? number(value["longitude"])
-                let valid = lat.map { (-90...90).contains($0) } ?? false && lon.map { (-180...180).contains($0) } ?? false
+                let valid = (lat.map { (-90...90).contains($0) } ?? false) && (lon.map { (-180...180).contains($0) } ?? false) && (lat != 0 || lon != 0)
                 guard !name.isEmpty || !address.isEmpty || valid else { return nil }
                 return Place(id: index, name: name, address: address, note: clean(value["note"].string, 120), phone: clean(value["phone"].string, 30),
                              latitude: valid ? lat : nil, longitude: valid ? lon : nil, url: webURL(value["url"].string))
             }
             return items.isEmpty ? nil : .places(title: title, items: items)
         case "choices":
-            let options = list(json["options"]).compactMap { value -> String? in
+            let options = list(json["options"].isNull ? json["items"] : json["options"]).compactMap { value -> String? in
                 let text = clean(value.string.isEmpty ? (value["reply"].string.isEmpty ? value["label"].string : value["reply"].string) : value.string, 80)
                 return text.isEmpty ? nil : text
             }
@@ -218,14 +218,19 @@ enum ChatCard: Equatable {
             }
             return items.isEmpty ? nil : .metrics(title: title, items: Array(items.prefix(8)))
         case "weather":
-            let now = json["now"].isNull ? json : json["now"]
-            let days = list(json["days"]).enumerated().compactMap { index, value -> Day? in
-                let label = clean(value["day"].string.isEmpty ? value["label"].string : value["day"].string, 16)
+            let now = !json["now"].isNull ? json["now"] : !json["actuel"].isNull ? json["actuel"] : json
+            let days = list(json["days"].isNull ? json["jours"] : json["days"]).enumerated().compactMap { index, value -> Day? in
+                var label = clean(value["day"].string.isEmpty ? value["label"].string : value["day"].string, 16)
+                if label.isEmpty, let when = date(value["date"].string) {      // the meteo tool gives a date: show its weekday
+                    label = when.formatted(.dateTime.weekday(.abbreviated)).capitalized
+                }
                 guard !label.isEmpty else { return nil }
-                return Day(id: index, label: label, condition: clean(value["condition"].string, 40), high: number(value["high"]), low: number(value["low"]))
+                return Day(id: index, label: label, condition: clean(firstString(value, "condition", "conditions"), 40),
+                           high: degrees(value, "high", "max_c", "max"), low: degrees(value, "low", "min_c", "min"))
             }
-            let weather = Weather(place: clean(json["place"].string, 60), condition: clean(now["condition"].string, 40),
-                                  temperature: number(now["temp"]) ?? number(now["temperature"]), feelsLike: number(now["feels"]) ?? number(now["feels_like"]),
+            let weather = Weather(place: clean(json["place"].string.isEmpty ? json["lieu"].string : json["place"].string, 60),
+                                  condition: clean(firstString(now, "condition", "conditions"), 40),
+                                  temperature: degrees(now, "temp", "temperature", "temperature_c"), feelsLike: degrees(now, "feels", "feels_like", "ressenti_c"),
                                   days: Array(days.prefix(7)))
             return weather.temperature == nil && weather.days.isEmpty ? nil : .weather(weather)
         case "event":
@@ -240,9 +245,12 @@ enum ChatCard: Equatable {
             return items.isEmpty ? nil : .links(title: title, items: items)
         case "chart":
             // Oldest to newest: a long series keeps its most recent points.
-            let points = Array(json["points"].array.prefix(400).enumerated().compactMap { index, value -> Point? in
-                guard let y = number(value["value"]) ?? number(value["y"]) ?? number(value) else { return nil }
-                let label = clean(display(value["label"]).isEmpty ? display(value["x"]) : display(value["label"]), 16)
+            let points = Array(json["points"].array.suffix(400).enumerated().compactMap { index, value -> Point? in
+                // A point: {"label","value"}, {"x","y"}, a bare number, or a ["mai", 3200] pair.
+                let pair = value.array.count == 2 ? value.array : []
+                guard let y = number(value["value"]) ?? number(value["y"]) ?? number(value) ?? pair.last.flatMap(number) else { return nil }
+                let named = display(value["label"]).isEmpty ? display(value["x"]) : display(value["label"])
+                let label = clean(named.isEmpty ? pair.first.map(display) ?? "" : named, 16)
                 return Point(id: index, label: label.isEmpty ? String(index + 1) : label, value: y)
             }.suffix(maxPoints))
             guard points.count >= 2 else { return nil }
@@ -268,7 +276,7 @@ enum ChatCard: Equatable {
                            tone: Tone(rawValue: value["tone"].string.lowercased()) ?? .neutral,
                            url: webURL(value["url"].string), reply: clean(value["reply"].string, 120))
             }
-            let total = json["total"]
+            let total = json["total"].string.isEmpty ? json["total"] : JSONValue.object(["value": json["total"]])
             let summary = clean(display(total["value"]), 24).isEmpty ? nil
                 : Stat(id: 0, label: clean(total["label"].string.isEmpty ? "Total" : total["label"].string, 30), value: clean(display(total["value"]), 24))
             return items.isEmpty ? nil : .list(title: title, items: items, total: summary)
@@ -284,7 +292,11 @@ enum ChatCard: Equatable {
             let exercises = list(json["exercises"].isNull ? json["items"] : json["exercises"]).enumerated().compactMap { index, value -> Exercise? in
                 let name = clean(value["name"].string.isEmpty ? value["title"].string : value["name"].string, 60)
                 guard !name.isEmpty else { return nil }
-                let done: Bool? = if case .bool(let flag) = value["done"] { flag } else { nil }
+                let done: Bool? = switch value["done"] {
+                case .bool(let flag): flag
+                case .string(let word): ["true", "oui", "yes", "fait"].contains(word.lowercased()) ? true : ["false", "non", "no"].contains(word.lowercased()) ? false : nil
+                default: nil
+                }
                 return Exercise(id: index, name: name, sets: clean(display(value["sets"]), 24), weight: clean(display(value["weight"]), 20),
                                 note: clean(value["note"].string, 30), done: done)
             }
@@ -292,7 +304,8 @@ enum ChatCard: Equatable {
             return exercises.isEmpty && workout.stats.isEmpty ? nil : .workout(workout)
         case "route":
             var points = json["points"].array.compactMap { value -> Coordinate? in
-                let lat = number(value.array.first ?? value["lat"]), lon = value.array.count > 1 ? number(value.array[1]) : number(value["lon"]) ?? number(value["lng"])
+                let lat = number(value.array.first ?? value["lat"]) ?? number(value["latitude"])
+                let lon = value.array.count > 1 ? number(value.array[1]) : number(value["lon"]) ?? number(value["lng"]) ?? number(value["longitude"])
                 guard let lat, let lon, (-90...90).contains(lat), (-180...180).contains(lon), lat != 0 || lon != 0 else { return nil }
                 return Coordinate(latitude: lat, longitude: lon)
             }
@@ -310,7 +323,7 @@ enum ChatCard: Equatable {
                 let heading = clean(value["title"].string, 40), text = clean(value["text"].string, 280)
                 let news = kind == .news ? articles(value["items"], limit: 4) : []
                 let lines = kind == .news ? [] : list(value["items"], limit: 6).enumerated().compactMap { index, line -> BriefLine? in
-                    let words = clean(line.string.isEmpty ? line["text"].string : line.string, 160)
+                    let words = clean(line.string.isEmpty ? firstString(line, "text", "title") : line.string, 160)
                     guard !words.isEmpty else { return nil }
                     return BriefLine(id: index, time: clean(display(line["time"]), 12), text: words, detail: clean(display(line["detail"]), 60),
                                      url: webURL(line["url"].string), reply: clean(line["reply"].string, 120))
@@ -320,7 +333,7 @@ enum ChatCard: Equatable {
             }
             let sky = json["weather"]
             let weather = sky.object.isEmpty ? nil
-                : BriefWeather(temperature: number(sky["temp"]) ?? number(sky["temperature"]), high: number(sky["high"]), low: number(sky["low"]),
+                : BriefWeather(temperature: degrees(sky, "temp", "temperature", "temperature_c"), high: degrees(sky, "high", "max_c"), low: degrees(sky, "low", "min_c"),
                                condition: clean(sky["condition"].string, 40))
             let brief = Brief(greeting: clean(json["greeting"].string.isEmpty ? json["title"].string : json["greeting"].string, 60),
                               date: clean(json["date"].string, 40), focus: clean(json["focus"].string, 200), weather: weather, sections: sections)
@@ -402,8 +415,9 @@ enum ChatCard: Equatable {
     static func health(_ raw: String) -> Health {
         switch raw.trimmingCharacters(in: .whitespaces).lowercased() {
         case "ok", "up", "healthy", "running", "online", "en ligne", "green", "vert", "success", "succès": .ok
-        case "warning", "warn", "degraded", "dégradé", "attention", "orange", "stale", "restarting", "starting": .warning
-        case "down", "error", "failed", "critical", "unhealthy", "exited", "dead", "panne", "en panne", "red", "rouge", "erreur": .down
+        case "warning", "warn", "degraded", "dégradé", "attention", "orange", "restarting", "starting", "paused", "en pause": .warning
+        case "down", "error", "failed", "critical", "unhealthy", "exited", "dead", "stopped", "offline", "arrêté", "arrete", "hors ligne",
+             "panne", "en panne", "red", "rouge", "erreur": .down
         default: .unknown
         }
     }
@@ -435,7 +449,10 @@ enum ChatCard: Equatable {
     /// « 07:00 », « 7 h 30 », « 17h » or « 5:30 PM »; nil for a bare date.
     static func minutes(_ raw: String) -> Int? {
         let trimmed = raw.trimmingCharacters(in: .whitespaces), text = trimmed.lowercased()
-        if trimmed.count > 10, let moment = date(trimmed) {
+        if trimmed.count > 10, trimmed.firstMatch(of: /^\d{4}-\d{2}-\d{2}/) != nil {
+            // A full date and time is read on the phone's clock, never digit by digit: its offset matters.
+            if text.hasSuffix("t24:00") || text.hasSuffix("t24:00:00") || text.hasSuffix(" 24:00") { return 24 * 60 }
+            guard let moment = date(trimmed) else { return nil }
             let parts = Calendar.current.dateComponents([.hour, .minute], from: moment)
             return (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
         }
@@ -446,6 +463,7 @@ enum ChatCard: Equatable {
             guard (1...12).contains(hour) else { return nil }
             hour = hour % 12 + (afternoon ? 12 : 0)
         }
+        if hour == 24 && minute == 0 { return 24 * 60 }
         return hour < 24 && minute < 60 ? hour * 60 + minute : nil
     }
 
@@ -458,7 +476,8 @@ enum ChatCard: Equatable {
             let slotDay = day(slot.start)
             if slotDay != currentDay { latest = nil; currentDay = slotDay }
             if let latest, start > latest { gaps[slot.id] = start - latest }
-            let end = minutes(slot.end).map { $0 >= start ? $0 : 24 * 60 } ?? start
+            let endsLater = day(slot.end).map { slotDay != nil && $0 != slotDay } ?? false     // a shift or trip over midnight
+            let end = endsLater ? 24 * 60 : minutes(slot.end).map { $0 >= start ? $0 : 24 * 60 } ?? start
             latest = max(latest ?? end, end)
         }
         return gaps
@@ -472,19 +491,35 @@ enum ChatCard: Equatable {
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
     }
 
-    /// An ISO date, with or without a time, an offset or fractions of a second. Without an offset the time is local.
+    /// An ISO date, with or without a time, an offset (written with or without a space) or fractions of a second. A time
+    /// without an offset is Montréal's, as the agents are told to write it; a bare date is a day on this phone's calendar.
     static func date(_ raw: String) -> Date? {
         let text = raw.trimmingCharacters(in: .whitespaces)
         guard text.count >= 10, text.first?.isNumber == true else { return nil }
+        if text.count == 10 { return dayFormatter.date(from: text) }
         if let full = try? Date(text, strategy: .iso8601) { return full }
-        let precise = ISO8601DateFormatter(); precise.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let full = precise.date(from: text) { return full }
-        let local = DateFormatter(); local.locale = Locale(identifier: "en_US_POSIX"); local.timeZone = .current
-        for pattern in ["yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd"] {
-            local.dateFormat = pattern
-            if let moment = local.date(from: text) { return moment }
-        }
+        if let full = fractionalISO.date(from: text) { return full }
+        for formatter in timeFormatters { if let moment = formatter.date(from: text) { return moment } }
         return nil
+    }
+
+    // Built once: parsing runs for every slot of an agenda on each render. Each formatter keeps its own fixed format,
+    // which makes sharing them safe (DateFormatter parsing is thread-safe; only changing its format is not).
+    nonisolated(unsafe) private static let dayFormatter = formatter("yyyy-MM-dd", zone: .autoupdatingCurrent)
+    nonisolated(unsafe) private static let fractionalISO: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    nonisolated(unsafe) private static let timeFormatters: [DateFormatter] =
+        ["yyyy-MM-dd'T'HH:mmXXXXX", "yyyy-MM-dd'T'HH:mm:ssXXXXX", "yyyy-MM-dd'T'HH:mm:ss XXXXX", "yyyy-MM-dd HH:mm:ssXXXXX",
+         "yyyy-MM-dd HH:mm:ss XXXXX", "yyyy-MM-dd HH:mmXXXXX"].map { formatter($0, zone: .gmt) }
+        + ["yyyy-MM-dd'T'HH:mm:ss.SSS", "yyyy-MM-dd'T'HH:mm:ss", "yyyy-MM-dd'T'HH:mm", "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm"]
+            .map { formatter($0, zone: TimeZone(identifier: "America/Toronto") ?? .autoupdatingCurrent) }
+
+    private static func formatter(_ format: String, zone: TimeZone) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.timeZone = zone; formatter.dateFormat = format
+        return formatter
     }
 
     static func clean(_ value: String, _ limit: Int) -> String {
@@ -496,13 +531,23 @@ enum ChatCard: Equatable {
         switch value {
         case .number(let n): return n.isFinite ? n : nil
         case .string(let s):
-            var text = s.replacingOccurrences(of: "\u{2212}", with: "-")
-            // « 1,234.56 » and « 4,000 » use the comma for thousands; « 8,2 » uses it for decimals.
-            if text.contains(".") || text.firstMatch(of: /\d,\d{3}(?!\d)/) != nil && text.firstMatch(of: /,\d{1,2}(?!\d)/) == nil {
-                text = text.replacingOccurrences(of: ",", with: "")
+            // The first number written, the way people write it: « 12 400 $ », « 8,2 km », « 1,234.56 », « 1.234,56 »,
+            // « 4,000 », « −5,2 », « 4.5/5 ». « 140–160 g » is 140, never 140160.
+            let text = s.replacingOccurrences(of: "\u{2212}", with: "-").replacingOccurrences(of: "\u{00A0}", with: " ")
+                .replacingOccurrences(of: "\u{202F}", with: " ")
+            guard let match = text.firstMatch(of: /-?\d{1,3}(?: \d{3})+(?:[.,]\d+)?|-?\d+(?:[.,]\d+)*/) else { return nil }
+            var token = String(match.output).replacingOccurrences(of: " ", with: "")
+            let commas = token.filter { $0 == "," }.count, dots = token.filter { $0 == "." }.count
+            if commas > 0 && dots > 0 {                                  // the last separator marks the decimals
+                let decimalIsComma = (token.lastIndex(of: ",") ?? token.startIndex) > (token.lastIndex(of: ".") ?? token.startIndex)
+                token = token.filter { $0 != (decimalIsComma ? "." : ",") }.replacingOccurrences(of: ",", with: ".")
+            } else if commas > 0 {
+                token = token.firstMatch(of: /^-?\d{1,3}(?:,\d{3})+$/) != nil ? token.replacingOccurrences(of: ",", with: "")
+                    : commas == 1 ? token.replacingOccurrences(of: ",", with: ".") : ""
+            } else if dots > 1 {
+                token = token.firstMatch(of: /^-?\d{1,3}(?:\.\d{3})+$/) != nil ? token.replacingOccurrences(of: ".", with: "") : ""
             }
-            let digits = text.replacingOccurrences(of: ",", with: ".").filter { "0123456789.-".contains($0) }
-            return Double(digits).flatMap { $0.isFinite ? $0 : nil }
+            return Double(token).flatMap { $0.isFinite ? $0 : nil }
         default: return nil
         }
     }
@@ -515,7 +560,18 @@ enum ChatCard: Equatable {
         }
     }
 
+    /// A temperature in °C under the first of these keys present; anything no weather can reach is dropped.
+    private static func degrees(_ value: JSONValue, _ keys: String...) -> Double? {
+        for key in keys { if let reading = number(value[key]) { return (-90...60).contains(reading) ? reading : nil } }
+        return nil
+    }
+
+    private static func firstString(_ value: JSONValue, _ keys: String...) -> String {
+        keys.lazy.map { value[$0].string }.first { !$0.isEmpty } ?? ""
+    }
+
     private static func inferTrend(_ delta: JSONValue) -> Trend {
+        if case .number(let change) = delta { return change > 0 ? .up : change < 0 ? .down : .flat }
         let shown = display(delta).trimmingCharacters(in: .whitespaces)
         if shown.hasPrefix("+") || shown.hasPrefix("↑") { return .up }
         if shown.hasPrefix("-") || shown.hasPrefix("−") || shown.hasPrefix("↓") { return .down }
@@ -530,20 +586,31 @@ enum ChatCard: Equatable {
         return url
     }
 
-    /// Web links written in a reply outside code and cards, for link previews: at most `limit`, in order, without duplicates.
+    /// Web links written in a reply's own text, for link previews: at most `limit`, in order, without duplicates. Previews
+    /// are fetched without a tap, so links in quotes (a relayed email) or code are left out, and so are private hosts and
+    /// links that act when opened (sign-in, confirmation, unsubscribe, tokens).
     static func links(in markdown: String, limit: Int = 3) -> [URL] {
         var urls: [URL] = [], seen = Set<String>()
         for block in ChatMarkdown.parse(markdown) {
             let text: String
             switch block {
-            case .paragraph(let t), .quote(let t), .heading(_, let t): text = t
+            case .paragraph(let t), .heading(_, let t): text = t
             case .item(_, _, let t, _): text = t
             default: continue
             }
-            for match in text.matches(of: /https?:\/\/[^\s<>()\[\]"'`]+/) {
+            let prose = text.replacing(/`[^`\n]*`/, with: " ")
+            for match in prose.matches(of: /https?:\/\/[^\s<>\[\]"'`]+/) {
                 var candidate = String(match.output)
-                while let last = candidate.last, ".,;:!?".contains(last) { candidate.removeLast() }
-                guard let url = webURL(candidate), seen.insert(url.absoluteString).inserted else { continue }
+                // Markup and punctuation around a link are not part of it; a closing parenthesis is, when it is balanced.
+                while let last = candidate.last {
+                    if ".,;:!?*_~\u{201D}\u{2019}\u{00BB}\u{2026}".contains(last) { candidate.removeLast(); continue }
+                    if last == ")", candidate.filter({ $0 == ")" }).count > candidate.filter({ $0 == "(" }).count { candidate.removeLast(); continue }
+                    break
+                }
+                guard let url = webURL(candidate), previewable(url) else { continue }
+                var key = url.absoluteString.lowercased()
+                if key.hasSuffix("/") { key.removeLast() }
+                guard seen.insert(key).inserted else { continue }
                 urls.append(url)
                 if urls.count == limit { return urls }
             }
@@ -551,21 +618,78 @@ enum ChatCard: Equatable {
         return urls
     }
 
-    /// The reply without its ```ui cards (for copying or sharing as text); ordinary code fences stay.
-    static func stripCards(_ text: String) -> String {
-        var out: [Substring] = [], skipping = false
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if skipping { if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { skipping = false }; continue }
-            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~"), isCardFence(String(trimmed.drop { $0 == "`" || $0 == "~" })) { skipping = true; continue }
-            out.append(line)
-        }
-        return out.joined(separator: "\n").replacingOccurrences(of: "\n\n\n", with: "\n\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Whether a page may be fetched for a preview without a tap.
+    static func previewable(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased(), url.port == nil || url.port == 443 || url.port == 80 else { return false }
+        let local = host == "localhost" || host.hasSuffix(".local") || host.hasSuffix(".internal") || host.hasSuffix(".ts.net")
+            || host.firstMatch(of: /^(?:127\.|10\.|192\.168\.|169\.254\.|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|172\.(?:1[6-9]|2\d|3[01])\.)/) != nil
+            || host.contains(":")                                                                   // an IPv6 literal
+        guard !local else { return false }
+        // Whole words of the path or of a parameter name: « /login », « ?token= », but not « apple-keynote ».
+        let acting = /(?i)(?:^|[\/_.\-=&?])(token|access_token|auth|apikey|api_key|key|sig|signature|session|code|otp|password|reset|verify|verification|confirm|confirmation|unsubscribe|desabonnement|magic|login|signin|logout|invite)(?:$|[\/_.\-=&?])/
+        return url.path.firstMatch(of: acting) == nil && ("?" + (url.query ?? "")).firstMatch(of: acting) == nil
     }
 
-    /// Whether a reply holds at least one card fence (cheap check, no parsing).
+    /// The reply as plain text, for copying or sharing: each card becomes a few readable lines instead of its JSON.
+    static func plainText(_ text: String) -> String {
+        var out: [String] = [], open: ChatMarkdown.Fence?, card: [String]? = nil
+        for line in ChatMarkdown.normalized(text).components(separatedBy: "\n") {
+            if let current = open {
+                if current.closes(line) {
+                    open = nil
+                    if let json = card { out.append(contentsOf: summary(json.joined(separator: "\n"))); card = nil } else { out.append(line) }
+                } else if card != nil { card?.append(line) } else { out.append(line) }
+                continue
+            }
+            if let start = ChatMarkdown.fence(line) {
+                open = start
+                if isCardFence(start.language) { card = [] } else { out.append(line) }
+                continue
+            }
+            out.append(line)
+        }
+        if let json = card { out.append(contentsOf: summary(json.joined(separator: "\n"))) }     // a card left open at the end
+        return out.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// A card in a few lines of text; nothing when it cannot be read.
+    static func summary(_ json: String) -> [String] {
+        guard let card = parse(json) else { return [] }
+        func joined(_ parts: String...) -> String { parts.filter { !$0.isEmpty }.joined(separator: " · ") }
+        var lines: [String]
+        switch card {
+        case .carousel(let title, let items): lines = [title] + items.map { joined($0.title, $0.subtitle, $0.price, $0.url?.absoluteString ?? "") }
+        case .places(let title, let items): lines = [title] + items.map { joined($0.name, $0.address, $0.phone) }
+        case .choices(let prompt, let options): lines = [prompt] + options.map { "• " + $0 }
+        case .metrics(let title, let items): lines = [title] + items.map { joined($0.label + " : " + $0.value, $0.delta) }
+        case .weather(let w): lines = [joined(w.place, w.temperature.map { "\(Int($0.rounded()))°" } ?? "", w.condition)]
+                + w.days.map { joined($0.label, $0.condition, $0.low.map { "\(Int($0.rounded()))°" } ?? "", $0.high.map { "\(Int($0.rounded()))°" } ?? "") }
+        case .event(let e): lines = [joined(e.title, e.start, e.end, e.location, e.calendar)]
+        case .links(let title, let items): lines = [title] + items.map { joined($0.title, $0.url.absoluteString) }
+        case .chart(let c): lines = [joined(c.title, c.value, c.delta)] + c.points.map { "\($0.label) : \($0.value.formatted())" + (c.unit.isEmpty ? "" : " \(c.unit)") }
+        case .progress(let title, let items): lines = [title] + items.map { "\($0.label) : \($0.value.formatted()) / \($0.goal.formatted()) \($0.unit)" }
+        case .list(let title, let items, let total): lines = [title] + items.map { joined($0.title, $0.subtitle, $0.value) } + [total.map { "\($0.label) : \($0.value)" } ?? ""]
+        case .agenda(let title, let items): lines = [title] + items.map { joined($0.start, $0.end, $0.title, $0.location) }
+        case .workout(let w): lines = [joined(w.title, w.subtitle)] + w.stats.map { "\($0.label) : \($0.value)" } + w.exercises.map { joined($0.name, $0.sets, $0.weight) }
+        case .route(let r): lines = [r.title] + r.stats.map { "\($0.label) : \($0.value)" }
+        case .status(let st): lines = [joined(st.title, st.subtitle)] + st.gauges.map { "\($0.label) : \(Int(($0.fraction * 100).rounded())) %" } + st.items.map { joined($0.name, $0.detail) }
+        case .news(let title, let items): lines = [title] + items.map { joined($0.title, $0.source, $0.url?.absoluteString ?? "") }
+        case .brief(let b): lines = [joined(b.greeting, b.date)] + b.sections.flatMap { section in
+                [section.title] + (section.text.isEmpty ? [] : [section.text]) + section.lines.map { joined($0.time, $0.text, $0.detail) }
+                    + section.articles.map { joined($0.title, $0.source) } } + [b.focus]
+        }
+        return lines.filter { !$0.isEmpty }
+    }
+
+    /// The reply without its ```ui cards (code and everything else kept).
+    static func stripCards(_ text: String) -> String {
+        ChatMarkdown.withoutCards(text).text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Whether a reply holds at least one card fence, by the same rules as the renderer.
     static func hasCards(_ text: String) -> Bool {
-        text.contains("```ui") || text.contains("```hermes-ui") || text.contains("```card") || text.contains("```carte")
+        guard text.contains("```") || text.contains("~~~") else { return false }      // most replies: no fence at all
+        return ChatMarkdown.withoutCards(text).hadCards
     }
 
     /// An SF Symbol for a weather condition written in French or English.
