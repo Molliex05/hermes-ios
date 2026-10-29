@@ -73,8 +73,12 @@ struct BoardEntry: TimelineEntry {
     private var agentBoard: AgentBoard? { current(board) }
     private var calendarBoard: AgentBoard? { current(agenda) }
     var dayDone: Bool { live == nil && [board, agenda].contains { $0.map { !$0.isEmpty && !$0.isExpired(at: date) && isDone($0) } ?? false } }
-    /// What to draw: the agent's own board, else the calendar's next events, else nothing (the empty state).
-    var live: AgentBoard? { agentBoard ?? calendarBoard }
+    /// What to draw: the agent's own lines, else the calendar's next events, else an agent's lone note, else nothing.
+    var live: AgentBoard? { agentBoard.flatMap { $0.items.isEmpty ? nil : $0 } ?? calendarBoard ?? agentBoard }
+    /// The agent's « À retenir », kept in view whatever supplies the lines (its own, or the calendar's).
+    var note: String { agentBoard?.focus ?? "" }
+    /// Lines still to come or under way, in order.
+    var upcomingRows: [BoardRow] { rows.filter { $0.phase != .past } }
     var fromCalendar: Bool { agentBoard == nil && calendarBoard != nil }
     /// The calendar answered and holds nothing: a free day, which is worth saying.
     var freeDay: Bool { live == nil && !dayDone && (agenda.map { !$0.isExpired(at: date) } ?? false) }
@@ -128,7 +132,7 @@ struct BoardEntry: TimelineEntry {
 
     /// A tap opens that agent's chat with the sentence it suggests waiting in the composer (never sent by itself).
     var openURL: URL? {
-        if let ask = live?.ask, !ask.isEmpty { return BoardLinks.url("ask", profile: profile, text: ask) }
+        if let ask = agentBoard?.ask ?? live?.ask, !ask.isEmpty { return BoardLinks.url("ask", profile: profile, text: ask) }
         return BoardLinks.url("open", profile: profile)
     }
 }
@@ -340,7 +344,7 @@ struct BoardWidgetView: View {
                     if let hero { Text(hero.item.text).font(.caption.weight(.semibold)).lineLimit(1) }
                     else { Text(entry.date, format: .dateTime.weekday(.wide).day().month(.wide)).environment(\.locale, Locale(identifier: "fr_CA")).font(.caption.weight(.semibold)).lineLimit(1) }
                     if let hero, let when = hero.when, hero.phase == .next { (Text("dans ") + Text(when, style: .relative)).font(.caption2) }
-                    else if let focus = entry.live?.focus, !focus.isEmpty { Text(focus).font(.caption2).lineLimit(1) }
+                    else if !entry.note.isEmpty { Text(entry.note).font(.caption2).lineLimit(1) }
                     else if hero == nil, let weather = entry.weather { Text("\(entry.temperature.map { "\($0)°" } ?? "") \(weather.summary)").font(.caption2).lineLimit(1) }
                     else if hero == nil, let end = entry.dayEnd { (Text("Encore ") + Text(end, style: .relative)).font(.caption2) }
                     else { Text(entry.agentTitle).font(.caption2) }
@@ -537,7 +541,14 @@ struct BoardWidgetView: View {
                 Text(degrees(entry.temperature)).font(.system(size: 38, weight: .bold, design: .rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
             }
             Text(weather.summary).font(.caption.weight(.semibold)).lineLimit(1)
-            Text(highLow(entry.today)).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+            if entry.note.isEmpty {
+                Text(highLow(entry.today)).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+            } else {
+                HStack(alignment: .top, spacing: 4) {
+                    Image(systemName: "scope").font(.system(size: 9, weight: .bold)).foregroundStyle(accent).padding(.top, 1).accessibilityHidden(true)
+                    Text(entry.note).font(.caption2.weight(.semibold)).lineLimit(2)
+                }
+            }
         }
     }
 
@@ -574,7 +585,9 @@ struct BoardWidgetView: View {
 
     private var medium: some View {
         Group {
-            if entry.live != nil, let hero = entry.hero {
+            if let weather = entry.weather, !entry.upcomingRows.isEmpty || !entry.note.isEmpty {
+                mediumSplit(weather)
+            } else if entry.live != nil, let hero = entry.hero {
                 mediumBoard(hero)
             } else if let weather = entry.weather {
                 mediumWeather(weather)
@@ -587,7 +600,7 @@ struct BoardWidgetView: View {
 
     private func mediumBoard(_ hero: BoardRow) -> some View {
         let rest = entry.rows.filter { $0.id != hero.id }
-        let focus = entry.live?.focus ?? ""
+        let focus = entry.note
         return HStack(alignment: .top, spacing: 12) {
             link(hero) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -617,6 +630,39 @@ struct BoardWidgetView: View {
             }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
+
+    /// Half weather, half agenda: the weather now on the left, what is coming (and the agent's note) on the right.
+    private func mediumSplit(_ weather: WeatherReport) -> some View {
+        let rows = Array(entry.upcomingRows.prefix(bigText ? 2 : entry.note.isEmpty ? 4 : 3))
+        return HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 1) {
+                dateCaps()
+                Spacer(minLength: 2)
+                HStack(spacing: 6) {
+                    wx(entry.weatherSymbol, 26)
+                    Text(degrees(entry.temperature)).font(.system(size: 34, weight: .bold, design: .rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+                }
+                Text(weather.summary).font(.caption.weight(.semibold)).lineLimit(1)
+                Text(highLow(entry.today)).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
+                Spacer(minLength: 2)
+                dayLeft()
+            }.frame(width: 128, alignment: .leading).frame(maxHeight: .infinity, alignment: .topLeading)
+            RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1).frame(maxHeight: .infinity)
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(rows) { row in link(row) { compactRow(row) }.frame(minHeight: 26, maxHeight: 40) }
+                if rows.isEmpty { Text(agendaEmptyText).font(.caption).foregroundStyle(.secondary) }
+                Spacer(minLength: 0)
+                if !entry.note.isEmpty {
+                    HStack(alignment: .top, spacing: 6) {
+                        Image(systemName: "scope").font(.caption2.weight(.bold)).foregroundStyle(accent).accessibilityHidden(true)
+                        Text(entry.note).font(.caption2.weight(.semibold)).lineLimit(2)
+                    }
+                }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var agendaEmptyText: String { entry.dayDone ? "Journée terminée" : entry.freeDay ? "Rien à l’agenda aujourd’hui" : "Rien à l’affiche" }
 
     /// The weather now at the top left, the day's ring at the top right, the next hours across the bottom.
     private func mediumWeather(_ weather: WeatherReport) -> some View {
@@ -671,10 +717,10 @@ struct BoardWidgetView: View {
 
     private var large: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if entry.live != nil, entry.hero != nil {
+            if let weather = entry.weather {
+                largeSplit(weather)
+            } else if entry.live != nil, entry.hero != nil {
                 largeBoard
-            } else if let weather = entry.weather {
-                largeWeather(weather)
             } else {
                 largeCalm
             }
@@ -706,36 +752,53 @@ struct BoardWidgetView: View {
             }
             Spacer(minLength: 0)
         }.frame(maxHeight: .infinity, alignment: .top)
-        if let focus = entry.live?.focus, !focus.isEmpty { focusBox(focus, compact: bigText) }
+        if !entry.note.isEmpty { focusBox(entry.note, compact: bigText) }
         actions
     }
 
-    /// Everything the weather says: now, the hours, the days, the sun; the day's ring top right.
-    @ViewBuilder private func largeWeather(_ weather: WeatherReport) -> some View {
+    /// Half weather, half agenda. Top: the weather now and the next hours, the day's ring at the right. Bottom: what is coming
+    /// (the agent's lines, else the calendar's), the agent's « À retenir » when it has one, Parler and Écrire.
+    @ViewBuilder private func largeSplit(_ weather: WeatherReport) -> some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 1) {
                 dateCaps(.caption)
                 HStack(spacing: 8) {
-                    wx(entry.weatherSymbol, 38)
-                    Text(degrees(entry.temperature)).font(.system(size: 48, weight: .bold, design: .rounded)).monospacedDigit().lineLimit(1)
+                    wx(entry.weatherSymbol, 32)
+                    Text(degrees(entry.temperature)).font(.system(size: 42, weight: .bold, design: .rounded)).monospacedDigit().lineLimit(1)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(weather.summary).font(.caption.weight(.semibold)).lineLimit(1)
+                        Text(highLow(entry.today)).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+                    }
                 }
-                Text(conditions(weather)).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
-                Text(highLow(entry.today)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer(minLength: 6)
-            VStack(alignment: .trailing, spacing: 3) {
-                ring(46)
+            VStack(alignment: .trailing, spacing: 2) {
+                ring(40)
                 dayLeft()
-                if !weather.place.isEmpty { Text(weather.place).font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary).lineLimit(1) }
             }
         }
-        card { hoursRow(6, rain: true) }
-        card {
-            VStack(spacing: 5) {
-                ForEach(Array(entry.nextDays.prefix(bigText ? 2 : 3)), id: \.date) { dayRow($0) }
-            }.frame(maxHeight: .infinity)
-        }.frame(maxHeight: .infinity)
-        if let today = entry.today { sunLine(today) }
+        hoursRow(6, rain: true)
+        Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 1)
+        let rows = Array(entry.upcomingRows.prefix(bigText ? 2 : entry.note.isEmpty ? 4 : 3))
+        HStack(spacing: 5) {
+            Image(systemName: "calendar").font(.system(size: 10, weight: .bold)).foregroundStyle(accent).accessibilityHidden(true)
+            Text(entry.live?.title.isEmpty == false ? entry.live?.title ?? "" : "Aujourd’hui").font(.system(size: 10, weight: .bold)).textCase(.uppercase)
+                .foregroundStyle(accent).lineLimit(1)
+        }
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                link(row) { timelineRow(row, last: index == rows.count - 1) }.frame(minHeight: 34, maxHeight: 56)
+            }
+            if rows.isEmpty {
+                HStack(spacing: 8) {
+                    Tile(symbol: entry.dayDone ? "checkmark" : "calendar", color: accent, size: 30)
+                    Text(agendaEmptyText).font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }.frame(maxHeight: .infinity)
+            }
+            Spacer(minLength: 0)
+        }.frame(maxHeight: .infinity, alignment: .top)
+        if !entry.note.isEmpty { focusBox(entry.note, compact: bigText) }
         actions
     }
 
