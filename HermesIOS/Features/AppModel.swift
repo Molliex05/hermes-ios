@@ -220,6 +220,8 @@ final class AppModel {
     /// Requests from outside the app (widgets, Siri and Shortcuts, the share sheet), done one at a time (see LaunchRequests).
     var launchQueue: [LaunchRequest] = []
     @ObservationIgnored var launching = false
+    /// Share-sheet items already queued (they stay in the inbox until handled, so they must not be queued twice).
+    @ObservationIgnored var queuedShareIDs = Set<String>()
     @ObservationIgnored private var widgetRefreshedAt = Date.distantPast
     @ObservationIgnored private var widgetUnavailable = false
 
@@ -551,6 +553,7 @@ final class AppModel {
         guard case .array = result["profiles"] else { throw RPCFailure("Hermes a renvoyé une liste de profils invalide.") }
         profiles = result["profiles"].array.map(AgentProfile.init)
         SharedProfiles.write(profiles.filter { $0.hidden != true }.map { SharedProfile(name: $0.name, title: $0.title) })
+        AgentShortcuts.updateAppShortcutParameters()          // Siri learns the agents' names
         let canonical = result["profiles"].array.compactMap { row -> Conversation? in
             let session = row["canonical_session"]
             guard !session["id"].string.isEmpty else { return nil }

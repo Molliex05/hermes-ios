@@ -112,23 +112,41 @@ def _token() -> str:
     return ""
 
 
+def _config_url(text: str) -> str:
+    """`mcp_servers.noriven.url` of a Hermes config.yaml: found by indentation under the right parents, comments ignored.
+    (PyYAML is not installed in the Hermes environment.)"""
+    def clean(line: str) -> str:
+        return line.split(" #", 1)[0].rstrip()
+    lines = [clean(line) for line in text.splitlines() if clean(line).strip() and not line.lstrip().startswith("#")]
+    indent = lambda line: len(line) - len(line.lstrip())
+    for i, line in enumerate(lines):
+        if indent(line) == 0 and line.strip() == "mcp_servers:":
+            block = []
+            for follower in lines[i + 1:]:
+                if indent(follower) == 0:
+                    break
+                block.append(follower)
+            for j, entry in enumerate(block):
+                if entry.strip() == "noriven:":
+                    level = indent(entry)
+                    for child in block[j + 1:]:
+                        if indent(child) <= level:
+                            break
+                        found = re.match(r"^\s*url:\s*(\S+)\s*$", child)
+                        if found:
+                            return found.group(1).strip("\"'")
+    return ""
+
+
 def _mcp_url() -> str:
     """`NORIVEN_MCP_URL`, else the address in the Noriven profile's own config, else the old internal name."""
     if os.environ.get("NORIVEN_MCP_URL"):
         return os.environ["NORIVEN_MCP_URL"].strip()
     config = Path(os.environ.get("HERMES_PROFILES_DIR", "/opt/data/profiles")) / PROFILE / "config.yaml"
     try:
-        in_noriven = False
-        for line in config.read_text().splitlines():
-            if re.match(r"^  noriven:\s*$", line):
-                in_noriven = True
-            elif in_noriven and re.match(r"^  \S", line):
-                in_noriven = False
-            elif in_noriven and (found := re.match(r"^\s+url:\s*(\S+)\s*$", line)):
-                return found.group(1).strip("\"'")
+        return _config_url(config.read_text(encoding="utf-8")) or MCP_URL
     except OSError:
-        pass
-    return MCP_URL
+        return MCP_URL
 
 
 async def mcp_call(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:

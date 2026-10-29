@@ -33,25 +33,37 @@ class Evaluate(unittest.TestCase):
                        host__docker__unhealthy=["coolify-proxy"])
         services = {"services": [{"alias": "minori-production", "status": "exited", "health": "n/a", "restarts": 0},
                                  {"alias": "auth-production", "status": "running", "health": "unhealthy", "restarts": 0},
-                                 {"alias": "noriven-main", "status": "running", "health": "healthy", "restarts": 5}]}
+                                 {"alias": "noriven-main", "status": "running", "health": "healthy", "restarts": 5}]}   # restarts alone are no alert
         backups = {"backups": [{"name": "Postgres", "condition": "stale"}, {"name": "Fichiers", "condition": "unchecked"}]}
         lines = alertes.evaluate(host, services, backups)
         self.assertEqual(lines, sorted(lines))
         for expected in ("noriven-prod : disque utilisé à plus de 85 %", "noriven-prod : moins de 10 % de mémoire disponible",
                          "noriven-prod : charge soutenue très élevée", "service en mauvaise santé : coolify-proxy",
                          "service arrêté : minori-production", "service en mauvaise santé : auth-production",
-                         "service qui redémarre souvent : noriven-main", "sauvegarde en retard ou en échec : Postgres"):
+                         "sauvegarde en retard ou en échec : Postgres"):
             self.assertIn(expected, lines)
-        self.assertEqual(len(lines), 8, "an unchecked backup is not an alert")
+        self.assertEqual(len(lines), 7, "an unchecked backup and a lifetime restart count are not alerts")
 
     def test_the_text_does_not_move_with_the_live_values(self):
         a = alertes.evaluate(changed(HOST, host__disk__used_bytes=106 * 10**9), SERVICES, BACKUPS)
         b = alertes.evaluate(changed(HOST, host__disk__used_bytes=118 * 10**9), SERVICES, BACKUPS)
         self.assertEqual(a, b); self.assertEqual(len(a), 1)
 
-    def test_missing_fields_do_not_break_it(self):
-        self.assertEqual(alertes.evaluate({}, {}, {}), [])
-        self.assertEqual(alertes.evaluate({"host": {"disk": {"total_bytes": 0}}}, {"services": [{}]}, {"backups": [{}]}), [])
+    def test_a_blind_answer_is_an_error_but_odd_numbers_are_not(self):
+        with self.assertRaises(ValueError):
+            alertes.evaluate({"ok": True}, SERVICES, BACKUPS)
+        with self.assertRaises(ValueError):
+            alertes.evaluate(HOST, {"ok": True}, BACKUPS)
+        odd = {"host": {"disk": {"total_bytes": 100, "used_bytes": None}, "memory": {"mem_total": "x"}, "cpu_count": "4", "loadavg": {}, "docker": None}}
+        self.assertEqual(alertes.evaluate(odd, {"services": [{}, "x"]}, {"backups": [{}, None]}), [])
+
+    def test_an_alert_clears_only_past_a_margin(self):
+        line = "noriven-prod : disque utilisé à plus de 85 %"
+        at = lambda used: changed(HOST, host__disk__used_bytes=int(used * HOST["host"]["disk"]["total_bytes"]))
+        self.assertEqual(alertes.evaluate(at(0.84), SERVICES, BACKUPS), [], "84 % never raised it")
+        self.assertEqual(alertes.evaluate(at(0.86), SERVICES, BACKUPS), [line])
+        self.assertEqual(alertes.evaluate(at(0.83), SERVICES, BACKUPS, previous=[line]), [line], "raised: it stays until below 80 %")
+        self.assertEqual(alertes.evaluate(at(0.79), SERVICES, BACKUPS, previous=[line]), [])
 
 
 class Collect(unittest.TestCase):

@@ -80,6 +80,32 @@ final class AgentBoardTests: XCTestCase {
         XCTAssertEqual(ShareInbox.read(from: directory).last?.id, "13", "the newest are kept")
     }
 
+    func testAShareIsRemovedByIdAndALateOneSurvives() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("remove-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        ShareInbox.add(SharedItem(id: "a", profile: "p", text: "un"), to: directory)
+        let seen = ShareInbox.read(from: directory)
+        ShareInbox.add(SharedItem(id: "b", profile: "p", text: "deux"), to: directory)      // the share sheet adds while the app works
+        ShareInbox.remove(ids: Set(seen.map(\.id)), from: directory)
+        XCTAssertEqual(ShareInbox.read(from: directory).map(\.id), ["b"])
+    }
+
+    func testAnOldBoardWithNoExpiryGoesStaleAndTwinsGetDistinctIds() throws {
+        let now = Date()
+        XCTAssertTrue(AgentBoard(title: "x", items: [.init(text: "a")], updatedAt: now.addingTimeInterval(-25 * 3600)).isExpired(at: now))
+        XCTAssertFalse(AgentBoard(title: "x", items: [.init(text: "a")], updatedAt: now.addingTimeInterval(-3600)).isExpired(at: now))
+        let data = Data("""
+        {"boards":{"p":{"items":[{"text":"Standup","time":"09:00","at":"2026-10-29T09:00:00-04:00","until":"2026-10-29T09:30:00-04:00"},
+                                 {"text":"Standup","time":"09:00","at":"2026-10-30T09:00:00-04:00"}]}}}
+        """.utf8)
+        let items = try XCTUnwrap(AgentBoards.decode(data).boards["p"]).items
+        XCTAssertNotEqual(items[0].id, items[1].id, "the same title at the same time on two days")
+        XCTAssertNotNil(items[0].until); XCTAssertNil(items[1].until)
+        XCTAssertNoThrow(try AgentBoards.decode(Data("{\"agendas\":{\"p\":{\"items\":[]}}}".utf8)), "agendas alone are fine")
+        XCTAssertThrowsError(try AgentBoards.decode(Data("{\"version\":1}".utf8)))
+    }
+
     func testTheProfileListRoundTrips() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("profiles-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

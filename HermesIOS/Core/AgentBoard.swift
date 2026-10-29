@@ -7,9 +7,11 @@ public struct AgentBoard: Equatable, Sendable {
         public var text: String, detail: String, time: String, icon: String, tone: String
         /// The exact moment, when the source knows it (the calendar does): « 13:45 » alone means today.
         public var at: Date?
-        public var id: String { "\(time)|\(text)" }
-        public init(text: String, detail: String = "", time: String = "", icon: String = "", tone: String = "", at: Date? = nil) {
-            self.text = text; self.detail = detail; self.time = time; self.icon = icon; self.tone = tone; self.at = at
+        /// When it ends, when known: a night shift started yesterday is still « maintenant » until then.
+        public var until: Date?
+        public var id: String { "\(at.map { String(Int($0.timeIntervalSince1970)) } ?? "")|\(time)|\(text)" }
+        public init(text: String, detail: String = "", time: String = "", icon: String = "", tone: String = "", at: Date? = nil, until: Date? = nil) {
+            self.text = text; self.detail = detail; self.time = time; self.icon = icon; self.tone = tone; self.at = at; self.until = until
         }
     }
 
@@ -25,13 +27,19 @@ public struct AgentBoard: Equatable, Sendable {
         self.title = title; self.items = items; self.focus = focus; self.ask = ask; self.updatedAt = updatedAt; self.expiresAt = expiresAt
     }
 
-    /// Past its time, the board is stale: the widget falls back to a calm state instead of showing yesterday's news.
-    public func isExpired(at date: Date = .now) -> Bool { expiresAt.map { $0 <= date } ?? false }
+    /// Past its time, the board is stale: the widget falls back to a calm state instead of showing yesterday's news. A board
+    /// that names no expiry is good for a day from when it was written.
+    public func isExpired(at date: Date = .now) -> Bool {
+        if let expiresAt { return expiresAt <= date }
+        if let updatedAt { return date.timeIntervalSince(updatedAt) > 24 * 3600 }
+        return false
+    }
     public var isEmpty: Bool { items.isEmpty && focus.isEmpty }
     public static let maxItems = 5
 
     init(_ value: JSONValue) {
-        func clean(_ text: String, _ limit: Int) -> String { String(text.split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespaces).prefix(limit)) }
+        // Cut first: a huge string is never split and joined whole.
+        func clean(_ text: String, _ limit: Int) -> String { String(String(text.prefix(limit * 4)).split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespaces).prefix(limit)) }
         title = clean(value["title"].string, 40)
         focus = clean(value["focus"].string, 140)
         ask = clean(value["ask"].string, 200)
@@ -39,17 +47,20 @@ public struct AgentBoard: Equatable, Sendable {
             let text = clean(row["text"].string, 80)
             return text.isEmpty ? nil : Item(text: text, detail: clean(row["detail"].string, 50), time: clean(row["time"].string, 12),
                                              icon: clean(row["icon"].string, 40), tone: clean(row["tone"].string, 10).lowercased(),
-                                             at: Self.date(row["at"].string))
+                                             at: Self.date(row["at"].string), until: Self.date(row["until"].string))
         }
         updatedAt = Self.date(value["updated_at"].string)
         expiresAt = Self.date(value["expires_at"].string)
     }
 
+    nonisolated(unsafe) private static let plainISO = ISO8601DateFormatter()      // built once; parsing with a formatter is thread-safe
+    nonisolated(unsafe) private static let fractionalISO: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return formatter
+    }()
+
     private static func date(_ text: String) -> Date? {
         guard !text.isEmpty else { return nil }
-        let plain = ISO8601DateFormatter(), fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return plain.date(from: text) ?? fractional.date(from: text)
+        return plainISO.date(from: text) ?? fractionalISO.date(from: text)
     }
 }
 
@@ -64,7 +75,11 @@ public struct AgentBoards: Equatable, Sendable {
     /// Tolerant on purpose: a malformed board is left out, the others are kept; not even an object is an error.
     public static func decode(_ data: Data) throws -> AgentBoards {
         let root = try JSONValue.decode(data)
-        guard case .object = root, case .object(let rows) = root["boards"] else { throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "no boards")) }
+        // Either part may be missing (a server that has only the agendas), but an answer with neither is not a board.
+        guard case .object = root else { throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "not an object")) }
+        var rows: [String: JSONValue] = [:], hasBoards = false
+        if case .object(let found) = root["boards"] { rows = found; hasBoards = true }
+        guard hasBoards || !root["agendas"].object.isEmpty else { throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "no boards")) }
         let agendas = root["agendas"].object.mapValues(AgentBoard.init).filter { !$0.key.isEmpty }
         return AgentBoards(boards: rows.mapValues(AgentBoard.init).filter { !$0.key.isEmpty }, agendas: agendas)
     }
@@ -141,10 +156,19 @@ public enum ShareInbox {
         return blob.write(data, to: directory)
     }
 
-    /// Everything waiting, once: the inbox is emptied as it is read.
+    /// Takes away only the items with these ids, whatever else was added since they were read (the share sheet and the app
+    /// are different processes).
+    public static func remove(ids: Set<String>, from directory: URL? = nil) {
+        guard !ids.isEmpty else { return }
+        let remaining = read(from: directory).filter { !ids.contains($0.id) }
+        if remaining.isEmpty { blob.clear(from: directory) }
+        else if let data = try? JSONEncoder().encode(remaining) { blob.write(data, to: directory) }
+    }
+
+    /// Everything waiting, emptied as it is read (tests and simple callers; the app removes items once they are handled).
     public static func take(from directory: URL? = nil, now: Date = .now) -> [SharedItem] {
         let items = read(from: directory, now: now)
-        blob.clear(from: directory)
+        remove(ids: Set(items.map(\.id)), from: directory)
         return items
     }
 }

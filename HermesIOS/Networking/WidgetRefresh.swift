@@ -19,9 +19,11 @@ enum WidgetRefresh {
     }
 
     /// From a silent push: the app may have been started just for this, so it reads the saved connection itself.
-    static func runInBackground() async -> Bool {
+    @MainActor static func runInBackground() async -> Bool {
         let connections = await LocalCache().read([SavedConnection].self, key: "connections") ?? []
         guard let first = connections.first else { return false }
-        return await run(using: HermesHTTP(first)) == .saved
+        let http = HermesHTTP(first)
+        defer { http.invalidate() }                                    // one URLSession per silent push would pile up
+        return await run(using: http) == .saved
     }
 }

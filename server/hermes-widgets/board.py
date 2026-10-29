@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -19,7 +20,8 @@ TONES = {"positive", "warning", "negative", "neutral"}
 
 
 def _clean(value: Any, limit: int) -> str:
-    text = re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", str(value if value is not None else ""))).strip()
+    text = re.sub(r"[\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]", "", str(value if value is not None else ""))   # bidi and zero-width marks
+    text = re.sub(r"\s+", " ", re.sub(r"[\x00-\x1f\x7f]", " ", text)).strip()
     return text[: limit - 1] + "…" if len(text) > limit else text
 
 
@@ -60,12 +62,22 @@ def path_for(home: Path) -> Path:
 
 
 def save(home: Path, board: Dict[str, Any]) -> None:
+    """Atomic and private: a temporary file of its own (two writers never share one), flushed, then renamed into place."""
     target = path_for(home)
     target.parent.mkdir(parents=True, exist_ok=True)
-    temporary = target.with_suffix(".tmp")
-    temporary.write_text(json.dumps(board, ensure_ascii=False))
-    temporary.chmod(0o600)
-    temporary.replace(target)
+    descriptor, name = tempfile.mkstemp(dir=target.parent, prefix=".board-", suffix=".tmp")
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(board, ensure_ascii=False))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(name, target)
+    except BaseException:
+        try:
+            os.unlink(name)
+        except OSError:
+            pass
+        raise
 
 
 def clear(home: Path) -> bool:
@@ -86,7 +98,7 @@ def load_all(profiles_dir: Optional[Path] = None) -> Dict[str, Any]:
         profiles = []
     for profile in profiles:
         try:
-            board = json.loads(path_for(profile).read_text())
+            board = json.loads(path_for(profile).read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
         if isinstance(board, dict):
@@ -103,7 +115,10 @@ def with_agendas(payload: Dict[str, Any], profiles_dir: Optional[Path] = None, s
     except OSError:
         profiles = []
     for profile in profiles:
-        board = source(root, profile) if source else None
+        try:
+            board = source(root, profile) if source else None
+        except Exception:
+            board = None
         if board is not None:
             agendas[profile] = board
     return {**payload, "agendas": agendas}

@@ -9,6 +9,7 @@ struct DraftCard: View {
     @Environment(\.cardsInteractive) private var interactive
     @State private var expanded = false
     @State private var asked: String?
+    @ScaledMetric private var labelWidth: CGFloat = 22
 
     private static let drafts = URL(string: "https://mail.google.com/mail/u/0/#drafts")!
     private static let changes = ["Plus court", "Plus formel", "Plus chaleureux"]
@@ -19,7 +20,7 @@ struct DraftCard: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Image(systemName: "envelope.open.fill").font(.caption.weight(.bold)).foregroundStyle(AppTheme.accent)
-                Text("Brouillon à relire").font(.caption.weight(.bold)).foregroundStyle(.secondary).textCase(.uppercase)
+                Text("Brouillon à relire").font(.caption.weight(.bold)).foregroundStyle(.secondary).textCase(.uppercase).accessibilityAddTraits(.isHeader)
                 Spacer(minLength: 0)
             }
             VStack(alignment: .leading, spacing: 4) {
@@ -40,7 +41,7 @@ struct DraftCard: View {
             FlowLayout(spacing: 8) {
                 Button { Haptics.select(); openURL(draft.url ?? Self.drafts) } label: {
                     Label("Ouvrir dans Gmail", systemImage: "arrow.up.right.square").font(.caption.weight(.semibold))
-                        .padding(.horizontal, 12).padding(.vertical, 8).foregroundStyle(.white).background(AppTheme.accent, in: Capsule())
+                        .padding(.horizontal, 12).padding(.vertical, 11).foregroundStyle(.white).background(AppTheme.accent, in: Capsule())
                 }.buttonStyle(PressableStyle())
                 ForEach(Self.changes, id: \.self) { change in
                     Button {
@@ -48,7 +49,7 @@ struct DraftCard: View {
                         Haptics.send(); asked = change
                     } label: {
                         Text(asked == change ? "\(change) · demandé" : change).font(.caption.weight(.semibold))
-                            .padding(.horizontal, 12).padding(.vertical, 8)
+                            .padding(.horizontal, 12).padding(.vertical, 11)
                             .foregroundStyle(AppTheme.accent).background(AppTheme.accent.opacity(0.12), in: Capsule())
                     }.buttonStyle(PressableStyle()).disabled(!live).opacity(live || asked == change ? 1 : 0.5)
                 }
@@ -62,8 +63,8 @@ struct DraftCard: View {
 
     private func field(_ name: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(name).font(.caption.weight(.semibold)).foregroundStyle(.secondary).frame(width: 22, alignment: .leading)
-            Text(value).font(.subheadline).lineLimit(2)
+            Text(name).font(.caption.weight(.semibold)).foregroundStyle(.secondary).frame(minWidth: labelWidth, alignment: .leading)
+            Text(value).font(.subheadline).fixedSize(horizontal: false, vertical: true)
         }
     }
 }

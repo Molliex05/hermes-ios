@@ -43,10 +43,12 @@ enum BoardTime {
 
 struct BoardRow: Identifiable {
     enum Phase { case past, now, next, later }
+    /// Position in the board: two lines can share a time and a title (a daily stand-up), so the text is no identity.
+    let index: Int
     let item: AgentBoard.Item
     let when: Date?
     var phase: Phase
-    var id: String { item.id }
+    var id: Int { index }
 }
 
 struct BoardEntry: TimelineEntry {
@@ -59,13 +61,23 @@ struct BoardEntry: TimelineEntry {
     var agenda: AgentBoard?
     var isPlaceholder = false
 
-    private var agentBoard: AgentBoard? { board.flatMap { $0.isEmpty || $0.isExpired(at: date) ? nil : $0 } }
-    private var calendarBoard: AgentBoard? { agenda.flatMap { $0.isEmpty || $0.isExpired(at: date) ? nil : $0 } }
+    /// Every line is over (and nothing is left to keep in mind): the day is done, not « 06:45 Quart de jour » at nine at night.
+    private func isDone(_ board: AgentBoard) -> Bool {
+        guard !board.items.isEmpty, board.focus.isEmpty else { return false }
+        return board.items.allSatisfy { item in
+            guard let start = item.at ?? BoardTime.date(item.time, on: date) else { return false }
+            return item.until.map { $0 <= date } ?? (start < date.addingTimeInterval(-BoardTime.nowWindow))
+        }
+    }
+    private func current(_ board: AgentBoard?) -> AgentBoard? { board.flatMap { $0.isEmpty || $0.isExpired(at: date) || isDone($0) ? nil : $0 } }
+    private var agentBoard: AgentBoard? { current(board) }
+    private var calendarBoard: AgentBoard? { current(agenda) }
+    var dayDone: Bool { live == nil && [board, agenda].contains { $0.map { !$0.isEmpty && !$0.isExpired(at: date) && isDone($0) } ?? false } }
     /// What to draw: the agent's own board, else the calendar's next events, else nothing (the empty state).
     var live: AgentBoard? { agentBoard ?? calendarBoard }
     var fromCalendar: Bool { agentBoard == nil && calendarBoard != nil }
     /// The calendar answered and holds nothing: a free day, which is worth saying.
-    var freeDay: Bool { live == nil && (agenda.map { !$0.isExpired(at: date) } ?? false) }
+    var freeDay: Bool { live == nil && !dayDone && (agenda.map { !$0.isExpired(at: date) } ?? false) }
     var palette: AgentLook.Palette { AgentLook.standard(for: profile).palette }
     private var hour: Int { Calendar.current.component(.hour, from: date) }
     private var isOps: Bool { ["noriven", "default", "hermes"].contains(profile.lowercased()) }
@@ -85,12 +97,19 @@ struct BoardEntry: TimelineEntry {
 
     /// The lines in the agent's order, each placed in time: done, happening now, the next one, or untimed.
     var rows: [BoardRow] {
-        var rows = (live?.items ?? []).map { item -> BoardRow in
+        var rows = (live?.items ?? []).enumerated().map { index, item -> BoardRow in
             let when = item.at ?? BoardTime.date(item.time, on: date)
-            let phase: BoardRow.Phase = when.map { $0 < date.addingTimeInterval(-BoardTime.nowWindow) ? .past : $0 <= date ? .now : .later } ?? .later
-            return BoardRow(item: item, when: when, phase: phase)
+            var phase = BoardRow.Phase.later
+            if let when {
+                // With an end (a calendar event) it is « now » until then; without, for a quarter of an hour.
+                let over = item.until.map { $0 <= date } ?? (when < date.addingTimeInterval(-BoardTime.nowWindow))
+                phase = over ? .past : when <= date ? .now : .later
+            }
+            return BoardRow(index: index, item: item, when: when, phase: phase)
         }
-        if let first = rows.firstIndex(where: { $0.when != nil && $0.phase == .later }), !rows.contains(where: { $0.phase == .now }) { rows[first].phase = .next }
+        // The next one is the earliest still to come, whatever order the agent wrote them in.
+        let coming = rows.indices.filter { rows[$0].phase == .later && rows[$0].when != nil }
+        if !rows.contains(where: { $0.phase == .now }), let first = coming.min(by: { (rows[$0].when ?? .distantFuture) < (rows[$1].when ?? .distantFuture) }) { rows[first].phase = .next }
         return rows
     }
     /// The thing to put forward: what is happening, the next timed line, else the first one.
@@ -127,38 +146,58 @@ enum BoardLinks {
 // MARK: - Provider
 
 struct BoardProvider: AppIntentTimelineProvider {
-    private static let sample = AgentBoard(title: "Aujourd’hui", items: [
-        .init(text: "Quart de jour", detail: "jusqu’à 15 h", time: "06:45", icon: "shield"), .init(text: "Barbier", detail: "Don Barbero", time: "13:45", icon: "scissors"),
-        .init(text: "Souper chez Julie", time: "18:30", icon: "fork.knife")], focus: "Une chose : le souper de ce soir.")
+    /// A believable day built from now, so the gallery preview always shows a next event and a countdown.
+    private static func sample(now: Date = .now) -> AgentBoard {
+        let clock = DateFormatter(); clock.dateFormat = "HH:mm"
+        func item(_ text: String, _ detail: String, _ icon: String, in hours: Double) -> AgentBoard.Item {
+            let at = now.addingTimeInterval(hours * 3600)
+            return .init(text: text, detail: detail, time: clock.string(from: at), icon: icon, at: at)
+        }
+        return AgentBoard(title: "Aujourd’hui", items: [item("Barbier", "Don Barbero", "scissors", in: 0.75), item("Souper chez Julie", "", "fork.knife", in: 4),
+                                                        item("Appel du dentiste", "", "cross.case", in: 6)],
+                          focus: "Une chose : le souper de ce soir.", expiresAt: now.addingTimeInterval(8 * 3600))
+    }
 
     func placeholder(in context: Context) -> BoardEntry {
-        BoardEntry(date: .now, profile: "personnel", agentTitle: "Jarvis", board: Self.sample, isPlaceholder: true)
+        BoardEntry(date: .now, profile: "personnel", agentTitle: "Jarvis", board: Self.sample())
     }
 
     func snapshot(for configuration: SelectAgentIntent, in context: Context) async -> BoardEntry {
-        context.isPreview ? placeholder(in: context) : entry(for: configuration, at: .now)
+        context.isPreview ? placeholder(in: context) : Saved().entry(configuration, at: .now)
     }
 
     func timeline(for configuration: SelectAgentIntent, in context: Context) async -> Timeline<BoardEntry> {
-        let first = entry(for: configuration, at: .now)
-        // The widget moves on by itself: a new « next » when a time passes, « maintenant » then done, the calm state at expiry.
+        let saved = Saved()                                   // read once: every entry is built from the same data
+        let first = saved.entry(configuration, at: .now)
+        // The widget moves on by itself: a new « next » when a time passes, « maintenant » then done, the calm state at an
+        // expiry, and the greeting at each part of the day.
         var moments: [Date] = []
-        for item in first.board?.items ?? [] {
-            if let when = item.at ?? BoardTime.date(item.time, on: .now), when > .now { moments += [when, when.addingTimeInterval(BoardTime.nowWindow)] }
-        }
-        for item in first.agenda?.items ?? [] {
-            if let when = item.at ?? BoardTime.date(item.time, on: .now), when > .now { moments += [when, when.addingTimeInterval(BoardTime.nowWindow)] }
+        for item in (first.board?.items ?? []) + (first.agenda?.items ?? []) {
+            if let start = item.at ?? BoardTime.date(item.time, on: .now) {
+                if start > .now { moments.append(start) }
+                let over = item.until ?? start.addingTimeInterval(BoardTime.nowWindow)
+                if over > .now { moments.append(over) }
+            }
         }
         for expiry in [first.board?.expiresAt, first.agenda?.expiresAt] { if let expiry, expiry > .now { moments.append(expiry) } }
-        let later = Set(moments).sorted().prefix(12).map { entry(for: configuration, at: $0) }
-        return Timeline(entries: [first] + later, policy: .after(.now.addingTimeInterval(30 * 60)))
+        for hour in [0, 5, 11, 12, 18, 20] {
+            if let next = Calendar.current.nextDate(after: .now, matching: DateComponents(hour: hour, minute: 0), matchingPolicy: .nextTime), next < .now.addingTimeInterval(24 * 3600) { moments.append(next) }
+        }
+        let later = Set(moments).sorted().prefix(14).map { saved.entry(configuration, at: $0) }
+        // New data makes the app reload the timelines by itself, so a long wait here costs nothing.
+        return Timeline(entries: [first] + later, policy: .after(.now.addingTimeInterval(60 * 60)))
     }
 
-    private func entry(for configuration: SelectAgentIntent, at date: Date) -> BoardEntry {
-        let saved = AgentBoardStore.read(), boards = saved?.boards ?? [:], profiles = SharedProfiles.read()
-        let name = configuration.agent?.id ?? profiles.first?.name ?? boards.keys.sorted().first ?? ""
-        let title = profiles.first { $0.name == name }.map { $0.title.isEmpty ? name : $0.title } ?? (name.isEmpty ? "Agent" : name)
-        return BoardEntry(date: date, profile: name, agentTitle: title, board: boards[name], agenda: saved?.agendas[name])
+    private struct Saved {
+        let boards = AgentBoardStore.read()
+        let profiles = SharedProfiles.read()
+
+        func entry(_ configuration: SelectAgentIntent, at date: Date) -> BoardEntry {
+            let known = boards?.boards ?? [:]
+            let name = configuration.agent?.id ?? profiles.first?.name ?? known.keys.sorted().first ?? ""
+            let title = profiles.first { $0.name == name }.map { $0.title.isEmpty ? name : $0.title } ?? (name.isEmpty ? "Agent" : name)
+            return BoardEntry(date: date, profile: name, agentTitle: title, board: known[name], agenda: boards?.agendas[name])
+        }
     }
 }
 
@@ -180,9 +219,9 @@ struct BoardBackground: View {
 private enum BoardTone {
     static func color(_ tone: String, _ palette: AgentLook.Palette) -> Color {
         switch tone {
-        case "positive": Color(red: 0.2, green: 0.62, blue: 0.4)
-        case "warning": Color(red: 0.86, green: 0.52, blue: 0.1)
-        case "negative": Color(red: 0.8, green: 0.25, blue: 0.2)
+        case "positive": Color(red: 0.12, green: 0.5, blue: 0.3)
+        case "warning": Color(red: 0.74, green: 0.4, blue: 0.03)
+        case "negative": Color(red: 0.75, green: 0.2, blue: 0.16)
         default: palette.main
         }
     }
@@ -209,7 +248,7 @@ private struct Tile: View {
         ZStack {
             RoundedRectangle(cornerRadius: size * 0.3, style: .continuous).fill(color.opacity(0.16))
             Image(systemName: symbol).font(.system(size: size * 0.46, weight: .semibold)).foregroundStyle(color)
-        }.frame(width: size, height: size)
+        }.frame(width: size, height: size).accessibilityHidden(true)
     }
 }
 
@@ -232,6 +271,9 @@ private struct Countdown: View {
 struct BoardWidgetView: View {
     let entry: BoardEntry
     @Environment(\.widgetFamily) private var family
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// From « xLarge » up, fewer lines: what fits at the default size does not fit then.
+    private var bigText: Bool { typeSize >= .xLarge }
 
     var body: some View {
         content.redacted(reason: entry.isPlaceholder ? .placeholder : [])
@@ -290,7 +332,7 @@ struct BoardWidgetView: View {
 
     private func focusBox(_ text: String, compact: Bool) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "scope").font(.caption.weight(.bold)).foregroundStyle(palette.main)
+            Image(systemName: "scope").font(.caption.weight(.bold)).foregroundStyle(palette.main).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 if !compact { Text("À retenir").font(.system(size: 9, weight: .bold)).foregroundStyle(palette.main).textCase(.uppercase) }
                 Text(text).font(.caption.weight(.semibold)).lineLimit(compact ? 1 : 2).fixedSize(horizontal: false, vertical: true)
@@ -303,12 +345,12 @@ struct BoardWidgetView: View {
 
     // MARK: Empty state (nothing from the agent, nothing from the calendar)
 
-    private var dateLine: some View {
+    private func dateLine(_ font: Font = .caption) -> some View {
         Text(entry.date, format: .dateTime.weekday(.wide).day().month(.wide)).environment(\.locale, Locale(identifier: "fr_CA"))
-            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            .font(font).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
     }
 
-    private var statusLine: String { entry.freeDay ? "Rien à l’agenda aujourd’hui" : "Prêt quand vous l’êtes" }
+    private var statusLine: String { entry.dayDone ? "Journée terminée" : entry.freeDay ? "Rien à l’agenda aujourd’hui" : "Prêt quand vous l’êtes" }
 
     /// A suggestion: tapping it puts the sentence in the composer.
     private func suggestionRow(_ suggestion: Suggestion, size: CGFloat, font: Font) -> some View {
@@ -349,28 +391,37 @@ struct BoardWidgetView: View {
     private var small: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let hero = entry.hero {
-                HStack(alignment: .top) {
-                    bigTime(hero)
-                    Spacer(minLength: 4)
-                    Tile(symbol: BoardTone.symbol(hero.item), color: color(hero), size: 30)
-                }
-                Spacer(minLength: 4)
-                Text(hero.item.text).font(.headline).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                sub(hero).padding(.top, 2)
-                if let after = entry.rows.first(where: { $0.id != hero.id && $0.phase != .past }) {
-                    Text("Ensuite · \(after.item.time.isEmpty ? "" : "\(after.item.time) ")\(after.item.text)").font(.caption2).foregroundStyle(.secondary)
-                        .lineLimit(1).padding(.top, 5)
+                ViewThatFits(in: .vertical) {
+                    smallHero(hero, showNext: !bigText)
+                    smallHero(hero, showNext: false)
                 }
             } else {
-                Image(systemName: entry.greetingSymbol).font(.title).foregroundStyle(palette.main)
+                Image(systemName: entry.greetingSymbol).font(.title).foregroundStyle(palette.main).accessibilityHidden(true)
                 Spacer(minLength: 4)
                 Text(entry.greeting).font(.title2.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
-                dateLine
-                Text(entry.freeDay ? statusLine : "Touchez : \(entry.suggestions.first?.text ?? "")").font(.caption2.weight(.semibold))
+                dateLine()
+                Text(entry.freeDay || entry.dayDone ? statusLine : "Touchez : \(entry.suggestions.first?.text ?? "")").font(.caption2.weight(.semibold))
                     .foregroundStyle(palette.main).lineLimit(2).padding(.top, 5)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func smallHero(_ hero: BoardRow, showNext: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top) {
+                bigTime(hero)
+                Spacer(minLength: 4)
+                Tile(symbol: BoardTone.symbol(hero.item), color: color(hero), size: 30)
+            }
+            Spacer(minLength: 4)
+            Text(hero.item.text).font(.headline).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+            sub(hero).padding(.top, 2)
+            if showNext, let after = entry.rows.first(where: { $0.id != hero.id && $0.phase != .past }) {
+                Text("Ensuite · \(after.item.time.isEmpty ? "" : "\(after.item.time) ")\(after.item.text)").font(.caption2).foregroundStyle(.secondary)
+                    .lineLimit(1).padding(.top, 5)
+            }
+        }
     }
 
     private var medium: some View {
@@ -393,14 +444,14 @@ struct BoardWidgetView: View {
                     }.frame(width: 138)
                     RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1).frame(maxHeight: .infinity)
                     VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(rest.prefix(focus.isEmpty ? 4 : 3))) { row in
+                        ForEach(Array(rest.prefix(bigText ? 2 : focus.isEmpty ? 4 : 3))) { row in
                             link(row) { compactRow(row) }.frame(minHeight: 26, maxHeight: 40)
                         }
                         if rest.isEmpty && focus.isEmpty { Text("C’est tout pour l’instant.").font(.caption).foregroundStyle(.secondary) }
                         Spacer(minLength: 0)
                         if !focus.isEmpty {
                             HStack(alignment: .top, spacing: 6) {
-                                Image(systemName: "scope").font(.caption2.weight(.bold)).foregroundStyle(palette.main)
+                                Image(systemName: "scope").font(.caption2.weight(.bold)).foregroundStyle(palette.main).accessibilityHidden(true)
                                 Text(focus).font(.caption2.weight(.semibold)).lineLimit(2)
                             }
                         }
@@ -409,10 +460,10 @@ struct BoardWidgetView: View {
             } else {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 0) {
-                        Image(systemName: entry.greetingSymbol).font(.title2).foregroundStyle(palette.main)
+                        Image(systemName: entry.greetingSymbol).font(.title2).foregroundStyle(palette.main).accessibilityHidden(true)
                         Spacer(minLength: 4)
                         Text(entry.greeting).font(.title2.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
-                        dateLine
+                        dateLine()
                         Text(statusLine).font(.caption2.weight(.semibold)).foregroundStyle(palette.main).lineLimit(2).padding(.top, 4)
                     }.frame(width: 128, alignment: .leading).frame(maxHeight: .infinity, alignment: .topLeading)
                     RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1).frame(maxHeight: .infinity)
@@ -429,20 +480,20 @@ struct BoardWidgetView: View {
     private var large: some View {
         VStack(alignment: .leading, spacing: 10) {
             if entry.live != nil, entry.hero != nil {
-                let rows = Array(entry.rows.prefix(6))
+                let rows = Array(entry.rows.prefix(bigText ? 4 : 6))
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                         link(row) { timelineRow(row, last: index == rows.count - 1) }.frame(minHeight: 40, maxHeight: 66)
                     }
                     Spacer(minLength: 0)
                 }.frame(maxHeight: .infinity, alignment: .top)
-                if let focus = entry.live?.focus, !focus.isEmpty { focusBox(focus, compact: false) }
+                if let focus = entry.live?.focus, !focus.isEmpty { focusBox(focus, compact: bigText) }
                 actions
             } else {
                 VStack(alignment: .leading, spacing: 3) {
-                    Image(systemName: entry.greetingSymbol).font(.largeTitle).foregroundStyle(palette.main)
+                    Image(systemName: entry.greetingSymbol).font(.largeTitle).foregroundStyle(palette.main).accessibilityHidden(true)
                     Text(entry.greeting).font(.system(size: 36, weight: .bold)).lineLimit(1).minimumScaleFactor(0.7).padding(.top, 4)
-                    dateLine.font(.subheadline)
+                    dateLine(.subheadline)
                     Text(statusLine).font(.subheadline.weight(.semibold)).foregroundStyle(palette.main).padding(.top, 2)
                 }
                 VStack(alignment: .leading, spacing: 0) {
@@ -465,7 +516,7 @@ struct BoardWidgetView: View {
             }
             .opacity(row.phase == .past ? 0.5 : 1)
             Spacer(minLength: 0)
-            if row.phase == .past { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary) }
+            if row.phase == .past { Image(systemName: "checkmark").font(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary).accessibilityHidden(true) }
         }
     }
 

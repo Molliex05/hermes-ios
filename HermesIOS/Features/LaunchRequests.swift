@@ -11,6 +11,8 @@ struct LaunchRequest: Equatable, Identifiable {
     let id = UUID()
     var profile: String?
     var kind: Kind
+    /// The share-sheet item this comes from: it leaves the shared inbox only once it has been handled.
+    var shareID: String?
 }
 
 /// Intents run in the app's own process, possibly before the model exists (a cold launch from Siri): requests wait here
@@ -40,36 +42,65 @@ extension AppModel {
         Task { await runLaunchQueue(); launching = false }
     }
 
-    /// What the share sheet left: each item goes to its agent as a new conversation.
+    /// What the share sheet left: each item goes to its agent as a new conversation. An item stays in the inbox until it has
+    /// been sent (or put in the composer), so a request cut short by a closed app is picked up again at the next launch.
     func collectShares() {
-        for item in ShareInbox.take() where !item.message.isEmpty {
-            enqueue(LaunchRequest(profile: item.profile, kind: .ask(text: item.message, send: true)))
+        for item in ShareInbox.read() where !item.message.isEmpty && !queuedShareIDs.contains(item.id) {
+            queuedShareIDs.insert(item.id)
+            enqueue(LaunchRequest(profile: item.profile, kind: .ask(text: item.message, send: true), shareID: item.id))
         }
     }
 
-    /// One request at a time, once the app is connected and idle. If it cannot be done in time the text is put in the
-    /// composer, never lost.
+    /// One request at a time, once the app is connected and idle.
     private func runLaunchQueue() async {
         while let request = launchQueue.first {
-            let ready = await waitUntilReady()
-            if !ready {
-                if case .ask(let text, _) = request.kind, draft.isEmpty { draft = text; composerFocusRequest = UUID() }
-                launchQueue.removeFirst()
-                continue
-            }
-            if let name = request.profile, name != profile, profiles.contains(where: { $0.name == name }) { await changeProfile(name) }
-            switch request.kind {
-            case .open:
-                break
-            case .voice:
-                pendingVoiceLaunch = true
-            case .ask(let text, let send):
-                newChat()
-                if send, canSendQuickReply { await sendQuickReply(text) }
-                else { draft = text; composerFocusRequest = UUID() }
-            }
+            await perform(request)
+            if let id = request.shareID { ShareInbox.remove(ids: [id]); queuedShareIDs.remove(id) }
             launchQueue.removeFirst()
         }
+    }
+
+    private func perform(_ request: LaunchRequest) async {
+        guard await waitUntilReady() else {
+            keep(request, notice: "Votre demande est dans le champ de saisie : l’agent n’était pas disponible.")
+            return
+        }
+        var target = profile
+        if let name = request.profile {
+            // An agent that is gone (hidden, renamed) never receives a text meant for it, and never another agent either.
+            guard profiles.contains(where: { $0.name == name }) else {
+                keep(request, notice: "L’agent « \(name) » est introuvable : votre texte est dans le champ de saisie.")
+                return
+            }
+            if name != profile { await changeProfile(name) }
+            target = name
+        }
+        // The switch awaits the network: something may have started meanwhile, and then nothing is sent anywhere.
+        guard profile == target else {
+            keep(request, notice: "Votre demande est dans le champ de saisie : une autre action était en cours.")
+            return
+        }
+        switch request.kind {
+        case .open:
+            break
+        case .voice:
+            pendingVoiceLaunch = true
+        case .ask(let text, let send):
+            newChat()
+            guard send, selected == nil, canSendQuickReply else { keep(request); return }
+            chatError = nil
+            await sendQuickReply(text)
+            if chatError != nil { keep(request) }              // the send failed: the text is not lost
+        }
+    }
+
+    /// The text of an ask goes at the end of the composer (what is typed there stays), never nowhere.
+    private func keep(_ request: LaunchRequest, notice message: String? = nil) {
+        if case .ask(let text, _) = request.kind {
+            draft = draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? text : draft + "\n\n" + text
+            composerFocusRequest = UUID()
+        }
+        if let message { notice = message }
     }
 
     private func waitUntilReady() async -> Bool {

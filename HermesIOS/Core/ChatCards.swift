@@ -280,10 +280,17 @@ enum ChatCard: Equatable {
                               location: clean(json["location"].string, 120), calendar: clean(json["calendar"].string, 40), url: webURL(json["url"].string))
             return event.title.isEmpty ? nil : .event(event)
         case "draft":
-            // The body keeps its line breaks (a letter is not one line), bounded like everything else.
-            let body = String(json["body"].string.trimmingCharacters(in: .whitespacesAndNewlines).prefix(1_500))
-            let draft = Draft(to: clean(firstString(json, "to", "a"), 160), cc: clean(json["cc"].string, 160),
-                              subject: clean(firstString(json, "subject", "objet"), 140), body: body, url: webURL(json["url"].string))
+            // The body keeps its line breaks (a letter is not one line); a cut one says so. The link must be Gmail's own: a
+            // draft built from a hostile email cannot put another address behind « Ouvrir dans Gmail ».
+            let written = json["body"].string.trimmingCharacters(in: .whitespacesAndNewlines)
+            let body = written.count > 1_500 ? String(written.prefix(1_499)) + "…" : written
+            func recipients(_ value: JSONValue) -> String {
+                let names = value.array.isEmpty ? [value.string] : value.array.map(\.string)
+                return clean(names.filter { !$0.isEmpty }.joined(separator: ", "), 200)
+            }
+            let draft = Draft(to: recipients(json["to"].isNull ? json["a"] : json["to"]), cc: recipients(json["cc"]),
+                              subject: clean(firstString(json, "subject", "objet"), 140), body: body,
+                              url: webURL(json["url"].string).flatMap { $0.scheme == "https" && $0.host == "mail.google.com" ? $0 : nil })
             return draft.subject.isEmpty && draft.body.isEmpty ? nil : .draft(draft)
         case "links":
             let items = list(json["items"]).enumerated().compactMap { index, value -> Link? in

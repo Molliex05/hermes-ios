@@ -317,6 +317,10 @@ final class ChatCardsTests: XCTestCase {
         XCTAssertEqual(draft.body, "Salut Julie,\n\nOn se voit à 18 h 30 ?\n\nMaxime", "a letter keeps its paragraphs")
         XCTAssertNotNil(draft.url)
         XCTAssertNil(ChatCard.parse("{\"type\":\"draft\",\"to\":\"a@b.c\"}"), "a recipient alone is no draft")
+        guard case .draft(let other)? = ChatCard.parse("{\"type\":\"draft\",\"to\":[\"a@b.c\",\"d@e.f\"],\"subject\":\"S\",\"body\":\"\(String(repeating: "x", count: 1600))\",\"url\":\"https://evil.example/login\"}")
+        else { return XCTFail() }
+        XCTAssertEqual(other.to, "a@b.c, d@e.f", "a list of recipients"); XCTAssertNil(other.url, "only Gmail's own address is kept")
+        XCTAssertEqual(other.body.count, 1_500); XCTAssertTrue(other.body.hasSuffix("…"), "a cut body says so")
         XCTAssertEqual(ChatCard.summary(text).first, "Brouillon · julie@example.com · Souper jeudi")
     }
 

@@ -31,6 +31,10 @@ class Build(unittest.TestCase):
             self.assertIn("effacer", str(caught.exception))
         self.assertTrue(board.build({"a_retenir": "Seulement ceci"}, NOW)["focus"])
 
+    def test_bidi_and_zero_width_marks_are_removed(self):
+        made = board.build({"lignes": [{"texte": "Rendez\u202evous\u200b 9h"}]}, NOW)
+        self.assertEqual(made["items"][0]["text"], "Rendezvous 9h")
+
     def test_long_text_is_shortened_and_controls_removed(self):
         made = board.build({"lignes": [{"texte": "a\x00b" + "x" * 200}]}, NOW)
         self.assertEqual(len(made["items"][0]["text"]), 80); self.assertNotIn("\x00", made["items"][0]["text"])
@@ -50,6 +54,7 @@ class Storage(unittest.TestCase):
             self.assertEqual(loaded["version"], 1); self.assertEqual(sorted(loaded["boards"]), ["noriven", "personnel"])
             self.assertEqual(loaded["boards"]["personnel"]["title"], "Jarvis")
             self.assertEqual(oct((root / "personnel" / "widgets" / "board.json").stat().st_mode)[-3:], "600")
+            self.assertEqual([p.name for p in (root / "personnel" / "widgets").iterdir()], ["board.json"], "no temporary file is left behind")
             self.assertTrue(board.clear(root / "personnel")); self.assertFalse(board.clear(root / "personnel"))
             self.assertEqual(sorted(board.load_all(root)["boards"]), ["noriven"])
             self.assertEqual(board.load_all(root / "absent"), {"version": 1, "boards": {}})

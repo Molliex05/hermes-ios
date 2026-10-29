@@ -94,6 +94,10 @@ class McpAddress(unittest.TestCase):
                 os.environ.pop("NORIVEN_MCP_URL")
                 (Path(root) / "noriven" / "config.yaml").write_text("nothing: here\n")
                 self.assertEqual(snap._mcp_url(), snap.MCP_URL, "falls back to the old name")
+                (Path(root) / "noriven" / "config.yaml").write_text(
+                    "profiles:\n  noriven:\n    url: http://wrong\n# comment\nmcp_servers:\n    # a comment\n    memoire:\n        url: http://memoire/mcp\n"
+                    "    noriven:   # the main one\n        headers:\n            Authorization: x\n        url: \"http://100.78.159.45:3300/api/mcp\"   # tailscale\ntts:\n  url: http://tts\n")
+                self.assertEqual(snap._mcp_url(), "http://100.78.159.45:3300/api/mcp", "4-space indent, comments, quotes, the right parent")
             finally:
                 os.environ.pop("HERMES_PROFILES_DIR", None); os.environ.pop("NORIVEN_MCP_URL", None)
 

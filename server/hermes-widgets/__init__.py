@@ -130,7 +130,7 @@ def handle_board(args, **kwargs) -> str:
             pass
         from hermes_constants import get_hermes_home
         module, home, args = _board_module(), get_hermes_home(), args if isinstance(args, dict) else {}
-        if args.get("effacer") is True:
+        if args.get("effacer") is True or str(args.get("effacer")).strip().lower() in {"true", "1", "oui"}:
             return json.dumps({"ok": True, "efface": module.clear(home)}, ensure_ascii=False)
         try:
             tableau = module.build(args)
