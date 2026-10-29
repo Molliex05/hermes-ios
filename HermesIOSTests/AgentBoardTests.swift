@@ -74,6 +74,19 @@ final class AgentBoardTests: XCTestCase {
         XCTAssertNil(try AgentBoards.decode(Data("{\"boards\":{}}".utf8)).weather)
     }
 
+    func testASeenBoardStaysClearedUntilTheAgentWritesAnotherOne() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("seen-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = try XCTUnwrap(AgentBoards.decode(Data(#"{"boards":{"p":{"title":"T","items":[{"text":"Colis"}],"updated_at":"2026-10-29T10:00:00-04:00"}}}"#.utf8)).boards["p"])
+        let same = try XCTUnwrap(AgentBoards.decode(Data(#"{"boards":{"p":{"title":"T","items":[{"text":"Colis"}],"updated_at":"2026-10-29T10:00:00-04:00"}}}"#.utf8)).boards["p"])
+        let later = try XCTUnwrap(AgentBoards.decode(Data(#"{"boards":{"p":{"title":"T","items":[{"text":"Colis"}],"updated_at":"2026-10-29T11:00:00-04:00"}}}"#.utf8)).boards["p"])
+        XCTAssertTrue(BoardDismissals.read(from: directory).isEmpty)
+        BoardDismissals.dismiss(profile: "p", signature: first.signature, to: directory)
+        XCTAssertEqual(BoardDismissals.read(from: directory)["p"], same.signature, "downloaded again, it is the same board")
+        XCTAssertNotEqual(BoardDismissals.read(from: directory)["p"], later.signature, "a new write shows again")
+    }
+
     func testTheStoreKeepsAGoodBoardWhenTheNextOneIsBroken() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("board-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

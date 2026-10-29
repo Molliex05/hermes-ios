@@ -77,6 +77,8 @@ struct BoardEntry: TimelineEntry {
     var live: AgentBoard? { agentBoard.flatMap { $0.items.isEmpty ? nil : $0 } ?? calendarBoard ?? agentBoard }
     /// The agent's « À retenir », kept in view whatever supplies the lines (its own, or the calendar's).
     var note: String { agentBoard?.focus ?? "" }
+    /// The agent has something up that « Vu » can clear.
+    var hasMessage: Bool { agentBoard != nil }
     /// Lines still to come or under way, in order.
     var upcomingRows: [BoardRow] { rows.filter { $0.phase != .past } }
     var fromCalendar: Bool { agentBoard == nil && calendarBoard != nil }
@@ -197,12 +199,13 @@ struct BoardProvider: AppIntentTimelineProvider {
     private struct Saved {
         let boards = AgentBoardStore.read()
         let profiles = SharedProfiles.read()
+        let seen = BoardDismissals.read()                      // boards the user marked « Vu »
 
         func entry(_ configuration: SelectAgentIntent, at date: Date) -> BoardEntry {
             let known = boards?.boards ?? [:]
             let name = configuration.agent?.id ?? profiles.first?.name ?? known.keys.sorted().first ?? ""
             let title = profiles.first { $0.name == name }.map { $0.title.isEmpty ? name : $0.title } ?? (name.isEmpty ? "Agent" : name)
-            return BoardEntry(date: date, profile: name, agentTitle: title, board: known[name], agenda: boards?.agendas[name],
+            return BoardEntry(date: date, profile: name, agentTitle: title, board: known[name].flatMap { seen[name] == $0.signature ? nil : $0 }, agenda: boards?.agendas[name],
                               weather: boards?.weather.flatMap { $0.isExpired(at: date) ? nil : $0 })
         }
     }
@@ -389,6 +392,35 @@ struct BoardWidgetView: View {
         .background(accent.opacity(dark ? 0.16 : 0.11), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
+    /// « Vu »: clears what the agent put up (it comes back when the agent writes something new).
+    @ViewBuilder private func seenButton(compact: Bool = false) -> some View {
+        if entry.hasMessage && !entry.isPlaceholder {
+            Button(intent: MarkSeenIntent(profile: entry.profile)) {
+                if compact {
+                    Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).frame(width: 28, height: 28)
+                        .background(accent.opacity(dark ? 0.2 : 0.14), in: Circle())
+                } else {
+                    Label("Vu", systemImage: "checkmark").font(.caption2.weight(.bold)).padding(.horizontal, 10).padding(.vertical, 6)
+                        .background(accent.opacity(dark ? 0.2 : 0.14), in: Capsule())
+                }
+            }.buttonStyle(.plain).foregroundStyle(accent).accessibilityLabel("Marquer comme vu")
+        }
+    }
+
+    /// The agent's note with its « Vu » button, at the bottom of a medium widget.
+    @ViewBuilder private var noteLine: some View {
+        if !entry.note.isEmpty || entry.hasMessage {
+            HStack(alignment: .center, spacing: 6) {
+                if !entry.note.isEmpty {
+                    Image(systemName: "scope").font(.caption2.weight(.bold)).foregroundStyle(accent).accessibilityHidden(true)
+                    Text(entry.note).font(.caption2.weight(.semibold)).lineLimit(2)
+                }
+                Spacer(minLength: 0)
+                seenButton(compact: true)
+            }
+        }
+    }
+
     // MARK: Weather and the day (what is known when the agent and the calendar have nothing)
 
     private static let french = Locale(identifier: "fr_CA")
@@ -547,6 +579,8 @@ struct BoardWidgetView: View {
                 HStack(alignment: .top, spacing: 4) {
                     Image(systemName: "scope").font(.system(size: 9, weight: .bold)).foregroundStyle(accent).padding(.top, 1).accessibilityHidden(true)
                     Text(entry.note).font(.caption2.weight(.semibold)).lineLimit(2)
+                    Spacer(minLength: 0)
+                    seenButton(compact: true)
                 }
             }
         }
@@ -575,7 +609,7 @@ struct BoardWidgetView: View {
             }
             Spacer(minLength: 4)
             Text(hero.item.text).font(.headline).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-            sub(hero).padding(.top, 2)
+            HStack(alignment: .bottom) { sub(hero); Spacer(minLength: 0); seenButton(compact: true) }.padding(.top, 2)
             if showNext, let after = entry.rows.first(where: { $0.id != hero.id && $0.phase != .past }) {
                 Text("Ensuite · \(after.item.time.isEmpty ? "" : "\(after.item.time) ")\(after.item.text)").font(.caption2).foregroundStyle(.secondary)
                     .lineLimit(1).padding(.top, 5)
@@ -621,12 +655,7 @@ struct BoardWidgetView: View {
                 }
                 if rest.isEmpty && focus.isEmpty { Text("C’est tout pour l’instant.").font(.caption).foregroundStyle(.secondary) }
                 Spacer(minLength: 0)
-                if !focus.isEmpty {
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "scope").font(.caption2.weight(.bold)).foregroundStyle(accent).accessibilityHidden(true)
-                        Text(focus).font(.caption2.weight(.semibold)).lineLimit(2)
-                    }
-                }
+                noteLine
             }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
@@ -652,12 +681,7 @@ struct BoardWidgetView: View {
                 ForEach(rows) { row in link(row) { compactRow(row) }.frame(minHeight: 26, maxHeight: 40) }
                 if rows.isEmpty { Text(agendaEmptyText).font(.caption).foregroundStyle(.secondary) }
                 Spacer(minLength: 0)
-                if !entry.note.isEmpty {
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "scope").font(.caption2.weight(.bold)).foregroundStyle(accent).accessibilityHidden(true)
-                        Text(entry.note).font(.caption2.weight(.semibold)).lineLimit(2)
-                    }
-                }
+                noteLine
             }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
@@ -744,6 +768,7 @@ struct BoardWidgetView: View {
                     Text(degrees(entry.temperature)).font(.subheadline.weight(.bold)).monospacedDigit()
                 }
             }
+            seenButton()
             ring(34)
         }
         VStack(alignment: .leading, spacing: 0) {
@@ -784,6 +809,8 @@ struct BoardWidgetView: View {
             Image(systemName: "calendar").font(.system(size: 10, weight: .bold)).foregroundStyle(accent).accessibilityHidden(true)
             Text(entry.live?.title.isEmpty == false ? entry.live?.title ?? "" : "Aujourd’hui").font(.system(size: 10, weight: .bold)).textCase(.uppercase)
                 .foregroundStyle(accent).lineLimit(1)
+            Spacer(minLength: 0)
+            seenButton()
         }
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in

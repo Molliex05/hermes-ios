@@ -57,6 +57,27 @@ def build(args: Dict[str, Any], now: Optional[datetime] = None) -> Dict[str, Any
             "updated_at": now.isoformat(timespec="seconds"), "expires_at": (now + timedelta(hours=hours)).isoformat(timespec="seconds")}
 
 
+def merge(existing: Optional[Dict[str, Any]], new: Dict[str, Any], now: Optional[datetime] = None) -> Dict[str, Any]:
+    """`new` added to what the board already says: its lines first, then the earlier ones (a line with the same text is
+    replaced), five at most; its note and title win when it has them; it stays valid as long as the longer of the two."""
+    now = now or datetime.now(timezone.utc)
+    try:
+        alive = bool(existing) and datetime.fromisoformat(str(existing.get("expires_at"))) > now
+    except (TypeError, ValueError):
+        alive = False
+    if not alive:
+        return new
+    seen, items = set(), []
+    for row in list(new.get("items") or []) + list(existing.get("items") or []):
+        key = str(row.get("text", "")).strip().lower()
+        if key and key not in seen and len(items) < MAX_ITEMS:
+            seen.add(key)
+            items.append(row)
+    return {**new, "title": new.get("title") or existing.get("title") or "", "items": items,
+            "focus": new.get("focus") or existing.get("focus") or "", "ask": new.get("ask") or existing.get("ask") or "",
+            "expires_at": max(str(new.get("expires_at")), str(existing.get("expires_at")))}
+
+
 def path_for(home: Path) -> Path:
     return Path(home) / "widgets" / "board.json"
 

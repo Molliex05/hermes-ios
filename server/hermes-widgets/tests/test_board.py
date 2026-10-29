@@ -1,5 +1,5 @@
 import importlib.util, json, sys, tempfile, unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("board", Path(__file__).resolve().parent.parent / "board.py")
@@ -38,6 +38,28 @@ class Build(unittest.TestCase):
     def test_long_text_is_shortened_and_controls_removed(self):
         made = board.build({"lignes": [{"texte": "a\x00b" + "x" * 200}]}, NOW)
         self.assertEqual(len(made["items"][0]["text"]), 80); self.assertNotIn("\x00", made["items"][0]["text"])
+
+
+class Merge(unittest.TestCase):
+    def test_new_lines_go_first_without_erasing_the_rest(self):
+        earlier = board.build({"titre": "Aujourd’hui", "lignes": [{"texte": "Barbier", "heure": "13:45"}, {"texte": "Souper"}], "a_retenir": "Appeler Julie", "valide_heures": 8}, NOW)
+        new = board.build({"lignes": [{"texte": "Colis livré"}, {"texte": "souper", "detail": "chez Julie"}], "valide_heures": 2}, NOW)
+        made = board.merge(earlier, new, NOW)
+        self.assertEqual([i["text"] for i in made["items"]], ["Colis livré", "souper", "Barbier"], "same text is replaced, the new one wins")
+        self.assertEqual((made["title"], made["focus"]), ("Aujourd’hui", "Appeler Julie"))
+        self.assertEqual(made["expires_at"], earlier["expires_at"], "valid as long as the longer of the two")
+
+    def test_a_note_replaces_the_note_and_a_missing_or_expired_board_is_just_the_new_one(self):
+        earlier = board.build({"lignes": [{"texte": "a"}], "a_retenir": "ancien"}, NOW)
+        self.assertEqual(board.merge(earlier, board.build({"a_retenir": "nouveau"}, NOW), NOW)["focus"], "nouveau")
+        new = board.build({"lignes": [{"texte": "b"}]}, NOW)
+        self.assertEqual(board.merge(None, new, NOW), new)
+        self.assertEqual(board.merge(earlier, new, NOW + timedelta(days=2)), new)
+
+    def test_five_lines_at_most(self):
+        earlier = board.build({"lignes": [{"texte": f"a{n}"} for n in range(5)]}, NOW)
+        made = board.merge(earlier, board.build({"lignes": [{"texte": "z1"}, {"texte": "z2"}]}, NOW), NOW)
+        self.assertEqual([i["text"] for i in made["items"]], ["z1", "z2", "a0", "a1", "a2"])
 
 
 class Storage(unittest.TestCase):

@@ -37,6 +37,12 @@ public struct AgentBoard: Equatable, Sendable {
     public var isEmpty: Bool { items.isEmpty && focus.isEmpty }
     public static let maxItems = 5
 
+    /// What this board says, for « Vu »: the same words and the same moment of writing give the same signature, so a board
+    /// the user cleared stays cleared when the app downloads it again, and a new one (other words or time) shows.
+    public var signature: String {
+        "\(Int(updatedAt?.timeIntervalSince1970 ?? 0))|\(title)|\(focus)|\(items.map(\.text).joined(separator: "¦"))"
+    }
+
     init(_ value: JSONValue) {
         // Cut first: a huge string is never split and joined whole.
         func clean(_ text: String, _ limit: Int) -> String { String(String(text.prefix(limit * 4)).split(whereSeparator: \.isNewline).joined(separator: " ").trimmingCharacters(in: .whitespaces).prefix(limit)) }
@@ -150,6 +156,24 @@ public enum AgentBoardStore {
     public static func write(_ data: Data, to directory: URL? = nil) -> AgentBoards? {
         guard let boards = try? AgentBoards.decode(data), blob.write(data, to: directory) else { return nil }
         return boards
+    }
+
+    public static func clear(from directory: URL? = nil) { blob.clear(from: directory) }
+}
+
+/// The boards the user marked « Vu » on the widget, by profile: the signature of the board that was cleared. Written by the
+/// widget's button, read when the widget draws.
+public enum BoardDismissals {
+    private static let blob = SharedBlob(account: "board-dismissed")
+
+    public static func read(from directory: URL? = nil) -> [String: String] {
+        blob.read(from: directory).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+    }
+
+    public static func dismiss(profile: String, signature: String, to directory: URL? = nil) {
+        var all = read(from: directory)
+        all[profile] = signature
+        if let data = try? JSONEncoder().encode(all) { blob.write(data, to: directory) }
     }
 
     public static func clear(from directory: URL? = nil) { blob.clear(from: directory) }

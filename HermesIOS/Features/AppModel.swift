@@ -1430,7 +1430,7 @@ final class AppModel {
         Keychain.delete(connection.id.uuidString)
         NotificationKeyStore.remove(for: connection.id)
         // What the widgets, Siri and the share sheet knew of this server goes with it.
-        AgentBoardStore.clear(); SharedProfiles.write([]); widgetRefreshedAt = .distantPast
+        AgentBoardStore.clear(); BoardDismissals.clear(); SharedProfiles.write([]); widgetRefreshedAt = .distantPast
         if connections.count <= 1 { ShareInbox.remove(ids: Set(ShareInbox.read().map(\.id))) }
         WidgetCenter.shared.reloadAllTimelines()
         connections.removeAll { $0.id == connection.id }
