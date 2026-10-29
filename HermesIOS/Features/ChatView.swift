@@ -34,7 +34,8 @@ struct ChatView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 ChatHeaderContainer(model: model, compress: { compressing = true }, newChat: { model.newChat(); focused = true },
-                                    switchAgent: { present(.agents) }, history: { present(.history) }, menu: { present(.menu) })
+                                    switchAgent: { present(.agents) }, history: { present(.history) }, menu: { present(.menu) },
+                                    collapsed: focused || !pinnedToBottom)
                 ChatTranscriptView(model: model, pinnedToBottom: $pinnedToBottom, bottomVisible: $bottomVisible,
                                    toolsExpanded: $toolsExpanded, suggest: { model.draft = $0; focused = true })
             }
