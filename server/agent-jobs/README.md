@@ -33,3 +33,7 @@ dans les jeux d'outils des tâches (`hermes tools enable … --platform cron`).
 - Pas de tâche « Tableau » pour Jarvis : l'agenda Google est lu par le serveur sans modèle (`agenda.py`) ; l'agent complète le tableau pendant qu'il travaille déjà.
 - `apns.json` : `widgets_refresh_minutes` à 30 (copie : `apns.json.bak-20261029`).
 
+- Déployé le 2026-10-29 (soir) : météo de Saint-Constant (`weather.py`, plugin 0.4.0, copie `hermes-widgets.bak-meteo-20261029`), option `ajouter` de
+  `widget_publier` (copie `hermes-widgets.bak-ajouter-20261029`), consigne « widget d'abord, notification seulement si urgent » dans le SOUL de Jarvis
+  seulement (copie `SOUL.md.bak-widgetvu-20261029` ; Hermès garde « Pour PRÉVENIR » pour ses alertes serveur) et nouvelle invite de « Courriels de Maxime ».
+  Le bouton « Vu » du widget est local à l'iPhone : l'agent n'en est pas informé.
