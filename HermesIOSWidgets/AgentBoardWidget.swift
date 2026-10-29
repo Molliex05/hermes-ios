@@ -217,12 +217,14 @@ struct BoardBackground: View {
 }
 
 private enum BoardTone {
-    static func color(_ tone: String, _ palette: AgentLook.Palette) -> Color {
+    /// Dark text on a dark page was the problem: in the dark appearance every colour is its light counterpart (the agent's
+    /// palette has a `light` shade for that), in the light appearance the deeper one.
+    static func color(_ tone: String, _ palette: AgentLook.Palette, dark: Bool) -> Color {
         switch tone {
-        case "positive": Color(red: 0.12, green: 0.5, blue: 0.3)
-        case "warning": Color(red: 0.74, green: 0.4, blue: 0.03)
-        case "negative": Color(red: 0.75, green: 0.2, blue: 0.16)
-        default: palette.main
+        case "positive": dark ? Color(red: 0.42, green: 0.82, blue: 0.56) : Color(red: 0.12, green: 0.5, blue: 0.3)
+        case "warning": dark ? Color(red: 1.0, green: 0.72, blue: 0.32) : Color(red: 0.74, green: 0.4, blue: 0.03)
+        case "negative": dark ? Color(red: 1.0, green: 0.5, blue: 0.45) : Color(red: 0.75, green: 0.2, blue: 0.16)
+        default: dark ? palette.light : palette.main
         }
     }
 
@@ -272,6 +274,7 @@ struct BoardWidgetView: View {
     let entry: BoardEntry
     @Environment(\.widgetFamily) private var family
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.colorScheme) private var scheme
     /// From « xLarge » up, fewer lines: what fits at the default size does not fit then.
     private var bigText: Bool { typeSize >= .xLarge }
 
@@ -288,8 +291,10 @@ struct BoardWidgetView: View {
         }
     }
 
-    private func color(_ row: BoardRow) -> Color { BoardTone.color(row.item.tone, entry.palette) }
-    private var palette: AgentLook.Palette { entry.palette }
+    private var dark: Bool { scheme == .dark }
+    /// The agent's colour as text and icons: its light shade on the dark page.
+    private var accent: Color { dark ? entry.palette.light : entry.palette.main }
+    private func color(_ row: BoardRow) -> Color { BoardTone.color(row.item.tone, entry.palette, dark: dark) }
     // Lock Screen
     @ViewBuilder private var accessory: some View {
         let hero = entry.hero
@@ -313,7 +318,8 @@ struct BoardWidgetView: View {
     private func pill(_ label: String, symbol: String, host: String, filled: Bool) -> some View {
         Link(destination: BoardLinks.url(host, profile: entry.profile) ?? URL(string: "hermesios://open")!) {
             Label(label, systemImage: symbol).font(.caption.weight(.semibold)).padding(.horizontal, 12).padding(.vertical, 7)
-                .foregroundStyle(filled ? Color.white : palette.main).background(filled ? palette.main : palette.main.opacity(0.14), in: Capsule())
+                .foregroundStyle(filled ? (dark ? entry.palette.deep : Color.white) : accent)
+                .background(filled ? accent : accent.opacity(0.16), in: Capsule())
         }
     }
 
@@ -332,15 +338,15 @@ struct BoardWidgetView: View {
 
     private func focusBox(_ text: String, compact: Bool) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "scope").font(.caption.weight(.bold)).foregroundStyle(palette.main).accessibilityHidden(true)
+            Image(systemName: "scope").font(.caption.weight(.bold)).foregroundStyle(accent).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
-                if !compact { Text("À retenir").font(.system(size: 9, weight: .bold)).foregroundStyle(palette.main).textCase(.uppercase) }
+                if !compact { Text("À retenir").font(.system(size: 9, weight: .bold)).foregroundStyle(accent).textCase(.uppercase) }
                 Text(text).font(.caption.weight(.semibold)).lineLimit(compact ? 1 : 2).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10).padding(.vertical, 7)
-        .background(palette.main.opacity(0.11), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(accent.opacity(dark ? 0.16 : 0.11), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     // MARK: Empty state (nothing from the agent, nothing from the calendar)
@@ -356,7 +362,7 @@ struct BoardWidgetView: View {
     private func suggestionRow(_ suggestion: Suggestion, size: CGFloat, font: Font) -> some View {
         Link(destination: BoardLinks.url("ask", profile: entry.profile, text: suggestion.text) ?? URL(string: "hermesios://open")!) {
             HStack(spacing: 8) {
-                Tile(symbol: suggestion.symbol, color: palette.main, size: size)
+                Tile(symbol: suggestion.symbol, color: accent, size: size)
                 Text(suggestion.text).font(font).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
             }
@@ -366,8 +372,8 @@ struct BoardWidgetView: View {
     private var voiceRow: some View {
         Link(destination: BoardLinks.url("voice", profile: entry.profile) ?? URL(string: "hermesios://voice")!) {
             HStack(spacing: 8) {
-                Tile(symbol: "waveform", color: palette.main, size: 22)
-                Text("Parler à \(entry.agentTitle)").font(.caption.weight(.semibold)).foregroundStyle(palette.main).lineLimit(1)
+                Tile(symbol: "waveform", color: accent, size: 22)
+                Text("Parler à \(entry.agentTitle)").font(.caption.weight(.semibold)).foregroundStyle(accent).lineLimit(1)
                 Spacer(minLength: 0)
             }
         }
@@ -396,12 +402,12 @@ struct BoardWidgetView: View {
                     smallHero(hero, showNext: false)
                 }
             } else {
-                Image(systemName: entry.greetingSymbol).font(.title).foregroundStyle(palette.main).accessibilityHidden(true)
+                Image(systemName: entry.greetingSymbol).font(.title).foregroundStyle(accent).accessibilityHidden(true)
                 Spacer(minLength: 4)
                 Text(entry.greeting).font(.title2.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
                 dateLine()
                 Text(entry.freeDay || entry.dayDone ? statusLine : "Touchez : \(entry.suggestions.first?.text ?? "")").font(.caption2.weight(.semibold))
-                    .foregroundStyle(palette.main).lineLimit(2).padding(.top, 5)
+                    .foregroundStyle(accent).lineLimit(2).padding(.top, 5)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -451,7 +457,7 @@ struct BoardWidgetView: View {
                         Spacer(minLength: 0)
                         if !focus.isEmpty {
                             HStack(alignment: .top, spacing: 6) {
-                                Image(systemName: "scope").font(.caption2.weight(.bold)).foregroundStyle(palette.main).accessibilityHidden(true)
+                                Image(systemName: "scope").font(.caption2.weight(.bold)).foregroundStyle(accent).accessibilityHidden(true)
                                 Text(focus).font(.caption2.weight(.semibold)).lineLimit(2)
                             }
                         }
@@ -460,11 +466,11 @@ struct BoardWidgetView: View {
             } else {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 0) {
-                        Image(systemName: entry.greetingSymbol).font(.title2).foregroundStyle(palette.main).accessibilityHidden(true)
+                        Image(systemName: entry.greetingSymbol).font(.title2).foregroundStyle(accent).accessibilityHidden(true)
                         Spacer(minLength: 4)
                         Text(entry.greeting).font(.title2.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
                         dateLine()
-                        Text(statusLine).font(.caption2.weight(.semibold)).foregroundStyle(palette.main).lineLimit(2).padding(.top, 4)
+                        Text(statusLine).font(.caption2.weight(.semibold)).foregroundStyle(accent).lineLimit(2).padding(.top, 4)
                     }.frame(width: 128, alignment: .leading).frame(maxHeight: .infinity, alignment: .topLeading)
                     RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1).frame(maxHeight: .infinity)
                     VStack(alignment: .leading, spacing: 0) {
@@ -491,10 +497,10 @@ struct BoardWidgetView: View {
                 actions
             } else {
                 VStack(alignment: .leading, spacing: 3) {
-                    Image(systemName: entry.greetingSymbol).font(.largeTitle).foregroundStyle(palette.main).accessibilityHidden(true)
+                    Image(systemName: entry.greetingSymbol).font(.largeTitle).foregroundStyle(accent).accessibilityHidden(true)
                     Text(entry.greeting).font(.system(size: 36, weight: .bold)).lineLimit(1).minimumScaleFactor(0.7).padding(.top, 4)
                     dateLine(.subheadline)
-                    Text(statusLine).font(.subheadline.weight(.semibold)).foregroundStyle(palette.main).padding(.top, 2)
+                    Text(statusLine).font(.subheadline.weight(.semibold)).foregroundStyle(accent).padding(.top, 2)
                 }
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(entry.suggestions) { suggestionRow($0, size: 32, font: .subheadline.weight(.medium)).frame(maxHeight: .infinity) }
