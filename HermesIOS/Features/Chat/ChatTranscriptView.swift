@@ -473,18 +473,23 @@ struct MessageView: View, Equatable {
     var body: some View {
         HStack(alignment: .top) {
             if user { Spacer(minLength: 42) }
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: user ? .trailing : .leading, spacing: 10) {
                 if !user {
                     HStack(spacing: 8) { AgentGlyph(size: 17); Text(agent).font(.caption.weight(.semibold)).foregroundStyle(.secondary) }
                 }
-                Group {
-                    if user { Text(verbatim: message.text).lineSpacing(4) }
-                    else { MarkdownText(text: message.text, cacheKey: message.id.isEmpty ? nil : message.id, settled: !message.streaming) }
+                // Your files as chips above your words, never as raw « 📎 » or « @file: » lines.
+                let sent = user ? SentAttachments.split(message.text) : (text: message.text, files: [])
+                if !sent.files.isEmpty { SentAttachmentChips(files: sent.files) }
+                if !user || !sent.text.isEmpty {
+                    Group {
+                        if user { Text(verbatim: sent.text).lineSpacing(4) }
+                        else { MarkdownText(text: message.text, cacheKey: message.id.isEmpty ? nil : message.id, settled: !message.streaming) }
+                    }
+                        .textSelection(.enabled)
+                        .padding(user ? 17 : 0)
+                        .background(user ? AppTheme.userBubble : .clear, in: Self.bubble)
+                        .overlay(Self.bubble.strokeBorder(user ? AppTheme.userBubbleLine : .clear))
                 }
-                    .textSelection(.enabled)
-                    .padding(user ? 17 : 0)
-                    .background(user ? AppTheme.userBubble : .clear, in: Self.bubble)
-                    .overlay(Self.bubble.strokeBorder(user ? AppTheme.userBubbleLine : .clear))
                 if message.delivery != .confirmed {
                     Text(message.delivery == .sending ? "Envoi…" : message.delivery == .uncertain ? "Réception à vérifier dans l’historique" : "Non envoyé · copiez pour réessayer")
                         .font(.caption2).foregroundStyle(message.delivery == .sending ? Color.secondary : AppTheme.accent)

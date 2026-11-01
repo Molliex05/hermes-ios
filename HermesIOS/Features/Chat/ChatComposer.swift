@@ -90,22 +90,10 @@ struct ChatComposer: View, Equatable {
             PasteChip(enabled: !state.sending && state.attachments.count < DraftAttachment.maximumCount && !state.attachOpen, choose: attach)
                 .animation(.easeOut(duration: 0.2), value: state.attachments.count)
             VStack(alignment: .leading, spacing: 4) {
-                if !state.attachments.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(state.attachments) { item in
-                                HStack(spacing: 7) {
-                                    Image(systemName: item.isImage ? "photo" : "doc")
-                                    Text(item.name).lineLimit(1).frame(maxWidth: 140)
-                                    Button { model.removeAttachment(item) } label: {
-                                        Image(systemName: "xmark").frame(width: 32, height: 44)
-                                    }.disabled(state.sending).accessibilityLabel("Retirer \(item.name)")
-                                }.font(.caption).padding(.leading, 12).background(AppTheme.background, in: RoundedRectangle(cornerRadius: 14))
-                            }
-                        }
-                    }.padding(.horizontal, 4).accessibilityIdentifier("pending-attachments")
+                if !state.attachments.isEmpty || state.importing {
+                    AttachmentTray(items: state.attachments, importing: state.importing, locked: state.sending,
+                                   fileURL: { await model.attachmentFileURL($0) }, remove: { model.removeAttachment($0) })
                 }
-                if state.importing { ProgressView("Ajout…").font(.caption).padding(8) }
                 if let error = state.chatError {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "exclamationmark.circle").padding(.top, 12)

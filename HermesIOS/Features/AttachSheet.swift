@@ -31,6 +31,9 @@ struct AttachPanel: View {
             }
             .labelStyle(.titleAndIcon).buttonBorderShape(.capsule).tint(AppTheme.accent).disabled(remaining == 0)
             .accessibilityIdentifier("attach-paste")
+            Text(remaining == 0 ? "\(limit) fichiers au maximum par message" : attached == 0 ? "Jusqu’à \(limit) fichiers de 10 Mo · photos, PDF, documents"
+                 : "Encore \(remaining) fichier\(remaining > 1 ? "s" : "") possible\(remaining > 1 ? "s" : "")")
+                .font(.caption2).foregroundStyle(.secondary)
         }
         .padding(10)
         .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))

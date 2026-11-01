@@ -771,6 +771,21 @@ final class AppModel {
         scheduleSave()
     }
 
+    /// A copy of a pending attachment under its own name, for its thumbnail and Quick Look (they read the extension). In
+    /// the iPhone's temporary folder; the system clears it.
+    func attachmentFileURL(_ item: DraftAttachment) async -> URL? {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("attachment-previews/\(item.id.uuidString)", isDirectory: true)
+        let safe = item.name.replacingOccurrences(of: "/", with: "-").trimmingCharacters(in: .whitespaces)
+        let target = folder.appendingPathComponent(safe.isEmpty ? "fichier" : safe)
+        if FileManager.default.fileExists(atPath: target.path) { return target }
+        guard let data = try? await cache.attachment(item.id) else { return nil }
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try data.write(to: target, options: .atomic)
+            return target
+        } catch { return nil }
+    }
+
     var attachmentContext: String { "\(activeConnection?.id.uuidString ?? "demo")|\(draftKey)" }
 
     func removeAttachment(_ item: DraftAttachment) {
