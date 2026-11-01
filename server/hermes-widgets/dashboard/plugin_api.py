@@ -1,4 +1,5 @@
-"""Mounted by Hermes under its existing dashboard authentication boundary. Read-only, except « Vu » (`/board/seen`)."""
+"""Mounted by Hermes under its existing dashboard authentication boundary. Read-only, except « Vu » (`/board/seen`) and the
+app's sending of a Gmail draft Maxime has read (`/drafts/…/send`, see `outbox.py`)."""
 import importlib.util
 import logging
 import os
@@ -24,6 +25,10 @@ _weather_spec = importlib.util.spec_from_file_location("hermes_widgets_weather",
 weather_module = importlib.util.module_from_spec(_weather_spec)
 sys.modules[_weather_spec.name] = weather_module
 _weather_spec.loader.exec_module(weather_module)
+_outbox_spec = importlib.util.spec_from_file_location("hermes_widgets_outbox", Path(__file__).resolve().parent.parent / "outbox.py")
+outbox_module = importlib.util.module_from_spec(_outbox_spec)
+sys.modules[_outbox_spec.name] = outbox_module
+_outbox_spec.loader.exec_module(outbox_module)
 log = logging.getLogger("hermes_widgets")
 
 router = APIRouter()
@@ -49,6 +54,41 @@ def get_board():
     straight from the calendar, and the weather of the place, for the iPhone widget. A plain `def`: the Google and weather calls
     block, FastAPI runs it in a thread."""
     return weather_module.with_weather(board_module.with_agendas(board_module.load_all(), source=agenda_module.upcoming))
+
+
+def _google_profile(profile: str) -> Path:
+    root = Path(os.environ.get("HERMES_PROFILES_DIR", "/opt/data/profiles"))
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", profile or "") or not (root / profile).is_dir():
+        raise HTTPException(404, "Profil inconnu.")
+    if not agenda_module.has_google(root, profile):
+        raise HTTPException(404, "Google n'est pas configuré pour ce profil.")
+    return root
+
+
+@router.get("/drafts/{profile}/{draft_id}")
+def draft_read(profile: str, draft_id: str):
+    """A Gmail draft as Gmail holds it, for the app to show before Maxime sends it."""
+    root = _google_profile(profile)
+    try:
+        return outbox_module.read(agenda_module._google(root, profile), draft_id)
+    except outbox_module.OutboxError as error:
+        raise HTTPException(error.status, str(error)) from None
+    except Exception as error:
+        log.warning("Draft read failed (%s)", type(error).__name__)
+        raise HTTPException(502, "Le brouillon n'a pas pu être lu.") from None
+
+
+@router.post("/drafts/{profile}/{draft_id}/send")
+def draft_send(profile: str, draft_id: str, payload: dict = Body(...)):
+    """Maxime sends a draft from the app (after Face ID): only if it is still exactly what he read."""
+    root = _google_profile(profile)
+    try:
+        return outbox_module.send(agenda_module._google(root, profile), draft_id, str((payload or {}).get("fingerprint") or ""), root / profile)
+    except outbox_module.OutboxError as error:
+        raise HTTPException(error.status, str(error)) from None
+    except Exception as error:
+        log.warning("Draft send failed (%s)", type(error).__name__)
+        raise HTTPException(502, "L'envoi a échoué ; vérifie dans Gmail avant de réessayer.") from None
 
 
 @router.post("/board/seen")

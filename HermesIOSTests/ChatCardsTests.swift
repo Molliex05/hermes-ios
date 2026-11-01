@@ -403,4 +403,22 @@ final class ChatCardsTests: XCTestCase {
         XCTAssertFalse(ChatCard.summary(json).isEmpty)
         XCTAssertNil(ChatCard.parse(#"{"type":"tri"}"#), "nothing done, nothing drawn")
     }
+
+    func testADraftCardCarriesItsGmailIdAndAttachments() {
+        guard case .draft(let draft)? = ChatCard.parse(#"{"type":"draft","id":"r-123_ab","to":"julie@example.com","subject":"Facture","body":"Ci-joint.","pieces_jointes":["facture.pdf",{"nom":"photo.jpg"}]}"#) else { return XCTFail() }
+        XCTAssertEqual(draft.draftID, "r-123_ab"); XCTAssertEqual(draft.attachments, ["facture.pdf", "photo.jpg"])
+        guard case .draft(let unsafe)? = ChatCard.parse(#"{"type":"draft","id":"../send","subject":"x","body":"y"}"#) else { return XCTFail() }
+        XCTAssertEqual(unsafe.draftID, "", "an id that is not Gmail's offers no sending")
+    }
+
+    func testTheOutboxDraftAndItsPath() throws {
+        let json = try JSONValue.decode(Data(#"{"id":"r123","to":"julie@example.com","cc":"","bcc":"x@y.z","subject":"Facture","body":"Salut","truncated":false,"attachments":[{"name":"facture.pdf","type":"application/pdf","size":1234}],"fingerprint":"abc"}"#.utf8))
+        let draft = try XCTUnwrap(OutboxDraft(json))
+        XCTAssertEqual(draft.bcc, "x@y.z"); XCTAssertEqual(draft.attachments.first?.size, 1234); XCTAssertTrue(draft.hasRecipient)
+        XCTAssertNil(OutboxDraft(try JSONValue.decode(Data(#"{"id":"r123"}"#.utf8))), "no fingerprint, nothing to send")
+        XCTAssertEqual(OutboxDraft.path(profile: "personnel", draftID: "r123"), "/api/plugins/hermes-widgets/drafts/personnel/r123")
+        XCTAssertNil(OutboxDraft.path(profile: "../x", draftID: "r123")); XCTAssertNil(OutboxDraft.path(profile: "personnel", draftID: "a/b"))
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "sent-\(UUID().uuidString)"))
+        XCTAssertFalse(SentDrafts.contains("r123", in: defaults)); SentDrafts.add("r123", in: defaults); XCTAssertTrue(SentDrafts.contains("r123", in: defaults))
+    }
 }

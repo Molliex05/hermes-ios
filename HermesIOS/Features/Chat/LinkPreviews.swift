@@ -8,7 +8,14 @@ struct ChatReplyAction {
     let send: @MainActor (String) -> Bool
 }
 
+/// Reads and sends a Gmail draft of the conversation's agent (see `OutboxDraft`). Set by the chat.
+struct DraftOutbox {
+    let load: @MainActor (String) async throws -> OutboxDraft
+    let send: @MainActor (OutboxDraft) async throws -> Void
+}
+
 extension EnvironmentValues {
+    @Entry var draftOutbox: DraftOutbox? = nil
     @Entry var chatReply: ChatReplyAction? = nil
     /// Only the newest reply's cards still answer: an old « Oui » must not land in today's conversation.
     @Entry var cardsInteractive = true

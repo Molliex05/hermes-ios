@@ -1,8 +1,12 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
-/// What the person chose in the « + » panel.
-enum AttachChoice { case camera, photos, files }
+/// What the person chose in the « + » panel, or pasted (a photo or a PDF from the clipboard).
+enum AttachChoice { case camera, photos, files, paste([NSItemProvider]) }
+
+/// What can be pasted as an attachment.
+let pastableTypes: [UTType] = [.pdf, .image]
 
 /// The composer's « + »: a small card that springs up just above the field, with three round choices. It lives in the
 /// composer itself, so it rides on top of the keyboard instead of opening behind it.
@@ -15,10 +19,18 @@ struct AttachPanel: View {
     private let cameraAvailable = UIImagePickerController.isSourceTypeAvailable(.camera)
 
     var body: some View {
-        HStack(spacing: 6) {
-            item("Appareil photo", symbol: "camera", enabled: cameraAvailable && remaining > 0, id: "attach-camera") { choose(.camera) }
-            item("Photos", symbol: "photo.on.rectangle", enabled: remaining > 0, id: "attach-photos") { choose(.photos) }
-            item("Fichiers", symbol: "doc", enabled: remaining > 0, id: "attach-files") { choose(.files) }
+        VStack(spacing: 8) {
+            HStack(spacing: 6) {
+                item("Appareil photo", symbol: "camera", enabled: cameraAvailable && remaining > 0, id: "attach-camera") { choose(.camera) }
+                item("Photos", symbol: "photo.on.rectangle", enabled: remaining > 0, id: "attach-photos") { choose(.photos) }
+                item("Fichiers", symbol: "doc", enabled: remaining > 0, id: "attach-files") { choose(.files) }
+            }
+            // The system's own paste button: it reads the clipboard without iOS asking for permission each time.
+            PasteButton(supportedContentTypes: pastableTypes) { providers in
+                Task { @MainActor in choose(.paste(providers)) }
+            }
+            .labelStyle(.titleAndIcon).buttonBorderShape(.capsule).tint(AppTheme.accent).disabled(remaining == 0)
+            .accessibilityIdentifier("attach-paste")
         }
         .padding(10)
         .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -65,5 +77,42 @@ struct CameraPicker: UIViewControllerRepresentable {
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
+    }
+}
+
+/// Above the composer when the clipboard holds a photo or a PDF: one touch attaches it. Only the kind of content is
+/// checked (that never shows iOS's paste banner); the content is read by the system paste button, when touched.
+struct PasteChip: View {
+    let enabled: Bool
+    let choose: (AttachChoice) -> Void
+    @State private var copied: UTType?
+    @State private var pastedCount = -1
+
+    var body: some View {
+        Group {
+            if let copied, enabled {
+                HStack(spacing: 8) {
+                    Image(systemName: copied == .pdf ? "doc.richtext" : "photo").foregroundStyle(AppTheme.accent)
+                    Text(copied == .pdf ? "PDF copié" : "Image copiée").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    PasteButton(supportedContentTypes: pastableTypes) { providers in
+                        Task { @MainActor in pastedCount = UIPasteboard.general.changeCount; self.copied = nil; choose(.paste(providers)) }
+                    }
+                    .labelStyle(.titleAndIcon).buttonBorderShape(.capsule).controlSize(.small).tint(AppTheme.accent)
+                }
+                .padding(.leading, 12).padding(.trailing, 4).padding(.vertical, 4)
+                .background(AppTheme.surface, in: Capsule()).overlay(Capsule().strokeBorder(AppTheme.line))
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .accessibilityIdentifier("paste-chip")
+            }
+        }
+        .onAppear(perform: check)
+        .onReceive(NotificationCenter.default.publisher(for: UIPasteboard.changedNotification)) { _ in check() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in check() }
+    }
+
+    private func check() {
+        let board = UIPasteboard.general
+        guard board.changeCount != pastedCount else { copied = nil; return }      // already attached
+        copied = board.contains(pasteboardTypes: [UTType.pdf.identifier]) ? .pdf : board.hasImages ? .image : nil
     }
 }

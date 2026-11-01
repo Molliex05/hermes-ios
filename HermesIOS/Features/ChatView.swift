@@ -55,6 +55,9 @@ struct ChatView: View {
                 return .handled
             })
             .environment(\.chatReply, ChatReplyAction { text in reply(text) })
+            .environment(\.draftOutbox, model.demo ? nil : DraftOutbox(
+                load: { [profile = model.chatProfile] id in try await model.loadDraft(id, profile: profile) },
+                send: { [profile = model.chatProfile] draft in try await model.sendDraft(draft, profile: profile) }))
             .environment(\.calendarEvent, CalendarEventAction { request in showEvent(request) })
             .sheet(item: $webPage) { page in SafariView(url: page.url).ignoresSafeArea() }
             .sheet(item: $eventPage) { page in EventPageView(event: page.event) { eventPage = nil }.ignoresSafeArea() }
@@ -163,7 +166,34 @@ struct ChatView: View {
             case .camera: showCamera = true
             case .photos: showPhotos = true
             case .files: showFiles = true
+            case .paste(let providers): importPasted(providers)
             }
+        }
+    }
+
+    /// Photos and PDFs from the clipboard: a photo goes through the usual resize, a PDF is kept as it is (the agent reads its
+    /// text, extracted when it is sent, and can attach it to a draft).
+    private func importPasted(_ providers: [NSItemProvider]) {
+        let context = attachmentContext
+        Task {
+            model.importingAttachments = true
+            defer { model.importingAttachments = false }
+            do {
+                for provider in providers.prefix(max(0, DraftAttachment.maximumCount - model.attachments.count)) {
+                    let tag = UUID().uuidString.prefix(8)
+                    if provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier) {
+                        let data = try await provider.data(for: .pdf)
+                        let base = (provider.suggestedName ?? "").trimmingCharacters(in: .whitespaces)
+                        let name = base.isEmpty ? "Document-\(tag).pdf" : base.lowercased().hasSuffix(".pdf") ? base : base + ".pdf"
+                        try await model.addAttachment(data: data, name: name, mimeType: "application/pdf", context: context)
+                    } else if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                        let data = try await provider.data(for: .image)
+                        let jpeg = try await Task.detached { try PhotoAttachment.jpeg(data) }.value
+                        try await model.addAttachment(data: jpeg, name: "Image-\(tag).jpg", mimeType: "image/jpeg", context: context)
+                    }
+                }
+            } catch is CancellationError { }
+            catch { model.chatError = error.localizedDescription }
         }
     }
 

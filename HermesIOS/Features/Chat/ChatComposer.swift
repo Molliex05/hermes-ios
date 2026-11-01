@@ -87,6 +87,8 @@ struct ChatComposer: View, Equatable {
                     }
                 }
             }
+            PasteChip(enabled: !state.sending && state.attachments.count < DraftAttachment.maximumCount && !state.attachOpen, choose: attach)
+                .animation(.easeOut(duration: 0.2), value: state.attachments.count)
             VStack(alignment: .leading, spacing: 4) {
                 if !state.attachments.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {

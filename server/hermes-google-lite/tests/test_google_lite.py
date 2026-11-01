@@ -112,6 +112,20 @@ class Mail(Base):
         self.assertTrue(post[1].endswith("/drafts"))
         raw = base64.urlsafe_b64decode(post[2]["json"]["message"]["raw"] + "==").decode()
         self.assertIn("In-Reply-To: <id@x>", raw); self.assertIn("To: b@y.org", raw)
+    def test_draft_attaches_only_the_files_maxime_sent(self):
+        import tempfile, email
+        home = Path(tempfile.mkdtemp()); (home / "attachments").mkdir(); (home / "images").mkdir()
+        (home / "attachments" / "facture.pdf").write_bytes(b"%PDF-1.4 facture"); (home / "images" / "photo.jpg").write_bytes(b"\xff\xd8jpeg")
+        (home / ".env").write_text("GOOGLE_REFRESH_TOKEN=secret"); (home / "attachments" / "lien").symlink_to(home / ".env")
+        plugin._profile_home = lambda: home
+        r = self.call("gmail_brouillon", a="b@y.org", objet="Facture", corps="Ci-joint.", pieces_jointes=["@file:facture.pdf", str(home / "images" / "photo.jpg")])
+        self.assertTrue(r["ok"]); self.assertEqual(r["pieces_jointes"], ["facture.pdf", "photo.jpg"])
+        raw = base64.urlsafe_b64decode([c for c in self.fake.api_calls() if c[0] == "POST"][-1][2]["json"]["message"]["raw"] + "==")
+        parts = [(part.get_filename(), part.get_content_type(), part.get_payload(decode=True)) for part in email.message_from_bytes(raw).walk() if part.get_filename()]
+        self.assertEqual(parts, [("facture.pdf", "application/pdf", b"%PDF-1.4 facture"), ("photo.jpg", "image/jpeg", b"\xff\xd8jpeg")])
+        for forbidden in (str(home / ".env"), "../.env", "/etc/passwd", "lien", "absent.pdf"):
+            self.assertIn("non permise", self.call("gmail_brouillon", a="b@y.org", objet="x", corps="y", pieces_jointes=[forbidden])["error"], forbidden)
+        self.assertNotIn("secret", json.dumps([c[2] for c in self.fake.api_calls()]))
     def test_draft_validation(self):
         self.assertIn("invalide", self.call("gmail_brouillon", a="pas une adresse", objet="x", corps="y")["error"])
         self.assertIn("saut de ligne", self.call("gmail_brouillon", a="b@y.org", objet="x\nBcc: z@z.org", corps="y")["error"])

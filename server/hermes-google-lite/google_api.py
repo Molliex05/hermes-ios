@@ -192,7 +192,12 @@ def _addresses(value: str, label: str) -> list:
     return found
 
 
-def gmail_draft(to: str, subject: str, body: str, cc: str = "", reply_to_message: str = "") -> Dict[str, Any]:
+MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES = 5, 20 * 1024 * 1024        # Gmail refuses a message over 25 MB once encoded
+
+
+def gmail_draft(to: str, subject: str, body: str, cc: str = "", reply_to_message: str = "",
+                files: Optional[list] = None) -> Dict[str, Any]:
+    """`files`: (name, bytes, mime type) already read by the caller from the files Maxime himself sent."""
     recipients, copies = _addresses(to, "a"), _addresses(cc, "cc")
     if not recipients:
         raise GoogleError("Au moins un destinataire est requis.")
@@ -218,9 +223,16 @@ def gmail_draft(to: str, subject: str, body: str, cc: str = "", reply_to_message
             mail["References"] = (refs + " " + mid).strip()
         message["threadId"] = original.get("threadId")
     mail.set_content(body)
+    files = list(files or [])
+    if len(files) > MAX_ATTACHMENTS or sum(len(data) for _, data, _ in files) > MAX_ATTACHMENT_BYTES:
+        raise GoogleError(f"Au plus {MAX_ATTACHMENTS} pièces jointes, 20 Mo en tout.")
+    for name, data, mime in files:
+        main, _, sub = (mime if "/" in mime else "application/octet-stream").partition("/")
+        mail.add_attachment(data, maintype=main, subtype=sub, filename=name)
     message["raw"] = base64.urlsafe_b64encode(mail.as_bytes()).decode("ascii")
     draft = request("POST", f"{GMAIL}/drafts", json={"message": message})
-    return {"id_brouillon": draft.get("id"), "conversation": (draft.get("message") or {}).get("threadId")}
+    return {"id_brouillon": draft.get("id"), "id_message": (draft.get("message") or {}).get("id"),
+            "conversation": (draft.get("message") or {}).get("threadId"), "pieces_jointes": [name for name, _, _ in files]}
 
 
 # ---- Triage: folders (Gmail labels), archive, mark read (never trash, delete or send) ----------------------

@@ -245,6 +245,23 @@ final class AppModel {
 
     /// Saves the Noriven snapshot for the widgets and asks WidgetKit to redraw. Best effort and quiet:
     /// a server without the plugin (404) or without access is remembered until the next connection.
+    /// The profile of the conversation on screen: the agent whose Gmail a draft card belongs to.
+    var chatProfile: String { selected?.profile ?? profile }
+
+    /// A draft as Gmail holds it, for the « Envoyer » sheet.
+    func loadDraft(_ draftID: String, profile: String) async throws -> OutboxDraft {
+        guard let http, let path = OutboxDraft.path(profile: profile, draftID: draftID) else { throw RPCFailure("Ce brouillon ne peut pas être ouvert ici.") }
+        guard let draft = OutboxDraft(try await http.request(path)) else { throw RPCFailure("Le brouillon reçu est illisible.") }
+        return draft
+    }
+
+    /// Sends a draft Maxime has just read (and confirmed with Face ID): the server refuses it if it changed since.
+    func sendDraft(_ draft: OutboxDraft, profile: String) async throws {
+        guard let http, let path = OutboxDraft.path(profile: profile, draftID: draft.draftID) else { throw RPCFailure("Ce brouillon ne peut pas être envoyé d’ici.") }
+        _ = try await http.request(path + "/send", method: "POST", body: .object(["fingerprint": .string(draft.fingerprint)]))
+        SentDrafts.add(draft.draftID)
+    }
+
     func refreshWidgets(retryUnavailable: Bool = false) async {
         if retryUnavailable { widgetUnavailable = false }      // a new connection retries a plugin installed meanwhile
         // A « Vu » tapped on the widget is sent as soon as the app comes back, whatever the quarter of an hour.
@@ -888,12 +905,26 @@ final class AppModel {
                     try validate()
                     guard result["attached"].bool, !result["path"].string.isEmpty else { throw RPCFailure("Hermes n’a pas accepté le fichier.") }
                     item.remotePath = result["path"].string; item.remoteReference = result["ref_text"].string; item.runtimeID = runtime
+                    if item.isPDF {
+                        // Hermes cannot read a PDF: its text goes along as a text file, or its first pages as images for a scan.
+                        item.extraReferences = []; item.extraImagePaths = []
+                        let pdfName = item.name
+                        for companion in await Task.detached(priority: .userInitiated) { PDFReading.companions(of: data, name: pdfName) }.value {
+                            try validate()
+                            let url = "data:\(companion.mimeType);base64,\(companion.data.base64EncodedString())"
+                            let staged = try await socket.call("file.attach", ["session_id": .string(runtime), "name": .string(companion.name), "data_url": .string(url)], timeout: 90)
+                            try validate()
+                            guard staged["attached"].bool, !staged["path"].string.isEmpty else { continue }
+                            if companion.isImage { item.extraImagePaths?.append(staged["path"].string) } else if !staged["ref_text"].string.isEmpty { item.extraReferences?.append(staged["ref_text"].string) }
+                        }
+                    }
                     if let index = attachmentDrafts[draftKey]?.firstIndex(where: { $0.id == item.id }) { attachmentDrafts[draftKey]?[index] = item }
                     scheduleSave()
                 }
                 if item.isImage { imagePaths.append(item.remotePath!) }
                 else if let ref = item.remoteReference, !ref.isEmpty { refs.append(ref) }
                 else { throw RPCFailure("Hermes n’a pas renvoyé de référence pour ce fichier.") }
+                refs += item.extraReferences ?? []; imagePaths += item.extraImagePaths ?? []
             }
             for path in imagePaths {
                 imageCleanup[runtime, default: []].append(path)

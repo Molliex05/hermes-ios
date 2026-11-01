@@ -43,6 +43,8 @@
 	<string>Quand une carte de votre agent montre un rendez-vous, Hermès iOS retrouve l’événement dans vos calendriers pour l’ouvrir. Rien n’est modifié ni envoyé.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Prenez une photo à envoyer à votre agent Hermes dans la conversation.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Confirmez avec Face ID avant qu’un courriel préparé par votre agent parte de votre Gmail.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Hermès iOS se connecte à votre agent Hermes sur votre réseau privé ou Tailscale.</string>
 	<key>NSMicrophoneUsageDescription</key>
