@@ -41,3 +41,9 @@ dans les jeux d'outils des tâches (`hermes tools enable … --platform cron`).
   quittent le tableau (un `ajouter` ne les ramène plus) et les ids Gmail qu'elles portaient (`courriels`) sont déposés dans
   `personnel/widgets/a_classer/` ; `jarvis_courriels.py` les archive et les marque lus sans modèle (copie `jarvis_courriels.py.bak-vu-20261101`).
   Consigne « Vu » du SOUL de Jarvis (`SOUL.md.bak-vu-20261101`) et invite de « Courriels de Maxime » (`jobs.json.bak-vu-20261101`) mises à jour.
+- Déployé le 2026-11-01 (soir) : cartes courriel (boîte, courriel lu, tri) et consignes de brouillon de Jarvis (SOUL, copie
+  `SOUL.md.bak-envoi-20261101`) ; `gmail_brouillon` accepte `pieces_jointes`, limitées aux dossiers `attachments` et `images`
+  du profil (plugin `hermes-google-lite` 0.5.0, copie `hermes-google-lite.bak-envoi-20261101`) ; envoi d'un brouillon par
+  Maxime depuis l'app : `GET/POST /api/plugins/hermes-widgets/drafts/<profil>/<id>[/send]` (`outbox.py`, plugin 0.6.0, copie
+  `hermes-widgets.bak-envoi-20261101`), avec empreinte, 20 envois par heure, journal `personnel/widgets/envois.jsonl`.
+  L'agent n'a toujours aucun chemin d'envoi.
