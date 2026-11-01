@@ -47,6 +47,7 @@
 		4360124DB73B3B91DC9DBC8E /* noriven_compare.wav in Resources */ = {isa = PBXBuildFile; fileRef = 41C5AE38319FEB1DF5D09D55 /* noriven_compare.wav */; };
 		439A876888E485FB158CB840 /* PresenceBeacon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88CDF5DC1D8A5E35BD92E7BF /* PresenceBeacon.swift */; };
 		43BD009B1A0678991FCA4E77 /* AgentBoard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0EE0FE0A291482EAABF4561 /* AgentBoard.swift */; };
+		462B74E2DB715622EC358CFF /* EmailCardViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F6073B38EDB59B3768B2EE6 /* EmailCardViews.swift */; };
 		48C38EA4D6AF9C7DE6F2E160 /* CredentialsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC8FE4D6E2F7E5F6C796C928 /* CredentialsSettingsView.swift */; };
 		49D5CCC3ADD83BD5A45B554D /* QuestionCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1368063F251016EFD9290672 /* QuestionCards.swift */; };
 		4AC347EB232545757FCB73E2 /* CardLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48F4B51FA524CF9E3A8B67F4 /* CardLinks.swift */; };
@@ -132,6 +133,7 @@
 		C6C2662B490C3C8AA9F33609 /* SharedBlob.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAF56DE797CE3B61A8D45A01 /* SharedBlob.swift */; };
 		C87C5E2A7A4031795423E7C0 /* VoiceSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F25C8AEBDE66DBDA9B9AF8D4 /* VoiceSettingsView.swift */; };
 		CE079D497EBE915D4F454CF1 /* VoiceBargeIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD8B320D314E6D15DCC251E2 /* VoiceBargeIn.swift */; };
+		D05BE56AEBCE63175CCD3B5D /* EmailCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AA9531D4948791BED70E2CD /* EmailCards.swift */; };
 		D2F30355CF8346E7A40F704A /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03771C2DF46F958CA751A93C /* JSONValue.swift */; };
 		D4431BD400879D502BDD748A /* VoiceSamples.swift in Sources */ = {isa = PBXBuildFile; fileRef = 753087B8E41F0A5AED4D3DC0 /* VoiceSamples.swift */; };
 		D5A28AE3E671EF121993E660 /* HermesIOSWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0950720749BFDC7C3C5A89A9 /* HermesIOSWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -284,8 +286,10 @@
 		5129C2C9C5CCE39CD9C692C0 /* Skeleton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Skeleton.swift; sourceTree = "<group>"; };
 		5380C4BA29841FE2C644991E /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		59BEB0EAB17FDB28F14A85B2 /* instant.pcm */ = {isa = PBXFileReference; path = instant.pcm; sourceTree = "<group>"; };
+		5AA9531D4948791BED70E2CD /* EmailCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmailCards.swift; sourceTree = "<group>"; };
 		5AFED7BFEFF9E73E8742F99A /* meteo.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = meteo.wav; sourceTree = "<group>"; };
 		5EAF91D4EE15D71A06822725 /* PluginsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginsSettingsView.swift; sourceTree = "<group>"; };
+		5F6073B38EDB59B3768B2EE6 /* EmailCardViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmailCardViews.swift; sourceTree = "<group>"; };
 		5FFBB999CB80F593A702DC86 /* VoiceLiveProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLiveProtocol.swift; sourceTree = "<group>"; };
 		607A67220A1FD6A6196696CA /* noriven_chaine.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = noriven_chaine.wav; sourceTree = "<group>"; };
 		638546B579DE55B294254F19 /* PushNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushNotifications.swift; sourceTree = "<group>"; };
@@ -524,6 +528,7 @@
 				CF7E91170403F14C2AEA4311 /* ChatRequestCards.swift */,
 				B1B95AADFCA8B42EAEAAFECD /* ChatTranscriptView.swift */,
 				7501177E33D3A582977DBC58 /* DraftCard.swift */,
+				5F6073B38EDB59B3768B2EE6 /* EmailCardViews.swift */,
 				384DDEDB7A703B22350AA929 /* InsightCards.swift */,
 				CF0E2A096609367B94AB7780 /* LinkPreviews.swift */,
 				1368063F251016EFD9290672 /* QuestionCards.swift */,
@@ -635,6 +640,7 @@
 				46031F875793783DE776A6F7 /* ConversationActivity.swift */,
 				5045723AB4101C15BB122A44 /* ConversationIndex.swift */,
 				B083DF2BEBD828CF266749E2 /* DraftAttachment.swift */,
+				5AA9531D4948791BED70E2CD /* EmailCards.swift */,
 				EA403258EBDBCDA2BBA568D1 /* Endpoint.swift */,
 				C910078020A4AF8014712019 /* HistoryRequests.swift */,
 				03771C2DF46F958CA751A93C /* JSONValue.swift */,
@@ -971,6 +977,8 @@
 				48C38EA4D6AF9C7DE6F2E160 /* CredentialsSettingsView.swift in Sources */,
 				A95A1A969026C220303DA621 /* DraftAttachment.swift in Sources */,
 				FAE781DE367CD7BAE34BC157 /* DraftCard.swift in Sources */,
+				462B74E2DB715622EC358CFF /* EmailCardViews.swift in Sources */,
+				D05BE56AEBCE63175CCD3B5D /* EmailCards.swift in Sources */,
 				59454233EF00BAB95B5995BC /* Endpoint.swift in Sources */,
 				83C379CC804844BE37694A45 /* GroupsView.swift in Sources */,
 				23C8F8F7F37C15AED2812D64 /* Haptics.swift in Sources */,

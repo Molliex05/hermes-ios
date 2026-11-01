@@ -198,6 +198,9 @@ enum ChatCard: Equatable {
     case status(Status)
     case news(title: String, items: [Article])
     case brief(Brief)
+    case emails(Inbox)
+    case email(Message)
+    case triage(Triage)
 
     static let maxItems = 12
     /// Lists and agendas are read through, so they hold more (a week of shifts, a month of expenses).
@@ -212,6 +215,11 @@ enum ChatCard: Equatable {
     static func parse(_ text: String) -> ChatCard? {
         guard let json = try? JSONValue.decode(Data(text.utf8)), !json.object.isEmpty else { return nil }
         let title = clean(json["title"].string, 80)
+        // Email cards first; a « courriels » list written the older way (rows with a title) still draws as a list.
+        if let mail = emailKind(json["type"].string.trimmingCharacters(in: .whitespaces).lowercased()) {
+            if let card = parseEmailCard(mail, json, title: title) { return card }
+            if mail != "emails" { return nil }
+        }
         switch kind(json["type"].string) {
         case "carousel":
             let items = list(json["items"]).enumerated().compactMap { index, value -> Item? in
@@ -486,7 +494,7 @@ enum ChatCard: Equatable {
         return .ok
     }
 
-    private static func list(_ value: JSONValue, limit: Int = maxItems) -> [JSONValue] { Array(value.array.prefix(limit)) }
+    static func list(_ value: JSONValue, limit: Int = maxItems) -> [JSONValue] { Array(value.array.prefix(limit)) }
 
     private static func stats(_ value: JSONValue) -> [Stat] {
         Array(list(value).enumerated().compactMap { index, item -> Stat? in
@@ -496,7 +504,7 @@ enum ChatCard: Equatable {
     }
 
     /// An SF Symbol name as the agent may write it (« server.rack »); anything else is dropped and the row shows its initial.
-    private static func symbolName(_ raw: String) -> String {
+    static func symbolName(_ raw: String) -> String {
         let name = raw.trimmingCharacters(in: .whitespaces).lowercased()
         return name.count <= 48 && !name.isEmpty && name.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "." }) ? name : ""
     }
@@ -633,7 +641,7 @@ enum ChatCard: Equatable {
         return collapsed.count > limit ? String(collapsed.prefix(limit - 1)) + "…" : collapsed
     }
 
-    private static func number(_ value: JSONValue) -> Double? {
+    static func number(_ value: JSONValue) -> Double? {
         switch value {
         case .number(let n): return n.isFinite ? n : nil
         case .string(let s):
@@ -658,7 +666,7 @@ enum ChatCard: Equatable {
         }
     }
 
-    private static func display(_ value: JSONValue) -> String {
+    static func display(_ value: JSONValue) -> String {
         switch value {
         case .string(let s): return s
         case .number(let n): return n.rounded() == n && abs(n) < 1e15 ? String(Int(n)) : String(n)
@@ -672,11 +680,11 @@ enum ChatCard: Equatable {
         return nil
     }
 
-    private static func firstNonNull(_ value: JSONValue, _ keys: String...) -> JSONValue {
+    static func firstNonNull(_ value: JSONValue, _ keys: String...) -> JSONValue {
         keys.lazy.map { value[$0] }.first { !$0.isNull } ?? .null
     }
 
-    private static func firstString(_ value: JSONValue, _ keys: String...) -> String {
+    static func firstString(_ value: JSONValue, _ keys: String...) -> String {
         keys.lazy.map { value[$0].string }.first { !$0.isEmpty } ?? ""
     }
 
@@ -788,6 +796,10 @@ enum ChatCard: Equatable {
         case .brief(let b): lines = [joined(b.greeting, b.date)] + b.sections.flatMap { section in
                 [section.title] + (section.text.isEmpty ? [] : [section.text]) + section.lines.map { joined($0.time, $0.text, $0.detail) }
                     + section.articles.map { joined($0.title, $0.source) } } + [b.focus]
+        case .emails(let inbox): lines = [inbox.title] + inbox.items.map { joined($0.sender.label, $0.subject, $0.summary) }
+        case .email(let m): lines = [joined(m.email.sender.label, m.email.subject), m.email.summary] + m.points.map { "• " + $0 } + [m.due]
+        case .triage(let t): lines = [joined(t.title, t.total > 0 ? "\(t.total) rangés" : "", t.archived > 0 ? "\(t.archived) archivés" : "")]
+                + t.folders.map { "\($0.name) : \($0.count)" } + t.pending.map { joined($0.sender.label, $0.subject) }
         }
         return lines.filter { !$0.isEmpty }
     }
