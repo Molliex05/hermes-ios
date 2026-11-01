@@ -199,13 +199,13 @@ struct BoardProvider: AppIntentTimelineProvider {
     private struct Saved {
         let boards = AgentBoardStore.read()
         let profiles = SharedProfiles.read()
-        let seen = BoardDismissals.read()                      // boards the user marked « Vu »
+        let seen = BoardDismissals.read()                      // lines the user marked « Vu », not yet off the server's board
 
         func entry(_ configuration: SelectAgentIntent, at date: Date) -> BoardEntry {
             let known = boards?.boards ?? [:]
             let name = configuration.agent?.id ?? profiles.first?.name ?? known.keys.sorted().first ?? ""
             let title = profiles.first { $0.name == name }.map { $0.title.isEmpty ? name : $0.title } ?? (name.isEmpty ? "Agent" : name)
-            return BoardEntry(date: date, profile: name, agentTitle: title, board: known[name].flatMap { seen[name] == $0.signature ? nil : $0 }, agenda: boards?.agendas[name],
+            return BoardEntry(date: date, profile: name, agentTitle: title, board: known[name].flatMap { $0.hiding(seen.filter { $0.profile == name }) }, agenda: boards?.agendas[name],
                               weather: boards?.weather.flatMap { $0.isExpired(at: date) ? nil : $0 })
         }
     }
@@ -392,10 +392,10 @@ struct BoardWidgetView: View {
         .background(accent.opacity(dark ? 0.16 : 0.11), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
-    /// « Vu »: clears what the agent put up (it comes back when the agent writes something new).
-    @ViewBuilder private func seenButton(compact: Bool = false) -> some View {
+    /// « Vu »: takes off the agent's board the lines on screen (`rows`) and its note when shown, nothing the user has not seen.
+    @ViewBuilder private func seenButton(_ rows: [BoardRow], note: Bool = true, compact: Bool = false) -> some View {
         if entry.hasMessage && !entry.isPlaceholder {
-            Button(intent: MarkSeenIntent(profile: entry.profile)) {
+            Button(intent: MarkSeenIntent(profile: entry.profile, lines: rows.map(\.item.text), note: note ? entry.note : "")) {
                 if compact {
                     Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).frame(width: 28, height: 28)
                         .background(accent.opacity(dark ? 0.2 : 0.14), in: Circle())
@@ -408,7 +408,7 @@ struct BoardWidgetView: View {
     }
 
     /// The agent's note with its « Vu » button, at the bottom of a medium widget.
-    @ViewBuilder private var noteLine: some View {
+    @ViewBuilder private func noteLine(_ rows: [BoardRow]) -> some View {
         if !entry.note.isEmpty || entry.hasMessage {
             HStack(alignment: .center, spacing: 6) {
                 if !entry.note.isEmpty {
@@ -416,7 +416,7 @@ struct BoardWidgetView: View {
                     Text(entry.note).font(.caption2.weight(.semibold)).lineLimit(2)
                 }
                 Spacer(minLength: 0)
-                seenButton(compact: true)
+                seenButton(rows, compact: true)
             }
         }
     }
@@ -581,7 +581,7 @@ struct BoardWidgetView: View {
                     Image(systemName: "scope").font(.system(size: 9, weight: .bold)).foregroundStyle(accent).padding(.top, 1).accessibilityHidden(true)
                     Text(entry.note).font(.caption2.weight(.semibold)).lineLimit(2)
                     Spacer(minLength: 0)
-                    seenButton(compact: true)
+                    seenButton([], compact: true)
                 }
             }
         }
@@ -601,6 +601,8 @@ struct BoardWidgetView: View {
         }
     }
 
+    private func next(after hero: BoardRow) -> [BoardRow] { entry.rows.first { $0.id != hero.id && $0.phase != .past }.map { [$0] } ?? [] }
+
     private func smallHero(_ hero: BoardRow, showNext: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
@@ -610,8 +612,9 @@ struct BoardWidgetView: View {
             }
             Spacer(minLength: 4)
             Text(hero.item.text).font(.headline).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-            HStack(alignment: .bottom) { sub(hero); Spacer(minLength: 0); seenButton(compact: true) }.padding(.top, 2)
-            if showNext, let after = entry.rows.first(where: { $0.id != hero.id && $0.phase != .past }) {
+            HStack(alignment: .bottom) { sub(hero); Spacer(minLength: 0); seenButton([hero] + (showNext ? next(after: hero) : []), note: false, compact: true) }
+                .padding(.top, 2)
+            if showNext, let after = next(after: hero).first {
                 Text("Ensuite · \(after.item.time.isEmpty ? "" : "\(after.item.time) ")\(after.item.text)").font(.caption2).foregroundStyle(.secondary)
                     .lineLimit(1).padding(.top, 5)
             }
@@ -636,6 +639,7 @@ struct BoardWidgetView: View {
     private func mediumBoard(_ hero: BoardRow) -> some View {
         let rest = entry.rows.filter { $0.id != hero.id }
         let focus = entry.note
+        let shown = Array(rest.prefix(bigText ? 2 : focus.isEmpty ? 4 : 3))
         return HStack(alignment: .top, spacing: 12) {
             link(hero) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -651,12 +655,12 @@ struct BoardWidgetView: View {
             }.frame(width: 138)
             RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1).frame(maxHeight: .infinity)
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(rest.prefix(bigText ? 2 : focus.isEmpty ? 4 : 3))) { row in
+                ForEach(shown) { row in
                     link(row) { compactRow(row) }.frame(minHeight: 26, maxHeight: 40)
                 }
                 if rest.isEmpty && focus.isEmpty { Text("C’est tout pour l’instant.").font(.caption).foregroundStyle(.secondary) }
                 Spacer(minLength: 0)
-                noteLine
+                noteLine([hero] + shown)
             }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
@@ -682,7 +686,7 @@ struct BoardWidgetView: View {
                 ForEach(rows) { row in link(row) { compactRow(row) }.frame(minHeight: 26, maxHeight: 40) }
                 if rows.isEmpty { Text(agendaEmptyText).font(.caption).foregroundStyle(.secondary) }
                 Spacer(minLength: 0)
-                noteLine
+                noteLine(rows)
             }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
@@ -769,7 +773,7 @@ struct BoardWidgetView: View {
                     Text(degrees(entry.temperature)).font(.subheadline.weight(.bold)).monospacedDigit()
                 }
             }
-            seenButton()
+            seenButton(rows)
             ring(34)
         }
         VStack(alignment: .leading, spacing: 0) {
@@ -811,7 +815,7 @@ struct BoardWidgetView: View {
             Text(entry.live?.title.isEmpty == false ? entry.live?.title ?? "" : "Aujourd’hui").font(.system(size: 10, weight: .bold)).textCase(.uppercase)
                 .foregroundStyle(accent).lineLimit(1)
             Spacer(minLength: 0)
-            seenButton()
+            seenButton(rows)
         }
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in

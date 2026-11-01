@@ -1,10 +1,12 @@
-"""Mounted by Hermes under its existing dashboard authentication boundary. Read-only."""
+"""Mounted by Hermes under its existing dashboard authentication boundary. Read-only, except « Vu » (`/board/seen`)."""
 import importlib.util
 import logging
+import os
+import re
 import sys
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 
 _spec = importlib.util.spec_from_file_location("hermes_widgets_snapshot", Path(__file__).resolve().parent.parent / "snapshot.py")
 snapshot_module = importlib.util.module_from_spec(_spec)
@@ -47,3 +49,19 @@ def get_board():
     straight from the calendar, and the weather of the place, for the iPhone widget. A plain `def`: the Google and weather calls
     block, FastAPI runs it in a thread."""
     return weather_module.with_weather(board_module.with_agendas(board_module.load_all(), source=agenda_module.upcoming))
+
+
+@router.post("/board/seen")
+def board_seen(payload: dict = Body(...)):
+    """« Vu » on the widget: these lines leave the agent's board, and the emails they were about are queued for the agent's
+    email watcher to archive. Only an existing profile; only texts are taken from the phone, the email ids come from the
+    board the agent wrote."""
+    profile = str((payload or {}).get("profile") or "")
+    root = Path(os.environ.get("HERMES_PROFILES_DIR", "/opt/data/profiles"))
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", profile) or not (root / profile).is_dir():
+        raise HTTPException(404, "Profil inconnu.")
+    try:
+        return {"ok": True, **board_module.mark_seen(root / profile, payload.get("lines"), payload.get("focus"))}
+    except Exception as error:      # never forward the arguments
+        log.warning("Widget seen mark failed (%s)", type(error).__name__)
+        raise HTTPException(500, "Le tableau n'a pas pu être mis à jour.") from None

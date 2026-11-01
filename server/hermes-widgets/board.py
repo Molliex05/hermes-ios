@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 MAX_ITEMS = 5
+MAX_MAIL_IDS = 8
 DEFAULT_HOURS, MAX_HOURS = 6.0, 48.0
 TONES = {"positive", "warning", "negative", "neutral"}
 
@@ -31,6 +32,12 @@ def _symbol(value: Any) -> str:
     return text if re.fullmatch(r"[a-z0-9.]{1,40}", text) else ""
 
 
+def _mail_ids(value: Any) -> list:
+    """Gmail message ids a line is about (never shown): what « Vu » hands over for archiving. Anything else is dropped."""
+    rows = value if isinstance(value, list) else []
+    return list(dict.fromkeys(str(row) for row in rows[:MAX_MAIL_IDS] if re.fullmatch(r"[A-Za-z0-9_-]{6,64}", str(row))))
+
+
 def build(args: Dict[str, Any], now: Optional[datetime] = None) -> Dict[str, Any]:
     """The board for these tool arguments. Raises ValueError (a message for the agent) when there is nothing to show."""
     now = now or datetime.now(timezone.utc)
@@ -43,8 +50,11 @@ def build(args: Dict[str, Any], now: Optional[datetime] = None) -> Dict[str, Any
         if not text:
             continue
         tone = _clean(row.get("ton"), 10).lower()
-        items.append({"text": text, "detail": _clean(row.get("detail"), 50), "time": _clean(row.get("heure"), 12),
-                      "icon": _symbol(row.get("icone")), "tone": tone if tone in TONES else ""})
+        item = {"text": text, "detail": _clean(row.get("detail"), 50), "time": _clean(row.get("heure"), 12),
+                "icon": _symbol(row.get("icone")), "tone": tone if tone in TONES else ""}
+        if _mail_ids(row.get("courriels")):
+            item["mail_ids"] = _mail_ids(row.get("courriels"))
+        items.append(item)
     focus = _clean(args.get("a_retenir"), 140)
     if not items and not focus:
         raise ValueError("Rien à afficher : donne au moins une ligne (`lignes`) ou `a_retenir`. Pour vider le tableau, passe `effacer`.")
@@ -67,11 +77,15 @@ def merge(existing: Optional[Dict[str, Any]], new: Dict[str, Any], now: Optional
         alive = False
     if not alive:
         return new
-    seen, items = set(), []
+    seen, items = {}, []
     for row in list(new.get("items") or []) + list(existing.get("items") or []):
         key = str(row.get("text", "")).strip().lower()
-        if key and key not in seen and len(items) < MAX_ITEMS:
-            seen.add(key)
+        if key in seen:                                         # the same line again: it keeps the emails of both
+            ids = _mail_ids(list(seen[key].get("mail_ids") or []) + list(row.get("mail_ids") or []))
+            if ids:
+                seen[key]["mail_ids"] = ids
+        elif key and len(items) < MAX_ITEMS:
+            seen[key] = row = dict(row)
             items.append(row)
     return {**new, "title": new.get("title") or existing.get("title") or "", "items": items,
             "focus": new.get("focus") or existing.get("focus") or "", "ask": new.get("ask") or existing.get("ask") or "",
@@ -109,6 +123,60 @@ def clear(home: Path) -> bool:
         return False
 
 
+def _key(text: Any) -> str:
+    return re.sub(r"\s+", " ", str(text or "")).strip().casefold()
+
+
+def seen_dir(home: Path) -> Path:
+    """Where « Vu » leaves the emails to archive, one file per tap; the email watcher archives them and deletes the file."""
+    return Path(home) / "widgets" / "a_classer"
+
+
+def mark_seen(home: Path, lines: Any, focus: Any = "", now: Optional[datetime] = None) -> Dict[str, int]:
+    """The user tapped « Vu » on these lines (their texts, as the phone showed them): they leave the board for good, so a
+    later `ajouter` cannot bring them back, and the emails they were about are queued for archiving. Lines the agent wrote
+    since then stay; a board left with nothing is cleared."""
+    now = now or datetime.now(timezone.utc)
+    wanted = {_key(line) for line in (lines if isinstance(lines, list) else [])[:4 * MAX_ITEMS] if _key(line)}
+    try:
+        board = json.loads(path_for(home).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        board = None
+    if not isinstance(board, dict):
+        return {"retirees": 0, "a_classer": 0}
+    kept, ids = [], []
+    for row in board.get("items") or []:
+        if isinstance(row, dict) and _key(row.get("text")) in wanted:
+            ids += _mail_ids(row.get("mail_ids"))
+        else:
+            kept.append(row)
+    removed = len(board.get("items") or []) - len(kept)
+    if _key(focus) and _key(focus) == _key(board.get("focus")):
+        board["focus"], removed = "", removed + 1
+    if removed:
+        board["items"] = kept
+        if kept or board.get("focus"):
+            save(home, board)
+        else:
+            clear(home)
+    ids = list(dict.fromkeys(ids))
+    if ids:
+        folder = seen_dir(home)
+        folder.mkdir(parents=True, exist_ok=True)
+        descriptor, name = tempfile.mkstemp(dir=folder, prefix=".vu-", suffix=".tmp")
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps({"ids": ids, "at": now.isoformat(timespec="seconds")}))
+        os.replace(name, folder / f"{now.strftime('%Y%m%dT%H%M%S')}-{Path(name).stem[4:]}.json")
+    return {"retirees": removed, "a_classer": len(ids)}
+
+
+def public(board: Dict[str, Any]) -> Dict[str, Any]:
+    """The board as the phone gets it: the email ids stay on the server."""
+    items = [{key: value for key, value in row.items() if key != "mail_ids"} if isinstance(row, dict) else row
+             for row in board.get("items") or []]
+    return {**board, "items": items}
+
+
 def load_all(profiles_dir: Optional[Path] = None) -> Dict[str, Any]:
     """Every profile's board, for the app: `{"version": 1, "boards": {profile: board}}`. A board that cannot be read is skipped."""
     root = Path(profiles_dir or os.environ.get("HERMES_PROFILES_DIR", "/opt/data/profiles"))
@@ -123,7 +191,7 @@ def load_all(profiles_dir: Optional[Path] = None) -> Dict[str, Any]:
         except (OSError, ValueError):
             continue
         if isinstance(board, dict):
-            boards[profile.name] = board
+            boards[profile.name] = public(board)
     return {"version": 1, "boards": boards}
 
 

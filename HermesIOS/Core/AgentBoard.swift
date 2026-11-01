@@ -37,10 +37,13 @@ public struct AgentBoard: Equatable, Sendable {
     public var isEmpty: Bool { items.isEmpty && focus.isEmpty }
     public static let maxItems = 5
 
-    /// What this board says, for « Vu »: the same words and the same moment of writing give the same signature, so a board
-    /// the user cleared stays cleared when the app downloads it again, and a new one (other words or time) shows.
-    public var signature: String {
-        "\(Int(updatedAt?.timeIntervalSince1970 ?? 0))|\(title)|\(focus)|\(items.map(\.text).joined(separator: "¦"))"
+    /// The board without what the user marked « Vu » (by text: the agent may have added lines since); nil when nothing is left.
+    public func hiding(_ marks: [SeenMark]) -> AgentBoard? {
+        let lines = Set(marks.flatMap(\.lines).map(SeenMark.key)), notes = Set(marks.map(\.focus).map(SeenMark.key))
+        var left = self
+        left.items.removeAll { lines.contains(SeenMark.key($0.text)) }
+        if notes.contains(SeenMark.key(focus)) { left.focus = "" }
+        return left.isEmpty ? nil : left
     }
 
     init(_ value: JSONValue) {
@@ -163,20 +166,47 @@ public enum AgentBoardStore {
 
 /// The boards the user marked « Vu » on the widget, by profile: the signature of the board that was cleared. Written by the
 /// widget's button, read when the widget draws.
+public struct SeenMark: Codable, Equatable, Sendable {
+    public var profile: String, lines: [String], focus: String, at: Date
+    public init(profile: String, lines: [String], focus: String, at: Date = .now) {
+        self.profile = profile; self.lines = lines; self.focus = focus; self.at = at
+    }
+    /// What the server compares too: case and spacing do not count; an empty text matches nothing.
+    static func key(_ text: String) -> String {
+        let folded = text.split(whereSeparator: \.isWhitespace).joined(separator: " ").lowercased()
+        return folded.isEmpty ? "\u{0}" : folded
+    }
+}
+
+/// Written by the widget's button, which cannot reach the server: the app sends each mark (`WidgetRefresh`) and forgets it once
+/// the server has taken the lines off the board. Until then the widget hides them itself. A mark is dropped after two days,
+/// the longest a board lives.
 public enum BoardDismissals {
-    private static let blob = SharedBlob(account: "board-dismissed")
+    private static let blob = SharedBlob(account: "board-seen")
+    static let lifetime: TimeInterval = 48 * 3600
 
-    public static func read(from directory: URL? = nil) -> [String: String] {
-        blob.read(from: directory).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+    public static func read(from directory: URL? = nil, at date: Date = .now) -> [SeenMark] {
+        let all = blob.read(from: directory).flatMap { try? JSONDecoder().decode([SeenMark].self, from: $0) } ?? []
+        return all.filter { date.timeIntervalSince($0.at) < lifetime }
     }
 
-    public static func dismiss(profile: String, signature: String, to directory: URL? = nil) {
-        var all = read(from: directory)
-        all[profile] = signature
-        if let data = try? JSONEncoder().encode(all) { blob.write(data, to: directory) }
+    public static func add(_ mark: SeenMark, to directory: URL? = nil) {
+        save(Array((read(from: directory) + [mark]).suffix(20)), to: directory)
     }
 
-    public static func clear(from directory: URL? = nil) { blob.clear(from: directory) }
+    /// The marks the server has applied.
+    public static func remove(_ done: [SeenMark], from directory: URL? = nil) {
+        save(read(from: directory).filter { !done.contains($0) }, to: directory)
+    }
+
+    private static func save(_ marks: [SeenMark], to directory: URL?) {
+        if marks.isEmpty { blob.clear(from: directory) } else if let data = try? JSONEncoder().encode(marks) { blob.write(data, to: directory) }
+    }
+
+    public static func clear(from directory: URL? = nil) {
+        blob.clear(from: directory)
+        SharedBlob(account: "board-dismissed").clear(from: directory)          // the earlier, phone-only « Vu »
+    }
 }
 
 /// A profile as the extensions list it (the widget's choice of agent, the share sheet's destination).

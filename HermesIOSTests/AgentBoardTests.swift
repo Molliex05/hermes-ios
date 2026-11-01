@@ -74,17 +74,24 @@ final class AgentBoardTests: XCTestCase {
         XCTAssertNil(try AgentBoards.decode(Data("{\"boards\":{}}".utf8)).weather)
     }
 
-    func testASeenBoardStaysClearedUntilTheAgentWritesAnotherOne() throws {
+    func testSeenLinesStayHiddenEvenWhenTheAgentAddsOthers() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("seen-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let first = try XCTUnwrap(AgentBoards.decode(Data(#"{"boards":{"p":{"title":"T","items":[{"text":"Colis"}],"updated_at":"2026-10-29T10:00:00-04:00"}}}"#.utf8)).boards["p"])
-        let same = try XCTUnwrap(AgentBoards.decode(Data(#"{"boards":{"p":{"title":"T","items":[{"text":"Colis"}],"updated_at":"2026-10-29T10:00:00-04:00"}}}"#.utf8)).boards["p"])
-        let later = try XCTUnwrap(AgentBoards.decode(Data(#"{"boards":{"p":{"title":"T","items":[{"text":"Colis"}],"updated_at":"2026-10-29T11:00:00-04:00"}}}"#.utf8)).boards["p"])
+        let board = try XCTUnwrap(AgentBoards.decode(Data(#"{"boards":{"p":{"focus":"Note","items":[{"text":"Hydro"},{"text":"Banque"}]}}}"#.utf8)).boards["p"])
+        // The agent added « Colis » since: only what was seen goes, whatever the case or spacing.
+        let later = try XCTUnwrap(AgentBoards.decode(Data(#"{"boards":{"p":{"focus":"Note","items":[{"text":"Colis"},{"text":"hydro "},{"text":"Banque"}]}}}"#.utf8)).boards["p"])
         XCTAssertTrue(BoardDismissals.read(from: directory).isEmpty)
-        BoardDismissals.dismiss(profile: "p", signature: first.signature, to: directory)
-        XCTAssertEqual(BoardDismissals.read(from: directory)["p"], same.signature, "downloaded again, it is the same board")
-        XCTAssertNotEqual(BoardDismissals.read(from: directory)["p"], later.signature, "a new write shows again")
+        let mark = SeenMark(profile: "p", lines: board.items.map(\.text), focus: "")
+        BoardDismissals.add(mark, to: directory)
+        let marks = BoardDismissals.read(from: directory)
+        XCTAssertEqual(marks, [mark])
+        XCTAssertEqual(later.hiding(marks)?.items.map(\.text), ["Colis"]); XCTAssertEqual(later.hiding(marks)?.focus, "Note")
+        XCTAssertNil(board.hiding(marks + [SeenMark(profile: "p", lines: [], focus: "note")]), "nothing left to show")
+        XCTAssertEqual(board.hiding([SeenMark(profile: "p", lines: [""], focus: "")])?.items.count, 2, "an empty text hides nothing")
+        XCTAssertTrue(BoardDismissals.read(from: directory, at: mark.at.addingTimeInterval(49 * 3600)).isEmpty, "two days later it is dropped")
+        BoardDismissals.remove([mark], from: directory)
+        XCTAssertTrue(BoardDismissals.read(from: directory).isEmpty, "sent: forgotten")
     }
 
     func testTheStoreKeepsAGoodBoardWhenTheNextOneIsBroken() throws {

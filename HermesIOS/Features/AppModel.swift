@@ -247,7 +247,8 @@ final class AppModel {
     /// a server without the plugin (404) or without access is remembered until the next connection.
     func refreshWidgets(retryUnavailable: Bool = false) async {
         if retryUnavailable { widgetUnavailable = false }      // a new connection retries a plugin installed meanwhile
-        guard !demo, !widgetUnavailable, let http, Date.now.timeIntervalSince(widgetRefreshedAt) > 15 * 60 else { return }
+        // A « Vu » tapped on the widget is sent as soon as the app comes back, whatever the quarter of an hour.
+        guard !demo, !widgetUnavailable, let http, Date.now.timeIntervalSince(widgetRefreshedAt) > 15 * 60 || WidgetRefresh.hasSeenToSend else { return }
         // The wait starts only once the boards are saved: a network blip does not block the next try for a quarter of an hour.
         switch await WidgetRefresh.run(using: http) {
         case .saved: widgetRefreshedAt = .now

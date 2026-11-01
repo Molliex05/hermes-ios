@@ -62,6 +62,37 @@ class Merge(unittest.TestCase):
         self.assertEqual([i["text"] for i in made["items"]], ["z1", "z2", "a0", "a1", "a2"])
 
 
+class Seen(unittest.TestCase):
+    def test_email_ids_ride_along_with_a_line_but_never_reach_the_phone(self):
+        made = board.build({"lignes": [{"texte": "Hydro", "courriels": ["18f2a9c0d1e2", "pas un id!", 7, "18f2a9c0d1e2"]}, {"texte": "Sans"}]}, NOW)
+        self.assertEqual(made["items"][0]["mail_ids"], ["18f2a9c0d1e2"]); self.assertNotIn("mail_ids", made["items"][1])
+        self.assertNotIn("mail_ids", board.public(made)["items"][0]); self.assertIn("mail_ids", made["items"][0], "the stored board keeps them")
+
+    def test_the_same_line_added_again_keeps_the_emails_of_both(self):
+        old = board.build({"lignes": [{"texte": "Hydro", "courriels": ["aaaaaaaa"]}]}, NOW)
+        new = board.build({"lignes": [{"texte": "hydro", "courriels": ["bbbbbbbb"]}]}, NOW)
+        self.assertEqual(board.merge(old, new, NOW)["items"][0]["mail_ids"], ["bbbbbbbb", "aaaaaaaa"])
+
+    def test_seen_lines_leave_the_board_for_good_and_their_emails_are_queued(self):
+        with tempfile.TemporaryDirectory() as home:
+            home = Path(home)
+            board.save(home, board.build({"a_retenir": "Note", "lignes": [{"texte": "Hydro", "courriels": ["aaaaaaaa"]},
+                                                                            {"texte": "Banque", "courriels": ["bbbbbbbb", "cccccccc"]}, {"texte": "Barbier"}]}, NOW))
+            self.assertEqual(board.mark_seen(home, ["hydro ", "Banque", "Inconnue"], "", NOW), {"retirees": 2, "a_classer": 3})
+            stored = json.loads(board.path_for(home).read_text())
+            self.assertEqual([i["text"] for i in stored["items"]], ["Barbier"]); self.assertEqual(stored["focus"], "Note")
+            queued = [json.loads(f.read_text()) for f in board.seen_dir(home).glob("*.json")]
+            self.assertEqual([q["ids"] for q in queued], [["aaaaaaaa", "bbbbbbbb", "cccccccc"]])
+            self.assertEqual([f.name for f in board.seen_dir(home).iterdir() if f.name.startswith(".")], [], "no temporary file is left")
+            # a later `ajouter` cannot bring a seen line back: it is gone from what the merge starts from
+            later = board.merge(stored, board.build({"lignes": [{"texte": "Colis"}]}, NOW), NOW)
+            self.assertEqual([i["text"] for i in later["items"]], ["Colis", "Barbier"])
+            self.assertEqual(board.mark_seen(home, ["Barbier"], "note", NOW), {"retirees": 2, "a_classer": 0})
+            self.assertFalse(board.path_for(home).exists(), "nothing left: the board is cleared")
+            self.assertEqual(board.mark_seen(home, ["x"], "", NOW), {"retirees": 0, "a_classer": 0})
+            self.assertEqual(len(list(board.seen_dir(home).glob("*.json"))), 1)
+
+
 class Storage(unittest.TestCase):
     def test_save_load_clear_and_skip_unreadable(self):
         with tempfile.TemporaryDirectory() as root:

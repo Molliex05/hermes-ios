@@ -170,10 +170,24 @@ class Watcher(Base):
         import tempfile; self.seen = Path(tempfile.mkdtemp()) / "seen.json"
     def test_output_is_stable_and_has_no_content(self):
         first = self.script.render(api, self.seen)
-        self.assertEqual(first, "m1abcdef | A <a@x.org> | Salut")
+        self.assertEqual(first, "×1 | A <a@x.org> | Salut | ids: m1abcdef")
         calls = len(self.fake.api_calls())
         self.assertEqual(self.script.render(api, self.seen), first)            # unchanged → Hermes skips the agent
         self.assertEqual(len(self.fake.api_calls()) - calls, 1)                # only the listing; metadata is cached
+    def test_seen_emails_are_archived_and_marked_read_then_forgotten(self):
+        import tempfile, os; folder = Path(tempfile.mkdtemp())
+        (folder / "1.json").write_text(json.dumps({"ids": ["m1abcdef", "pas un id!"]})); (folder / "2.json").write_text("{casse")
+        self.assertEqual(self.script.archive_seen(api, folder), 1)
+        bodies = [c[2]["json"] for c in self.fake.api_calls() if c[1].endswith("/batchModify")]
+        self.assertEqual(bodies, [{"ids": ["m1abcdef"], "removeLabelIds": ["INBOX", "UNREAD"]}])
+        self.assertEqual(list(folder.iterdir()), [], "done or unreadable: the files are gone")
+        (folder / "3.json").write_text(json.dumps({"ids": ["m1abcdef"]}))
+        class Down:                                                           # Gmail unreachable: kept for the next run
+            def gmail_triage(self, *a): raise api.GoogleError("hors ligne")
+        self.assertEqual(self.script.archive_seen(Down(), folder), 0); self.assertEqual([f.name for f in folder.iterdir()], ["3.json"])
+        old = __import__("time").time() - 8 * 86400; os.utime(folder / "3.json", (old, old))
+        self.script.archive_seen(Down(), folder); self.assertEqual(list(folder.iterdir()), [], "a week later it is dropped")
+        self.assertEqual(self.script.archive_seen(api, folder / "absent"), 0)
     def test_failure_is_loud(self):
         api._env = lambda name: ""
         with self.assertRaises(RuntimeError): self.script.render(api, self.seen)
