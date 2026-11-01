@@ -37,3 +37,7 @@ dans les jeux d'outils des tâches (`hermes tools enable … --platform cron`).
   `widget_publier` (copie `hermes-widgets.bak-ajouter-20261029`), consigne « widget d'abord, notification seulement si urgent » dans le SOUL de Jarvis
   seulement (copie `SOUL.md.bak-widgetvu-20261029` ; Hermès garde « Pour PRÉVENIR » pour ses alertes serveur) et nouvelle invite de « Courriels de Maxime ».
   Le bouton « Vu » du widget est local à l'iPhone : l'agent n'en est pas informé.
+- Déployé le 2026-11-01 : « Vu » passe par le serveur (plugin 0.5.0, `POST /board/seen`, copie `hermes-widgets.bak-vu-20261101`). Les lignes vues
+  quittent le tableau (un `ajouter` ne les ramène plus) et les ids Gmail qu'elles portaient (`courriels`) sont déposés dans
+  `personnel/widgets/a_classer/` ; `jarvis_courriels.py` les archive et les marque lus sans modèle (copie `jarvis_courriels.py.bak-vu-20261101`).
+  Consigne « Vu » du SOUL de Jarvis (`SOUL.md.bak-vu-20261101`) et invite de « Courriels de Maxime » (`jobs.json.bak-vu-20261101`) mises à jour.
