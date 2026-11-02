@@ -372,11 +372,28 @@ final class AppModel {
         if activeConnection?.id != connection.id { await activate(connection) }
         guard !Task.isCancelled, PushNotifications.shared.pendingTarget == target else { return }
         navigationRevision = UUID()
+        guard target.opensConversation else { await openNotifiedAgent(target); return }
         let row: JSONValue = ["id": .string(target.sessionID), "title": "Conversation"]
         await openConversation(Conversation(row, profile: target.profile))
         guard !Task.isCancelled else { return }
         if let reply = PushNotifications.shared.takeReply(for: target) { await sendNotificationReply(reply, target: target) }
         else { composerFocusRequest = UUID() }         // ready to write: the keyboard opens on the conversation
+        PushNotifications.shared.opened(target)
+    }
+
+    /// An alert from a scheduled task names no conversation, only its agent: the app opens that agent's own chat (its Bot
+    /// Chat), never whatever was on screen. A reply typed on the alert waits in the composer, it is not sent by itself.
+    private func openNotifiedAgent(_ target: NotificationTarget) async {
+        // Cold start: the agents arrive with the connection, and another opening may still be under way.
+        for _ in 0..<30 where !profiles.contains(where: { $0.name == target.profile }) || opening {
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+        }
+        guard !Task.isCancelled else { return }
+        if let agent = profiles.first(where: { $0.name == target.profile }) { await openBot(agent) }
+        else { await changeProfile(target.profile) }
+        guard !Task.isCancelled else { return }
+        if let reply = PushNotifications.shared.takeReply(for: target) { draft = draft.isEmpty ? reply : draft + "\n" + reply }
+        composerFocusRequest = UUID()
         PushNotifications.shared.opened(target)
     }
 
@@ -389,11 +406,9 @@ final class AppModel {
             if selected?.storedID == target.sessionID, state == .connected, !opening, !sending, !transcript.running { break }
             do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
         }
-        draft = text
-        if selected?.storedID == target.sessionID, canSend {
-            await send()
-            // Consumed: the reader's own draft comes back. Refused: the reply stays in front of them.
-            draft = draft.isEmpty ? previous : (previous.isEmpty ? draft : previous + "\n" + draft)
+        // Sent on its own, like a card's quick reply: the draft and the files waiting in the composer stay where they are.
+        if selected?.storedID == target.sessionID, canSendQuickReply {
+            await sendQuickReply(text)
         } else {
             draft = previous.isEmpty ? text : previous + "\n" + text
             notice = "Votre réponse est prête dans le champ : touchez Envoyer."

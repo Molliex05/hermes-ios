@@ -6,13 +6,15 @@ public struct NotificationTarget: Codable, Equatable, Sendable, Identifiable {
     public let id: String
     public let connectionID: UUID
     public let profile: String
+    /// Empty for an alert that names no conversation (a scheduled task's `ios_notify`): it opens the agent's own chat.
     public let sessionID: String
+    public var opensConversation: Bool { !sessionID.isEmpty }
 
     public init?(_ payload: JSONValue) {
         let value = payload["hermes"]
         guard value["version"].int == 1,
               let connection = UUID(uuidString: value["connection_id"].string),
-              Self.valid(value["profile"].string), Self.valid(value["session_id"].string),
+              Self.valid(value["profile"].string), value["session_id"].string.isEmpty || Self.valid(value["session_id"].string),
               Self.valid(value["event_id"].string) else { return nil }
         id = value["event_id"].string; connectionID = connection
         profile = value["profile"].string; sessionID = value["session_id"].string

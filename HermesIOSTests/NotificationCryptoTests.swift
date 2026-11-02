@@ -95,7 +95,12 @@ final class NotificationCryptoTests: XCTestCase {
         XCTAssertEqual(envelope?.kind, .tool)
         XCTAssertNil(envelope?.sessionID)
         XCTAssertEqual(envelope?.enc, "abc")
-        XCTAssertNil(NotificationTarget(tool), "no session: the tap just opens the app")
+        let agentOnly = NotificationTarget(tool)
+        XCTAssertEqual(agentOnly?.profile, "noriven", "no session: the tap opens that agent's own chat")
+        XCTAssertEqual(agentOnly?.opensConversation, false)
+        let forged: JSONValue = ["hermes": ["version": 1, "event_id": "e4", "connection_id": .string(connection),
+                                           "profile": "noriven", "session_id": "../x", "kind": "tool"]]
+        XCTAssertNil(NotificationTarget(forged), "a session id, when present, must still be valid")
         let unknown: JSONValue = ["hermes": ["version": 1, "event_id": "e3", "connection_id": .string(connection),
                                             "profile": "noriven", "session_id": "s", "kind": "weird"]]
         XCTAssertEqual(NotificationEnvelope(unknown)?.kind, .turn)
