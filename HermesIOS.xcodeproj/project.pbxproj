@@ -164,6 +164,7 @@
 		EE4F01E4DADF1992B6A7D1E6 /* AgentEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = B30AF46E4B6F8A47D7F6F8F1 /* AgentEntity.swift */; };
 		EEF0B72EEC204B07A6808D5A /* BackgroundLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA19D67E64E6BC861BA6083F /* BackgroundLease.swift */; };
 		EF0DD292C9B23D63C8EC931B /* Skeleton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5129C2C9C5CCE39CD9C692C0 /* Skeleton.swift */; };
+		EF4E90C7F0C19DF4DF823349 /* ChatStage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DCA55A82A315E84D55C9939 /* ChatStage.swift */; };
 		F54AE1A9CC08DBFCBBFDE842 /* VoiceBandFilter.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4AB6902CDC3145E8E242E03 /* VoiceBandFilter.swift */; };
 		F6F4E6CC72851994C165964E /* NativeVoiceAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B104A4361ECD7B91A321759C /* NativeVoiceAPI.swift */; };
 		F73FD30D37068473C02A68C4 /* NotificationCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = DCC12C319AE764336787C8A1 /* NotificationCrypto.swift */; };
@@ -303,6 +304,7 @@
 		59BEB0EAB17FDB28F14A85B2 /* instant.pcm */ = {isa = PBXFileReference; path = instant.pcm; sourceTree = "<group>"; };
 		5AA9531D4948791BED70E2CD /* EmailCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmailCards.swift; sourceTree = "<group>"; };
 		5AFED7BFEFF9E73E8742F99A /* meteo.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = meteo.wav; sourceTree = "<group>"; };
+		5DCA55A82A315E84D55C9939 /* ChatStage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatStage.swift; sourceTree = "<group>"; };
 		5EAF91D4EE15D71A06822725 /* PluginsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginsSettingsView.swift; sourceTree = "<group>"; };
 		5F6073B38EDB59B3768B2EE6 /* EmailCardViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EmailCardViews.swift; sourceTree = "<group>"; };
 		5FFBB999CB80F593A702DC86 /* VoiceLiveProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLiveProtocol.swift; sourceTree = "<group>"; };
@@ -661,6 +663,7 @@
 				B0EE0FE0A291482EAABF4561 /* AgentBoard.swift */,
 				4E860692EEEAFF8808740459 /* ChatCards.swift */,
 				BBAAD9CB1B93F3090CFE6326 /* ChatMarkdown.swift */,
+				5DCA55A82A315E84D55C9939 /* ChatStage.swift */,
 				B19818CCC8AD6C15BBC328BA /* ConfigurationValue.swift */,
 				46031F875793783DE776A6F7 /* ConversationActivity.swift */,
 				5045723AB4101C15BB122A44 /* ConversationIndex.swift */,
@@ -1001,6 +1004,7 @@
 				3C71872B6874298E0B73C4F5 /* ChatHeader.swift in Sources */,
 				02E9FD6AC902DE453BB27C28 /* ChatMarkdown.swift in Sources */,
 				05CE3F5ED070F71DF1B114CD /* ChatRequestCards.swift in Sources */,
+				EF4E90C7F0C19DF4DF823349 /* ChatStage.swift in Sources */,
 				96BB901CF1D7F75F57E206A4 /* ChatTranscriptView.swift in Sources */,
 				A126D118743D5F3FB318EC9F /* ChatView.swift in Sources */,
 				67C754CC229DCAB172A48748 /* ConfigFieldRow.swift in Sources */,

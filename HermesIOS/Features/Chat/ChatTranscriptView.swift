@@ -18,14 +18,17 @@ struct ChatTranscriptView: View {
     @State private var position = ScrollPosition(edge: .bottom)
 
     var body: some View {
-        let transcript = model.transcript
-        if transcript.messages.isEmpty && transcript.approval == nil && transcript.clarification == nil && transcript.credential == nil {
-            // Opening a conversation with nothing cached: its shape, not the welcome suggestions.
-            if model.opening && model.selected != nil { SkeletonBubbles() }
-            else { EmptyChatView(suggest: suggest, agentName: model.agent?.name ?? "default", agentTitle: model.agent?.title ?? "Hermes").equatable() }
-        } else {
-            messages(transcript)
+        Group {
+            switch model.chatStage {
+            case .messages: messages(model.transcript)
+            // Opening a conversation with nothing cached (or before Hermes is reachable): its shape, not the welcome suggestions.
+            case .loading: SkeletonBubbles()
+            case .welcome: EmptyChatView(suggest: suggest, agentName: model.agent?.name ?? "default", agentTitle: model.agent?.title ?? "Hermes").equatable()
+            }
         }
+        // Here rather than on the list: a conversation that opens through the skeleton has no list yet, and its list must
+        // still start at the end, not where the previous conversation was left.
+        .onChange(of: model.selected?.storedID) { _, _ in position.scrollTo(edge: .bottom) }
     }
 
     private func messages(_ transcript: Transcript) -> some View {
@@ -99,15 +102,18 @@ struct ChatTranscriptView: View {
         .onChange(of: transcript.messages.count) { _, _ in
             if pinnedToBottom { follower.didScroll(); position.scrollTo(edge: .bottom) }
         }
-        .onChange(of: model.selected?.storedID) { _, _ in position.scrollTo(edge: .bottom) }
         .overlay(alignment: .bottomTrailing) {
-            if !pinnedToBottom {
-                RoundButton(symbol: "arrow.down", label: "Dernier message") {
-                    pinnedToBottom = true
-                    follower.didScroll()
-                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { position.scrollTo(edge: .bottom) }
-                }.padding(18)
-            }
+            // Comes and goes like the composer's send button, instead of popping.
+            ZStack {
+                if !pinnedToBottom {
+                    RoundButton(symbol: "arrow.down", label: "Dernier message") {
+                        pinnedToBottom = true
+                        follower.didScroll()
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { position.scrollTo(edge: .bottom) }
+                    }.padding(18)
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
+            }.animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.82), value: pinnedToBottom)
         }
     }
 
@@ -426,12 +432,13 @@ struct EmptyChatView: View, Equatable {
     }
 }
 
-/// Behind the whole chat: the warm glow while the conversation is empty, the plain background afterwards.
-/// A tiny body: it only reads whether there are messages.
+/// Behind the whole chat: the warm glow on the welcome, the plain background afterwards.
+/// A tiny body: it only reads the chat's stage. A conversation that is still loading keeps the plain background, so
+/// opening it does not light the glow and fade it out again.
 struct ChatBackdrop: View {
     let model: AppModel
     var body: some View {
-        let empty = model.transcript.messages.isEmpty
+        let empty = model.chatStage == .welcome
         ZStack {
             AppTheme.background
             if empty { AmbientBackground().transition(.opacity) }

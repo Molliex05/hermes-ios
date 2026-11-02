@@ -73,7 +73,9 @@ private struct AppNavigationBarModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .background(PushProbe(pushed: $pushed).frame(width: 0, height: 0).allowsHitTesting(false))
-            .navigationBarBackButtonHidden(pushed).toggleStyle(AppToggleStyle())
+            // Always hidden (a root has none anyway): the probe only answers once the push has started, so hiding it from
+            // `pushed` showed the system (glass) back button at the start of every push, then swapped it for the chevron.
+            .navigationBarBackButtonHidden(true).toggleStyle(AppToggleStyle())
             .toolbar {
                 if pushed {
                     AppToolbarItem(placement: .topBarLeading) {

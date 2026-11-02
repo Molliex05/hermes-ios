@@ -103,6 +103,8 @@ final class AppModel {
     }
     var importingAttachments = false
     @ObservationIgnored private var imageCleanup: [String: [String]] = [:]
+    /// Changes when a conversation is opened from outside the chat (a notification, a routine's result): the chat closes
+    /// every page over it, the way the user would, without being rebuilt.
     var navigationRevision = UUID()
     var notice: String?
     var chatError: String?
@@ -129,6 +131,12 @@ final class AppModel {
     var hasBotProtocol = false
     var draftKey: String { selected.map { key($0.profile, $0.storedID) } ?? "draft-\(profile)" }
     var agent: AgentProfile? { profiles.first { $0.name == (selected?.profile ?? profile) } }
+    /// See `ChatStage`. `hydratedSelection` is not observed, but the transcript and the connection state change with it.
+    var chatStage: ChatStage {
+        let hasContent = !transcript.messages.isEmpty || transcript.approval != nil || transcript.clarification != nil || transcript.credential != nil
+        return ChatStage.of(hasContent: hasContent, hasSelection: selected != nil, opening: opening,
+                            awaitingServer: !demo && state != .connected && hydratedSelection != selectionGeneration)
+    }
     var canSend: Bool { (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty) && !importingAttachments && !voiceActive && (state == .connected || demo) && !opening && !sending && !transcript.running && (selected == nil || !(selected?.runtimeID.isEmpty ?? true) || demo) }
 
     /// Push channel for spoken replies, fed straight from the socket (before UI batching).
@@ -174,6 +182,9 @@ final class AppModel {
     @ObservationIgnored private var streamEvents: [JSONValue] = []
     @ObservationIgnored private var selectionGeneration = UUID()
     @ObservationIgnored private var hydratedSelection: UUID?
+    /// The latest conversation asked for. Reading its cache takes a moment: an earlier tap that finishes reading later must
+    /// not replace the one asked for after it (nor a new conversation opened meanwhile).
+    @ObservationIgnored private var openRequest = UUID()
     @ObservationIgnored private var connectionGeneration = UUID()
     @ObservationIgnored private var foreground = true
     @ObservationIgnored private lazy var presence = PresenceBeacon(client: { [weak self] in self?.http },
@@ -424,7 +435,7 @@ final class AppModel {
         refreshTask?.cancel(); streamTask?.cancel()
         socket?.close(); http?.invalidate()
         toolCache = [:]; dirtyChats = []; chatFingerprints = [:]
-        connectionGeneration = UUID(); selectionGeneration = UUID()
+        connectionGeneration = UUID(); selectionGeneration = UUID(); openRequest = UUID()
         let generation = connectionGeneration
         activeConnection = connection; demo = false; state = .connecting; routines = []
         widgetRefreshedAt = .distantPast                      // another server: its boards, not the previous one's
@@ -621,7 +632,7 @@ final class AppModel {
     func changeProfile(_ name: String) async {
         guard !sending, !voiceActive, name != profile else { return }
         saveCurrent()
-        selectionGeneration = UUID(); buffering = false; held = ReplayBuffer(); opening = false
+        selectionGeneration = UUID(); openRequest = UUID(); buffering = false; held = ReplayBuffer(); opening = false
         selected = nil; transcript = Transcript(); profile = name
         chatError = nil; conversationActivity.visit(profile: name)
         draft = workspace.drafts[draftKey] ?? ""
@@ -632,8 +643,9 @@ final class AppModel {
         guard !sending, !voiceActive else { return }
         if demo { openDemoBot(bot); return }
         guard !opening, let socket else { return }
+        let request = UUID(); openRequest = request
         let cached = await loadChat(bot.canonicalID.map { key(bot.name, $0) })
-        guard !opening, !sending, !voiceActive else { return }
+        guard request == openRequest, !opening, !sending, !voiceActive else { return }
         saveCurrent()
         opening = true
         let generation = UUID(); selectionGeneration = generation
@@ -673,8 +685,9 @@ final class AppModel {
 
     func openConversation(_ conversation: Conversation, title: String? = nil) async {
         guard !sending, !voiceActive else { return }
+        let request = UUID(); openRequest = request
         let cached = demo ? workspace.chats[key(conversation.profile, conversation.id)] : await loadChat(key(conversation.profile, conversation.id))
-        guard !sending, !voiceActive else { return }
+        guard request == openRequest, !sending, !voiceActive else { return }
         saveCurrent()
         let generation = UUID(); selectionGeneration = generation
         selected = cached ?? ChatSnapshot(storedID: conversation.id, profile: conversation.profile, title: title ?? conversation.title)
@@ -743,7 +756,7 @@ final class AppModel {
 
     func newChat() {
         guard !sending, !voiceActive else { return }
-        saveCurrent(); selectionGeneration = UUID(); opening = false; buffering = false; held = ReplayBuffer()
+        saveCurrent(); selectionGeneration = UUID(); openRequest = UUID(); opening = false; buffering = false; held = ReplayBuffer()
         selected = nil; transcript = Transcript(); draft = workspace.drafts[draftKey] ?? ""
         chatError = nil
     }
@@ -1478,7 +1491,7 @@ final class AppModel {
         if activeConnection?.id == connection.id {
             saveTask?.cancel(); saveTask = nil; reconnectTask?.cancel(); reconnectTask = nil
             socket?.close(); http?.invalidate(); http = nil; socket = nil
-            connectionGeneration = UUID(); selectionGeneration = UUID()
+            connectionGeneration = UUID(); selectionGeneration = UUID(); openRequest = UUID()
             activeConnection = nil; selected = nil; profiles = []; sessions = []; draft = ""
             transcript = Transcript(); workspace = CachedWorkspace(); historyIndex = ConversationIndex(); attachmentDrafts = [:]; state = .offline
             conversationActivity = ConversationActivity(); botConversations = [:]; chatError = nil; toast = nil

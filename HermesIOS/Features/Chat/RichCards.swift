@@ -72,18 +72,22 @@ struct CardTitle: View {
 
 struct CardSkeleton: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var phase = false
     var body: some View {
         RoundedRectangle(cornerRadius: CardStyle.radius, style: .continuous)
             .fill(AppTheme.surface)
             .overlay {
-                LinearGradient(colors: [.clear, AppTheme.accent.opacity(0.10), .clear], startPoint: .leading, endPoint: .trailing)
-                    .offset(x: phase ? 260 : -260)
-                    .clipShape(RoundedRectangle(cornerRadius: CardStyle.radius, style: .continuous))
+                // From the clock, not a repeating animation: this card appears while the list follows the stream, and a
+                // loop started in `onAppear` replayed that scroll movement along with the light.
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: reduceMotion)) { timeline in
+                    let progress = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.2) / 1.2
+                    let eased = 0.5 - 0.5 * cos(progress * .pi)                              // ease in and out, like before
+                    LinearGradient(colors: [.clear, AppTheme.accent.opacity(0.10), .clear], startPoint: .leading, endPoint: .trailing)
+                        .offset(x: reduceMotion ? -260 : -260 + 520 * eased)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: CardStyle.radius, style: .continuous))
             }
             .overlay(RoundedRectangle(cornerRadius: CardStyle.radius, style: .continuous).strokeBorder(AppTheme.line))
             .frame(height: 120)
-            .onAppear { guard !reduceMotion else { return }; withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: false)) { phase = true } }
             .accessibilityLabel("Carte en préparation")
     }
 }

@@ -67,7 +67,8 @@ struct ChatView: View {
                     Color.black.opacity(0.10).ignoresSafeArea().onTapGesture { attachOpen = false }.transition(.opacity)
                 }
             }
-            .animation(.easeOut(duration: 0.2), value: attachOpen)
+            // The composer's own spring (ChatComposer): the conversation makes room for the « + » panel at the panel's pace.
+            .animation(.spring(response: 0.34, dampingFraction: 0.8), value: attachOpen)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 ChatComposerContainer(
                     model: model, focused: $focused, attachOpen: $attachOpen, present: present,
@@ -137,7 +138,10 @@ struct ChatView: View {
                     catch { model.chatError = error.localizedDescription }
                 }
             }
-            .onChange(of: model.selected?.storedID) { _, _ in pinnedToBottom = true; toolsExpanded = false }
+            // Another conversation starts at its end, title shown. A conversation that opens through the skeleton has no list
+            // to report its position meanwhile, so the previous one's (read up, title folded) must not linger.
+            .onChange(of: model.selected?.storedID) { _, _ in pinnedToBottom = true; bottomVisible = true; headerFolded = false; toolsExpanded = false }
+            .onChange(of: model.navigationRevision) { _, _ in closePresentations() }
             .onChange(of: model.composerFocusRequest) { _, _ in if sheet == nil { focused = true } }
             .task(id: model.pendingVoiceLaunch) {
                 guard model.pendingVoiceLaunch else { return }
@@ -232,6 +236,15 @@ struct ChatView: View {
             guard let event = await CalendarLink.find(request), sheet == nil, webPage == nil else { return CalendarLink.openDay(request.start) }
             eventPage = EventPage(event: event)
         }
+    }
+
+    /// A conversation opened from outside (a notification, a routine's result): everything over the chat closes as if the
+    /// user had closed it. The chat used to be rebuilt instead, which redrew it from scratch under the closing sheet and
+    /// could leave it counted as hidden (the old copy's `onDisappear` running after the new one's `onAppear`).
+    private func closePresentations() {
+        sheet = nil; webPage = nil; eventPage = nil; compressing = false
+        showCamera = false; showPhotos = false; showFiles = false; attachOpen = false
+        model.commandOutput = nil
     }
 
     /// One presentation at a time: the in-app browser closes first, then the sheet opens once it is gone.

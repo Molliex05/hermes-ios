@@ -14,6 +14,7 @@ struct ChatHeaderContainer: View {
     var collapsed = false
 
     var body: some View {
+        let stage = model.chatStage
         ChatHeader(
             model: model,
             title: model.selected?.title ?? "Nouvelle conversation",
@@ -25,8 +26,9 @@ struct ChatHeaderContainer: View {
             actionsDisabled: model.transcript.running || model.sending || model.voiceActive || model.state != .connected,
             hasUnread: model.hasUnread(profile: model.profile), agentName: model.agent?.name ?? "default",
             running: model.transcript.running, activity: model.transcript.activityLabel,
-            // An empty conversation keeps the title folded: its greeting is the large title there.
-            collapsed: collapsed || model.transcript.messages.isEmpty, messageCount: model.transcript.messages.count,
+            // The welcome keeps the title folded: its greeting is the large title there. A conversation that is loading shows
+            // its title at once, so the header does not fold and unfold while it opens.
+            collapsed: collapsed || stage == .welcome, loading: stage == .loading, messageCount: model.transcript.messages.count,
             compress: compress, newChat: newChat, switchAgent: switchAgent, history: history, menu: menu
         ).equatable()
     }
@@ -47,6 +49,8 @@ struct ChatHeader: View, Equatable {
     let running: Bool
     let activity: String?
     let collapsed: Bool
+    /// The conversation's messages are on their way (`ChatStage.loading`): no « 0 message » meanwhile.
+    let loading: Bool
     let messageCount: Int
     let compress: () -> Void
     let newChat: () -> Void
@@ -59,7 +63,7 @@ struct ChatHeader: View, Equatable {
         lhs.model === rhs.model && lhs.title == rhs.title && lhs.showsConnection == rhs.showsConnection
             && lhs.agentTitle == rhs.agentTitle && lhs.connectionName == rhs.connectionName && lhs.demo == rhs.demo && lhs.hasConversation == rhs.hasConversation
             && lhs.actionsDisabled == rhs.actionsDisabled && lhs.hasUnread == rhs.hasUnread && lhs.agentName == rhs.agentName
-            && lhs.running == rhs.running && lhs.activity == rhs.activity && lhs.collapsed == rhs.collapsed && lhs.messageCount == rhs.messageCount
+            && lhs.running == rhs.running && lhs.activity == rhs.activity && lhs.collapsed == rhs.collapsed && lhs.loading == rhs.loading && lhs.messageCount == rhs.messageCount
     }
 
     var body: some View {
@@ -118,6 +122,8 @@ struct ChatHeader: View, Equatable {
             ConnectionIndicator(model: model).font(.footnote).lineLimit(1)
         } else if running {
             ShimmerText(text: activity ?? "Réfléchit…")
+        } else if loading {
+            Text("Ouverture…").font(.footnote).foregroundStyle(.secondary).lineLimit(1)
         } else {
             Text(hasConversation ? "\(messageCount) message\(messageCount > 1 ? "s" : "")" : "Avec \(agentTitle)")
                 .font(.footnote).foregroundStyle(.secondary).lineLimit(1)
