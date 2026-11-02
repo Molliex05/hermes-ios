@@ -63,6 +63,8 @@ final class VoiceConversation {
     @ObservationIgnored private var replyOpen = false
     /// Keeps cards and code out of what is spoken.
     @ObservationIgnored private var spokenFilter = SpokenTextFilter()
+    /// A « Je regarde ça » was played in this reply: only then can it come back as an echo.
+    @ObservationIgnored private var fillerSpoken = false
     @ObservationIgnored private var replyStatus: String?
     @ObservationIgnored private var liveDelegation: String?
     @ObservationIgnored private var liveCursor = VoiceLiveReplyCursor()
@@ -183,6 +185,7 @@ final class VoiceConversation {
             turnActive = true; bargeRequested = false
             barge = makeBarge(preferences)
             speechStream.prepare(tools: tools)
+            tools.app.applyPendingStream()       // the fragments of the last 33 ms, or the voice would skip them
             openReply(seed: assistantText(after: message.id))
             try await respond(to: message.id, attempt: attempt)
         }
@@ -191,7 +194,7 @@ final class VoiceConversation {
             try validate(attempt)
             let utterance = try await nextUtterance(attempt)
             let words = try await transcribe(utterance, attempt: attempt)
-            if utterance.barge, !words.isEmpty, !utterance.spoken.isEmpty, await Self.isEcho(words, spoken: utterance.spoken + " " + VoiceFiller.phrases.joined(separator: " ")) {
+            if utterance.barge, !words.isEmpty, !utterance.spoken.isEmpty, await Self.isEcho(words, spoken: utterance.spoken + (fillerSpoken ? " " + VoiceFiller.phrases.joined(separator: " ") : "")) {
                 // Hermes heard itself: no submit, and the next real turn isn't annotated.
                 interruptedTurn = false
                 if pending.isEmpty, capture == nil, finished.isEmpty { speechStream.stop() }
@@ -421,11 +424,12 @@ final class VoiceConversation {
         }
         try validate(attempt)
         VoiceMetrics.shared.mark(.firstPCM)
-        try await audio.play(speech); try validate(attempt); phase = .speaking
+        try await playable { try await audio.play(speech) }
+        try validate(attempt); phase = .speaking
         VoiceMetrics.shared.mark(.playbackStart)
         while audio.playing {
             try await Task.sleep(for: .milliseconds(50)); try validate(attempt)
-            if let failure = audio.failure { throw RPCFailure(failure) }
+            if audio.failure != nil { throw VoiceTurnIssue("La lecture a été interrompue. La réponse reste dans le chat.") }
         }
         VoiceMetrics.shared.mark(.playbackEnd)
         VoiceMetrics.shared.finish(profile: tools.profile)
@@ -439,21 +443,39 @@ final class VoiceConversation {
         }
         try validate(attempt)
         let engine = audio.engine, id = UUID()
-        try engine.reservePlayback(id)
-        try await engine.preparePCM(sampleRate: rendered.sampleRate, id: id)
-        _ = try await engine.enqueuePCM(rendered.pcm, sampleRate: rendered.sampleRate, id: id)
-        try await engine.finishPCM(id: id)
+        try await playable {
+            try engine.reservePlayback(id)
+            try await engine.preparePCM(sampleRate: rendered.sampleRate, id: id)
+            // The engine takes at most 2 MiB per call (about 22 s at 48 kHz): a whole answer goes in blocks.
+            let pcm = rendered.pcm, block = 1 << 20
+            var offset = 0
+            while offset < pcm.count {
+                let end = min(offset + block, pcm.count)
+                _ = try await engine.enqueuePCM(pcm.subdata(in: offset..<end), sampleRate: rendered.sampleRate, id: id)
+                offset = end
+            }
+            try await engine.finishPCM(id: id)
+        }
         try validate(attempt); phase = .speaking
         while audio.playing {
             try await Task.sleep(for: .milliseconds(50)); try validate(attempt)
-            if let failure = audio.failure { throw RPCFailure(failure) }
+            if audio.failure != nil { throw VoiceTurnIssue("La lecture a été interrompue. La réponse reste dans le chat.") }
         }
+    }
+
+    /// An audio error while speaking costs this reply's voice, never the call: the text is in the chat, the next turn
+    /// listens again. Cancellation (a barge-in, the end of the call) passes through untouched.
+    private func playable(_ body: () async throws -> Void) async throws {
+        do { try await body() }
+        catch let error where error is CancellationError || error is VoiceTurnIssue { throw error }
+        catch { throw VoiceTurnIssue("La voix n’a pas pu lire cette réponse. Elle reste dans le chat.") }
     }
 
     /// « Je regarde ça » from the bundled recording, through the call's own audio engine (so echo cancellation
     /// knows it) and without waiting for speech synthesis. The reply's own speech replaces it when it arrives.
     private func playFiller() {
         guard let data = VoiceFiller.next() else { return }
+        fillerSpoken = true
         VoiceMetrics.shared.mark(.filler); VoiceMetrics.shared.note("holdingSpoken", 1)
         let engine = audio.engine, id = UUID()
         Task {
@@ -467,7 +489,7 @@ final class VoiceConversation {
     }
 
     private func openReply(seed: String = "") {
-        reply = VoiceReplyText(seed: seed); replyStatus = nil; replyOpen = true; spokenFilter = SpokenTextFilter()
+        reply = VoiceReplyText(seed: seed); replyStatus = nil; replyOpen = true; spokenFilter = SpokenTextFilter(); fillerSpoken = false
         answer = seed
         if !isLive { speechStream.send(spokenFilter.feed(seed)) }
     }
@@ -633,7 +655,9 @@ final class VoiceConversation {
     private func interruptForSpeech(_ attempt: UUID) {
         guard generation == attempt, capture == nil else { return }
         let speaking = phase == .speaking || audio.playing
-        let spoken = speaking ? reply.display : ""
+        // What the speaker actually said: the reply without its cards and code, which are never read aloud (the raw text
+        // put a card's JSON in the comparison, and the echo of the last sentence went unrecognised).
+        let spoken = speaking ? SpokenTextFilter.strip(reply.display) : ""
         let running = tools.app.transcript.running
         bargeRequested = true; barge = nil
         if running || speaking || replyOpen { interruptedTurn = true }

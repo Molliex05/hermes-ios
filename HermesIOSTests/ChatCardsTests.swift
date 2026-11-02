@@ -26,6 +26,13 @@ final class ChatCardsTests: XCTestCase {
         XCTAssertNil(ChatCard.number(.number(1e20)))
     }
 
+    func testTheCheapScanOnlyFlagsTextThatNeedsRepair() {
+        XCTAssertFalse(ChatMarkdown.needsFenceRepair("Voici.\n\n```ui\n{\"type\":\"draft\"}\n```\n\nFin."))
+        XCTAssertFalse(ChatMarkdown.needsFenceRepair("Code :\n   ```swift\nlet a = 1\n```"))
+        XCTAssertTrue(ChatMarkdown.needsFenceRepair("Envoyé.```ui\n{}\n```"))
+        XCTAssertTrue(ChatMarkdown.needsFenceRepair("Voici.\n```ui\n{}\n```\\\n"))
+    }
+
     /// A real Jarvis reply: the fence glued to the sentence, a stray backslash after the closing fence, a second card.
     func testAGluedCardFenceAndAStrayBackslashStillGiveCards() {
         let reply = "Le brouillon **n’a pas été envoyé**.```ui\n{\"type\":\"courriel\",\"id\":\"1a189923a35e8083\",\"objet\":\"Test\"}\n```\\\n"

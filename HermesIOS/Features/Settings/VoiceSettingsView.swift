@@ -301,11 +301,17 @@ private struct VoiceSampleSection: View {
             guard let comma = url.firstIndex(of: ","), let audio = Data(base64Encoded: String(url[url.index(after: comma)...])) else {
                 throw RPCFailure("Hermes n’a pas renvoyé d’audio.")
             }
-            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio)
+            // Music playing elsewhere only ducks, and gets the hand back when the sample ends.
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
             try AVAudioSession.sharedInstance().setActive(true)
             let sample = try AVAudioPlayer(data: audio)
             player = sample
             sample.play()
+            busy = false                                    // the button is free while the sample plays
+            try? await Task.sleep(for: .seconds(sample.duration + 0.3))
+            if player === sample, !sample.isPlaying {
+                try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            }
         } catch is CancellationError {
         } catch { failure = error.localizedDescription }
     }

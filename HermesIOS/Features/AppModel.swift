@@ -1363,6 +1363,9 @@ final class AppModel {
         } catch { /* The streamed final answer remains visible; retry on the next attach. */ }
     }
 
+    /// The voice reads the reply from the transcript: fragments still batched (the last 33 ms) are applied first.
+    func applyPendingStream() { flushStream() }
+
     private func flushStream() {
         streamTask?.cancel(); streamTask = nil
         let events = streamEvents; streamEvents.removeAll(keepingCapacity: true)

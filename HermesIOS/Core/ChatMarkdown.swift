@@ -25,7 +25,25 @@ enum ChatMarkdown {
     static func normalized(_ source: String) -> String {
         // "\r\n" is one Character, so look for the carriage return byte instead.
         let text = source.utf8.contains(13) ? source.replacingOccurrences(of: "\r\n", with: "\n") : source
-        return text.contains("```") ? repairedCardFences(text) : text
+        return needsFenceRepair(text) ? repairedCardFences(text) : text
+    }
+
+    /// A cheap byte scan, run on every streamed flush: a fence mark that does not start its line, or one followed by a
+    /// backslash. Only then do the regexes of `repairedCardFences` run over the whole reply.
+    static func needsFenceRepair(_ text: String) -> Bool {
+        var previous: UInt8 = 10, ticks = 0, lineStart = true
+        for byte in text.utf8 {
+            if byte == 96 {                                              // `
+                ticks += 1
+                if ticks == 3 && !lineStart { return true }
+            } else {
+                if ticks >= 3 && byte == 92 { return true }               // ```\
+                if byte == 10 { lineStart = true } else if !(byte == 32 && lineStart && previous != 96) { lineStart = false }
+                ticks = 0
+            }
+            previous = byte
+        }
+        return false
     }
 
     /// Models sometimes glue a card fence to the sentence before it (« envoyé.```ui ») or leave a stray backslash after
