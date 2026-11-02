@@ -22,7 +22,9 @@ l'implémentation de noriven-web (`docs/email-agent.md` et `lib/mail/agent/servi
   - 503 : indisponible.
   - Une reprise demande une signature neuve et ne renvoie jamais un envoi en cours, incertain ou accepté.
 - Jetons `nrv_ag_…` (agent) et `nrv_rl_…` (relais), créés dans Dashboard → Paramètres → Agent courriel.
-- URL de staging : `http://noriven-mcp-staging:3000`. Ce document fait foi entre les deux dépôts :
+- URL de staging : `http://noriven-mcp-staging:3000`. C'est un alias du réseau Docker « coolify », que le conteneur Hermès résout en adresse privée,
+  sans que le trafic sorte du serveur. Hermès n'accepte le HTTP vers ce nom que s'il figure exactement, port compris, dans
+  `NORIVEN_COURRIEL_HOTES` (`.env` du profil). L'hôte de production sera fixé à la mise en production. Ce document fait foi entre les deux dépôts :
 noriven-web (côté Polaris) et hermes-ios (greffons Hermès et app iOS).
 
 ## But

@@ -44,14 +44,18 @@ def _env(name: str) -> str:
         return os.environ.get(name, "").strip()
 
 
-def private_address(url: str) -> bool:
-    """HTTPS anywhere, or plain HTTP only inside the tailnet (100.64.0.0/10, *.ts.net) or on this machine."""
+def private_address(url: str, extra_hosts: str = "") -> bool:
+    """HTTPS anywhere, or plain HTTP only inside the tailnet (100.64.0.0/10, *.ts.net), on this machine, or to a host:port
+    named exactly in `NORIVEN_COURRIEL_HOTES` (a Docker network alias that never leaves the server, for example)."""
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
     if parsed.scheme == "https" and host:
         return True
     if parsed.scheme != "http" or not host:
         return False
+    named = {h.strip().lower() for h in extra_hosts.split(",") if h.strip()}
+    if parsed.port and f"{host}:{parsed.port}" in named:
+        return True
     if host in ("localhost", "127.0.0.1", "::1") or host.endswith(".ts.net"):
         return True
     try:
@@ -62,7 +66,7 @@ def private_address(url: str) -> bool:
 
 def base_url() -> str:
     url = _env("NORIVEN_COURRIEL_URL").rstrip("/")
-    return url if url and private_address(url) and not urlparse(url).path.strip("/") else ""
+    return url if url and private_address(url, _env("NORIVEN_COURRIEL_HOTES")) and not urlparse(url).path.strip("/") else ""
 
 
 def configured() -> bool:

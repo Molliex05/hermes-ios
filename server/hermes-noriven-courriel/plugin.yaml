@@ -7,6 +7,7 @@ requires_hermes: ">=0.21.0"
 optional_env:
   - NORIVEN_COURRIEL_URL
   - NORIVEN_COURRIEL_TOKEN
+  - NORIVEN_COURRIEL_HOTES
 provides_tools:
   - courriel_boites
   - courriel_chercher

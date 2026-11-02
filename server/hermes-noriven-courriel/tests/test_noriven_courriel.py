@@ -64,6 +64,11 @@ class SurfaceTests(Base):
         self.assertTrue(api.private_address("http://noriven.tail1234.ts.net"))
         self.assertFalse(api.private_address("http://38.49.216.15:3300"))
         self.assertFalse(api.private_address("ftp://100.78.159.45"))
+        self.assertFalse(api.private_address("http://noriven-mcp-staging:3000"))
+        self.assertTrue(api.private_address("http://noriven-mcp-staging:3000", "noriven-mcp-staging:3000"))
+        self.assertFalse(api.private_address("http://noriven-mcp-staging:3001", "noriven-mcp-staging:3000"), "the port counts")
+        self.assertFalse(api.private_address("http://noriven-mcp-staging", "noriven-mcp-staging:3000"))
+        self.assertFalse(api.private_address("http://evil.com:3000", "noriven-mcp-staging:3000"))
         self.env["NORIVEN_COURRIEL_URL"] = "http://38.49.216.15:3300"
         self.assertIn("configuré", run("courriel_boites")["error"])
         self.env["NORIVEN_COURRIEL_URL"] = "https://noriven.com/elsewhere"          # a base with a path is refused too

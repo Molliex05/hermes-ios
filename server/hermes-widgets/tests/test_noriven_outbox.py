@@ -99,7 +99,11 @@ class NorivenOutboxTests(unittest.TestCase):
         for url in ("http://38.49.216.15:3300", "https://noriven.com/api", "ftp://100.78.159.45"):
             with self.assertRaises(outbox.OutboxError):
                 outbox.read({**ENV, "NORIVEN_COURRIEL_URL": url}, DRAFT, http=fake)
+        with self.assertRaises(outbox.OutboxError):
+            outbox.read({**ENV, "NORIVEN_COURRIEL_URL": "http://noriven-mcp-staging:3000"}, DRAFT, http=fake)
         self.assertEqual(fake.calls, [])
+        outbox.read({**ENV, "NORIVEN_COURRIEL_URL": "http://noriven-mcp-staging:3000", "NORIVEN_COURRIEL_HOTES": "noriven-mcp-staging:3000"}, DRAFT, http=fake)
+        self.assertEqual(fake.calls[-1][1], f"http://noriven-mcp-staging:3000/api/agent/email/drafts/{DRAFT}")
         self.assertTrue(outbox.is_noriven(DRAFT)); self.assertFalse(outbox.is_noriven("r5784066649391460414"))
 
     def test_hourly_cap(self):

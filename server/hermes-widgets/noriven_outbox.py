@@ -21,7 +21,7 @@ from urllib.parse import quote, urlparse
 
 BASE_PATH = "/api/agent/email/drafts"
 TIMEOUT, SENDS_PER_HOUR = 45, 20
-KEYS = ("NORIVEN_COURRIEL_URL", "NORIVEN_COURRIEL_RELAIS_TOKEN")
+KEYS = ("NORIVEN_COURRIEL_URL", "NORIVEN_COURRIEL_RELAIS_TOKEN", "NORIVEN_COURRIEL_HOTES")
 DRAFT_ID = re.compile(r"m1\.[A-Za-z0-9_-]{1,8000}\.[A-Za-z0-9_-]{22}")
 _sent: deque = deque()
 _lock = threading.Lock()
@@ -39,13 +39,17 @@ def is_noriven(draft_id: str) -> bool:
     return str(draft_id or "").startswith("m1.")
 
 
-def _private(url: str) -> bool:
+def _private(url: str, extra_hosts: str = "") -> bool:
+    """Same rule as the agent plugin: HTTPS, or HTTP to the tailnet, this machine, or a host:port named exactly."""
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
     if parsed.scheme == "https" and host:
         return True
     if parsed.scheme != "http" or not host:
         return False
+    named = {h.strip().lower() for h in extra_hosts.split(",") if h.strip()}
+    if parsed.port and f"{host}:{parsed.port}" in named:
+        return True
     if host in ("localhost", "127.0.0.1", "::1") or host.endswith(".ts.net"):
         return True
     try:
@@ -56,7 +60,7 @@ def _private(url: str) -> bool:
 
 def configured(env: Dict[str, str]) -> bool:
     url = env.get("NORIVEN_COURRIEL_URL", "").rstrip("/")
-    return bool(url and _private(url) and not urlparse(url).path.strip("/") and env.get("NORIVEN_COURRIEL_RELAIS_TOKEN"))
+    return bool(url and _private(url, env.get("NORIVEN_COURRIEL_HOTES", "")) and not urlparse(url).path.strip("/") and env.get("NORIVEN_COURRIEL_RELAIS_TOKEN"))
 
 
 def _http(method: str, url: str, **kwargs):          # the network seam (tests replace it)
