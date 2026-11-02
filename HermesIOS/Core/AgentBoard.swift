@@ -67,7 +67,7 @@ public struct AgentBoard: Equatable, Sendable {
         let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]; return formatter
     }()
 
-    fileprivate static func date(_ text: String) -> Date? {
+    static func date(_ text: String) -> Date? {
         guard !text.isEmpty else { return nil }
         return plainISO.date(from: text) ?? fractionalISO.date(from: text)
     }
@@ -129,8 +129,10 @@ public struct AgentBoards: Equatable, Sendable {
     public var agendas: [String: AgentBoard]
     /// The weather of the user's place, the same for every agent; nil when the server has none.
     public var weather: WeatherReport?
-    public init(boards: [String: AgentBoard] = [:], agendas: [String: AgentBoard] = [:], weather: WeatherReport? = nil) {
-        self.boards = boards; self.agendas = agendas; self.weather = weather
+    /// The blocks each agent composed the widget with (`WidgetBlock`), by profile, in order.
+    public var blocks: [String: [WidgetBlock]]
+    public init(boards: [String: AgentBoard] = [:], agendas: [String: AgentBoard] = [:], weather: WeatherReport? = nil, blocks: [String: [WidgetBlock]] = [:]) {
+        self.boards = boards; self.agendas = agendas; self.weather = weather; self.blocks = blocks
     }
 
     /// Tolerant on purpose: a malformed board is left out, the others are kept; not even an object is an error.
@@ -142,7 +144,8 @@ public struct AgentBoards: Equatable, Sendable {
         if case .object(let found) = root["boards"] { rows = found; hasBoards = true }
         guard hasBoards || !root["agendas"].object.isEmpty else { throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "no boards")) }
         let agendas = root["agendas"].object.mapValues(AgentBoard.init).filter { !$0.key.isEmpty }
-        return AgentBoards(boards: rows.mapValues(AgentBoard.init).filter { !$0.key.isEmpty }, agendas: agendas, weather: WeatherReport(root["weather"]))
+        let blocks = root["blocks"].object.mapValues(WidgetBlock.list).filter { !$0.key.isEmpty && !$0.value.isEmpty }
+        return AgentBoards(boards: rows.mapValues(AgentBoard.init).filter { !$0.key.isEmpty }, agendas: agendas, weather: WeatherReport(root["weather"]), blocks: blocks)
     }
 }
 

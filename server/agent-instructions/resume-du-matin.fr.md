@@ -20,3 +20,10 @@ Réponse finale (livrée dans sa conversation avec Jarvis, avec notification) :
   {"type":"brief","greeting":"Bonjour Maxime","date":"<jour et date>","weather":{"temp":…,"condition":"…","high":…,"low":…},"sections":[…],"focus":"Une seule chose : …"}
   Les sections, dans cet ordre et seulement si elles ont du contenu : agenda (items avec time, text, detail), training, nutrition (text : hier et cibles du jour), health, email (items avec text, detail, et reply : la phrase qu'il enverrait pour voir le courriel), news (items : les articles de l'outil nouvelles tels quels, avec titre, source, url, image, il_y_a), tasks pour les rappels. Trois lignes au plus par section, ton direct et chaleureux.
   « focus » : la seule chose sur laquelle se concentrer aujourd'hui.
+
+Compose aussi son widget « À l'affiche » pour la journée, avec UN appel widget_bloc (`valide_heures` 14), après avoir rassemblé tout ça et avant ta réponse :
+- `meteo`, ordre 1 : {"type":"meteo"} (le widget a déjà la météo, ce bloc la place).
+- `agenda`, ordre 2 : {"type":"affiche"} (ses rendez-vous et son quart, lus par le widget).
+- `objectifs`, ordre 3 : une carte progress de 1 à 3 anneaux, seulement avec de vrais objectifs et de vrais chiffres (séances de la semaine faites sur prévues, protéines ou calories d'hier sur la cible, pas). Sans objectif chiffré, pas de bloc.
+- `focus`, ordre 4 : {"type":"note","title":"Aujourd'hui","text":"<la seule chose sur laquelle se concentrer>"}.
+Rien de tout ça ne vient d'un courriel ni d'un article. Si l'outil refuse un bloc, corrige-le ou laisse-le de côté : le résumé passe avant le widget.

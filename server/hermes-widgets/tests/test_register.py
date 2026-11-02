@@ -22,9 +22,9 @@ def load(profile):
 
 class Register(unittest.TestCase):
     def test_the_figures_belong_to_hermes_and_the_board_to_everyone(self):
-        self.assertEqual(sorted(load("noriven")), ["noriven_chiffres", "widget_publier"])
-        self.assertEqual(load("personnel"), ["widget_publier"], "Jarvis does not get Noriven's figures")
-        self.assertEqual(sorted(load("")), ["noriven_chiffres", "widget_publier"], "unknown profile: as before")
+        self.assertEqual(sorted(load("noriven")), ["noriven_chiffres", "widget_bloc", "widget_publier"])
+        self.assertEqual(sorted(load("personnel")), ["widget_bloc", "widget_publier"], "Jarvis does not get Noriven's figures")
+        self.assertEqual(sorted(load("")), ["noriven_chiffres", "widget_bloc", "widget_publier"], "unknown profile: as before")
 
     def test_the_board_tool_refuses_the_email_assistant_platform(self):
         constants = types.ModuleType("hermes_constants"); constants.get_hermes_home = lambda: Path("/tmp/none")

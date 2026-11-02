@@ -21,6 +21,10 @@ _board_spec = importlib.util.spec_from_file_location("hermes_widgets_board", Pat
 board_module = importlib.util.module_from_spec(_board_spec)
 sys.modules[_board_spec.name] = board_module
 _board_spec.loader.exec_module(board_module)
+_blocks_spec = importlib.util.spec_from_file_location("hermes_widgets_blocks", Path(__file__).resolve().parent.parent / "blocks.py")
+blocks_module = importlib.util.module_from_spec(_blocks_spec)
+sys.modules[_blocks_spec.name] = blocks_module
+_blocks_spec.loader.exec_module(blocks_module)
 _weather_spec = importlib.util.spec_from_file_location("hermes_widgets_weather", Path(__file__).resolve().parent.parent / "weather.py")
 weather_module = importlib.util.module_from_spec(_weather_spec)
 sys.modules[_weather_spec.name] = weather_module
@@ -55,9 +59,9 @@ async def get_snapshot():
 @router.get("/board")
 def get_board():
     """Every agent's « À l'affiche » board (written by the agents themselves) and, for profiles with Google, the next events
-    straight from the calendar, and the weather of the place, for the iPhone widget. A plain `def`: the Google and weather calls
-    block, FastAPI runs it in a thread."""
-    return weather_module.with_weather(board_module.with_agendas(board_module.load_all(), source=agenda_module.upcoming))
+    straight from the calendar, the weather of the place, and the blocks each agent composed the widget with, for the iPhone
+    widget. A plain `def`: the Google and weather calls block, FastAPI runs it in a thread."""
+    return blocks_module.with_blocks(weather_module.with_weather(board_module.with_agendas(board_module.load_all(), source=agenda_module.upcoming)))
 
 
 def _google_profile(profile: str) -> Path:

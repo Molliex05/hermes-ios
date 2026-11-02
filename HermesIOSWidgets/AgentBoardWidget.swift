@@ -132,8 +132,36 @@ struct BoardEntry: TimelineEntry {
         return rows.first { $0.phase == .now } ?? rows.first { $0.phase == .next } ?? rows.first { $0.phase != .past } ?? rows.first
     }
 
+    /// The blocks the agent composed the widget with (`widget_bloc`), in its order.
+    var blocks: [WidgetBlock] = []
+
+    enum Section: Identifiable {
+        case meteo, affiche, block(WidgetBlock)
+        var id: String { switch self { case .meteo: "§meteo"; case .affiche: "§affiche"; case .block(let block): block.slot } }
+    }
+
+    /// The widget's pieces in the agent's order, once it has composed it with at least one block of content; empty otherwise,
+    /// and the widget keeps its usual layout. `meteo` places the weather, `affiche` the agent's lines (else the calendar's),
+    /// which come first unless placed; either is left out when it has nothing to show.
+    var sections: [Section] {
+        let live = blocks.filter { !$0.isExpired(at: date) }
+        guard live.contains(where: { !$0.isPlacement }) else { return [] }
+        var placed: [(order: Int, rank: Int, section: Section)] = []
+        for (rank, block) in live.enumerated() {
+            switch block.kind {
+            case .meteo: if weather != nil { placed.append((block.order, rank, .meteo)) }
+            case .affiche: break
+            default: placed.append((block.order, rank, .block(block)))
+            }
+        }
+        if !upcomingRows.isEmpty || !note.isEmpty { placed.append((live.first { $0.kind == .affiche }?.order ?? 1, -1, .affiche)) }
+        var seen = Set<String>()
+        return placed.sorted { ($0.order, $0.rank) < ($1.order, $1.rank) }.map(\.section).filter { seen.insert($0.id).inserted }
+    }
+
     /// A tap opens that agent's chat with the sentence it suggests waiting in the composer (never sent by itself).
     var openURL: URL? {
+        if case .block(let block)? = sections.first, !block.ask.isEmpty { return BoardLinks.url("ask", profile: profile, text: block.ask) }
         if let ask = agentBoard?.ask ?? live?.ask, !ask.isEmpty { return BoardLinks.url("ask", profile: profile, text: ask) }
         return BoardLinks.url("open", profile: profile)
     }
@@ -186,7 +214,9 @@ struct BoardProvider: AppIntentTimelineProvider {
                 if over > .now { moments.append(over) }
             }
         }
-        for expiry in [first.board?.expiresAt, first.agenda?.expiresAt, saved.boards?.weather?.expiresAt] { if let expiry, expiry > .now { moments.append(expiry) } }
+        for expiry in [first.board?.expiresAt, first.agenda?.expiresAt, saved.boards?.weather?.expiresAt] + first.blocks.map(\.expiresAt) {
+            if let expiry, expiry > .now { moments.append(expiry) }
+        }
         // Also every two hours: the day's progress ring and the greeting follow the clock.
         for hour in [0, 5, 7, 9, 11, 12, 14, 16, 18, 20, 22, 23] {
             if let next = Calendar.current.nextDate(after: .now, matching: DateComponents(hour: hour, minute: 0), matchingPolicy: .nextTime), next < .now.addingTimeInterval(24 * 3600) { moments.append(next) }
@@ -206,7 +236,7 @@ struct BoardProvider: AppIntentTimelineProvider {
             let name = configuration.agent?.id ?? profiles.first?.name ?? known.keys.sorted().first ?? ""
             let title = profiles.first { $0.name == name }.map { $0.title.isEmpty ? name : $0.title } ?? (name.isEmpty ? "Agent" : name)
             return BoardEntry(date: date, profile: name, agentTitle: title, board: known[name].flatMap { $0.hiding(seen.filter { $0.profile == name }) }, agenda: boards?.agendas[name],
-                              weather: boards?.weather.flatMap { $0.isExpired(at: date) ? nil : $0 })
+                              weather: boards?.weather.flatMap { $0.isExpired(at: date) ? nil : $0 }, blocks: boards?.blocks[name] ?? [])
         }
     }
 }
@@ -226,7 +256,7 @@ struct BoardBackground: View {
     }
 }
 
-private enum BoardTone {
+enum BoardTone {
     /// Dark text on a dark page was the problem: in the dark appearance every colour is its light counterpart (the agent's
     /// palette has a `light` shade for that), in the light appearance the deeper one.
     static func color(_ tone: String, _ palette: AgentLook.Palette, dark: Bool) -> Color {
@@ -252,7 +282,7 @@ private enum BoardTone {
     }
 }
 
-private struct Tile: View {
+struct Tile: View {
     let symbol: String
     let color: Color
     var size: CGFloat = 30
@@ -315,7 +345,7 @@ struct BoardWidgetView: View {
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var scheme
     /// From « xLarge » up, fewer lines: what fits at the default size does not fit then.
-    private var bigText: Bool { typeSize >= .xLarge }
+    fileprivate var bigText: Bool { typeSize >= .xLarge }
 
     var body: some View {
         content.redacted(reason: entry.isPlaceholder ? .placeholder : [])
@@ -330,9 +360,9 @@ struct BoardWidgetView: View {
         }
     }
 
-    private var dark: Bool { scheme == .dark }
+    fileprivate var dark: Bool { scheme == .dark }
     /// The agent's colour as text and icons: its light shade on the dark page.
-    private var accent: Color { dark ? entry.palette.light : entry.palette.main }
+    fileprivate var accent: Color { dark ? entry.palette.light : entry.palette.main }
     private func color(_ row: BoardRow) -> Color { BoardTone.color(row.item.tone, entry.palette, dark: dark) }
     // Lock Screen
     @ViewBuilder private var accessory: some View {
@@ -374,7 +404,7 @@ struct BoardWidgetView: View {
     }
 
     /// A line tapped puts « tell me more » in the composer; it is never sent by the tap.
-    private func link<Content: View>(_ row: BoardRow, @ViewBuilder label: () -> Content) -> some View {
+    fileprivate func link<Content: View>(_ row: BoardRow, @ViewBuilder label: () -> Content) -> some View {
         let ask = "Dis-m’en plus sur : \(row.item.time.isEmpty ? "" : "\(row.item.time) ")\(row.item.text)"
         return Link(destination: BoardLinks.url("ask", profile: entry.profile, text: ask) ?? URL(string: "hermesios://open")!, label: label)
     }
@@ -408,7 +438,7 @@ struct BoardWidgetView: View {
     }
 
     /// The agent's note with its « Vu » button, at the bottom of a medium widget.
-    @ViewBuilder private func noteLine(_ rows: [BoardRow]) -> some View {
+    @ViewBuilder fileprivate func noteLine(_ rows: [BoardRow]) -> some View {
         if !entry.note.isEmpty || entry.hasMessage {
             HStack(alignment: .center, spacing: 6) {
                 if !entry.note.isEmpty {
@@ -426,7 +456,7 @@ struct BoardWidgetView: View {
     private static let french = Locale(identifier: "fr_CA")
 
     /// The date as the page's anchor: the weekday small and in colour, the day number large, the month under it.
-    private func dateBlock(day: CGFloat) -> some View {
+    fileprivate func dateBlock(day: CGFloat) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(entry.date, format: .dateTime.weekday(.wide)).environment(\.locale, Self.french)
                 .font(.caption.weight(.bold)).textCase(.uppercase).foregroundStyle(accent).lineLimit(1)
@@ -438,7 +468,7 @@ struct BoardWidgetView: View {
     }
 
     /// « JEUDI 29 OCTOBRE » on one line.
-    private func dateCaps(_ font: Font = .caption2) -> some View {
+    fileprivate func dateCaps(_ font: Font = .caption2) -> some View {
         Text(entry.date, format: .dateTime.weekday(.wide).day().month(.wide)).environment(\.locale, Self.french)
             .font(font.weight(.bold)).textCase(.uppercase).foregroundStyle(accent).lineLimit(1).minimumScaleFactor(0.7)
     }
@@ -455,13 +485,13 @@ struct BoardWidgetView: View {
     private var rainColor: Color { dark ? Color(red: 0.45, green: 0.7, blue: 1.0) : Color(red: 0.12, green: 0.4, blue: 0.85) }
 
     /// A weather symbol in its own colours (a yellow sun, a grey cloud); an unknown name is a plain cloud.
-    private func wx(_ symbol: String, _ size: CGFloat) -> some View {
+    fileprivate func wx(_ symbol: String, _ size: CGFloat) -> some View {
         Image(systemName: UIImage(systemName: symbol) != nil ? symbol : "cloud.fill").symbolRenderingMode(.multicolor)
             .font(.system(size: size)).frame(width: size * 1.35, height: size * 1.15)       // one box for every symbol: a cloud and a sun differ in height, and what sits under them must line up
             .accessibilityHidden(true)
     }
 
-    private func degrees(_ value: Int?) -> String { value.map { "\($0)°" } ?? "–" }
+    fileprivate func degrees(_ value: Int?) -> String { value.map { "\($0)°" } ?? "–" }
 
     /// « Couvert · ressenti 6° · vent 14 km/h ».
     private func conditions(_ report: WeatherReport, wind: Bool = true) -> String {
@@ -472,13 +502,13 @@ struct BoardWidgetView: View {
     }
 
     /// « ↑10° ↓3° » and the chance of rain when it is worth saying.
-    private func highLow(_ day: WeatherReport.Day?) -> String {
+    fileprivate func highLow(_ day: WeatherReport.Day?) -> String {
         guard let day else { return "" }
         return ["↑\(day.high)° ↓\(day.low)°", day.rain >= 30 ? "pluie \(day.rain) %" : ""].filter { !$0.isEmpty }.joined(separator: " · ")
     }
 
     /// The next hours as columns: the hour, the sky, the temperature, and the chance of rain when it matters.
-    private func hoursRow(_ count: Int, rain: Bool) -> some View {
+    fileprivate func hoursRow(_ count: Int, rain: Bool) -> some View {
         HStack(spacing: 0) {
             ForEach(Array(entry.comingHours.prefix(count).enumerated()), id: \.offset) { index, hour in
                 VStack(spacing: 2) {
@@ -493,7 +523,7 @@ struct BoardWidgetView: View {
         }
     }
 
-    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+    fileprivate func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content().padding(.horizontal, 10).padding(.vertical, 7).frame(maxWidth: .infinity)
             .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
@@ -541,7 +571,9 @@ struct BoardWidgetView: View {
 
     private var small: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let hero = entry.hero {
+            if let first = entry.sections.first {
+                smallSection(first)
+            } else if let hero = entry.hero {
                 ViewThatFits(in: .vertical) {
                     smallHero(hero, showNext: !bigText)
                     smallHero(hero, showNext: false)
@@ -556,7 +588,7 @@ struct BoardWidgetView: View {
     }
 
     /// The date and the ring across the top, the weather under them.
-    private func smallWeather(_ weather: WeatherReport) -> some View {
+    fileprivate func smallWeather(_ weather: WeatherReport) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -588,7 +620,7 @@ struct BoardWidgetView: View {
     }
 
     /// No weather and nothing on the board: the date and where the day stands.
-    private var smallCalm: some View {
+    fileprivate var smallCalm: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 dateBlock(day: 34)
@@ -603,7 +635,7 @@ struct BoardWidgetView: View {
 
     private func next(after hero: BoardRow) -> [BoardRow] { entry.rows.first { $0.id != hero.id && $0.phase != .past }.map { [$0] } ?? [] }
 
-    private func smallHero(_ hero: BoardRow, showNext: Bool) -> some View {
+    fileprivate func smallHero(_ hero: BoardRow, showNext: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
                 bigTime(hero)
@@ -623,7 +655,9 @@ struct BoardWidgetView: View {
 
     private var medium: some View {
         Group {
-            if let weather = entry.weather, !entry.upcomingRows.isEmpty || !entry.note.isEmpty {
+            if !entry.sections.isEmpty {
+                mediumComposed(entry.sections)
+            } else if let weather = entry.weather, !entry.upcomingRows.isEmpty || !entry.note.isEmpty {
                 mediumSplit(weather)
             } else if entry.live != nil, let hero = entry.hero {
                 mediumBoard(hero)
@@ -746,7 +780,9 @@ struct BoardWidgetView: View {
 
     private var large: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let weather = entry.weather {
+            if !entry.sections.isEmpty {
+                largeComposed(entry.sections)
+            } else if let weather = entry.weather {
                 largeSplit(weather)
             } else if entry.live != nil, entry.hero != nil {
                 largeBoard
@@ -867,7 +903,7 @@ struct BoardWidgetView: View {
 
     // MARK: Rows
 
-    private func compactRow(_ row: BoardRow) -> some View {
+    fileprivate func compactRow(_ row: BoardRow) -> some View {
         HStack(spacing: 7) {
             Tile(symbol: BoardTone.symbol(row.item), color: color(row), size: 22)
             VStack(alignment: .leading, spacing: 0) {
@@ -900,5 +936,136 @@ struct BoardWidgetView: View {
             }.padding(.top, 3)
         }
         .frame(maxHeight: .infinity, alignment: .top)
+    }
+}
+
+// MARK: - Composed by the agent
+
+/// The widget as the agent composed it (`widget_bloc`): its blocks in its order, the weather and its own lines placed among them.
+/// Here, in the same file, because it reuses the usual layout's pieces (weather, rows, « Vu »).
+extension BoardWidgetView {
+    /// A block's band links to its sentence, else to « tell me more »; the small widget has only its own tap (`openURL`).
+    private func blockLink<Content: View>(_ block: WidgetBlock, @ViewBuilder label: () -> Content) -> some View {
+        let ask = block.ask.isEmpty ? "Dis-m’en plus sur : \(block.title.isEmpty ? "ce bloc du widget" : block.title)" : block.ask
+        return Link(destination: BoardLinks.url("ask", profile: entry.profile, text: ask) ?? URL(string: "hermesios://open")!, label: label)
+    }
+
+    @ViewBuilder fileprivate func smallSection(_ section: BoardEntry.Section) -> some View {
+        switch section {
+        case .affiche:
+            if let hero = entry.hero {
+                ViewThatFits(in: .vertical) { smallHero(hero, showNext: !bigText); smallHero(hero, showNext: false) }
+            } else { smallCalm }
+        case .meteo:
+            if let weather = entry.weather { smallWeather(weather) } else { smallCalm }
+        case .block(let block):
+            BoardBlockView(block: block, palette: entry.palette, style: .small)
+        }
+    }
+
+    /// Two pieces side by side; with only one, the weather (else the date) keeps the left half.
+    fileprivate func mediumComposed(_ sections: [BoardEntry.Section]) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            if sections.count >= 2 {
+                halfSection(sections[0])
+                divider
+                halfSection(sections[1])
+            } else {
+                Group {
+                    if entry.weather != nil { halfSection(.meteo) } else { dateBlock(day: 34).frame(maxHeight: .infinity, alignment: .topLeading) }
+                }.frame(width: 128, alignment: .leading)
+                divider
+                halfSection(sections[0])
+            }
+        }
+    }
+
+    private var divider: some View { RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1).frame(maxHeight: .infinity) }
+
+    @ViewBuilder private func halfSection(_ section: BoardEntry.Section) -> some View {
+        Group {
+            switch section {
+            case .meteo:
+                if let weather = entry.weather {
+                    VStack(alignment: .leading, spacing: 1) {
+                        dateCaps()
+                        Spacer(minLength: 2)
+                        HStack(spacing: 6) {
+                            wx(entry.weatherSymbol, 24)
+                            Text(degrees(entry.temperature)).font(.system(size: 30, weight: .bold, design: .rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+                        }
+                        Text(weather.summary).font(.caption.weight(.semibold)).lineLimit(1)
+                        Text(highLow(entry.today)).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
+                        Spacer(minLength: 0)
+                    }
+                }
+            case .affiche:
+                let rows = Array(entry.upcomingRows.prefix(bigText ? 2 : entry.note.isEmpty ? 3 : 2))
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(rows) { row in link(row) { compactRow(row) }.frame(minHeight: 24, maxHeight: 36) }
+                    Spacer(minLength: 0)
+                    noteLine(rows)
+                }
+            case .block(let block):
+                blockLink(block) { BoardBlockView(block: block, palette: entry.palette, style: .compact) }
+            }
+        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// The date and the weather in one line, then as many bands as fit (four at most).
+    @ViewBuilder fileprivate func largeComposed(_ sections: [BoardEntry.Section]) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            VStack(alignment: .leading, spacing: 0) {
+                dateCaps(.caption)
+                Text(entry.greeting).font(.system(size: 19, weight: .bold, design: .rounded)).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            Spacer(minLength: 8)
+            if entry.weather != nil {
+                HStack(spacing: 4) {
+                    wx(entry.weatherSymbol, 18)
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Text(degrees(entry.temperature)).font(.subheadline.weight(.bold)).monospacedDigit()
+                        Text(highLow(entry.today)).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+            }
+            Link(destination: BoardLinks.url("voice", profile: entry.profile) ?? URL(string: "hermesios://open")!) {
+                Image(systemName: "waveform").font(.system(size: 13, weight: .bold)).frame(width: 34, height: 34)
+                    .foregroundStyle(dark ? entry.palette.deep : Color.white).background(accent, in: Circle())
+            }.accessibilityLabel("Parler")
+        }
+        ViewThatFits(in: .vertical) {
+            bands(sections, 4)
+            bands(sections, 3)
+            bands(sections, 2)
+            bands(sections, 1)
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func bands(_ sections: [BoardEntry.Section], _ count: Int) -> some View {
+        VStack(spacing: 7) { ForEach(Array(sections.prefix(count))) { band($0) } }
+    }
+
+    @ViewBuilder private func band(_ section: BoardEntry.Section) -> some View {
+        switch section {
+        case .meteo:
+            card { hoursRow(6, rain: true) }
+        case .affiche:
+            let rows = Array(entry.upcomingRows.prefix(bigText ? 2 : 3))
+            card {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "calendar").font(.system(size: 10, weight: .bold)).accessibilityHidden(true)
+                        Text(entry.live?.title.isEmpty == false ? entry.live?.title ?? "" : "Aujourd’hui").font(.system(size: 10, weight: .bold)).textCase(.uppercase).lineLimit(1)
+                        Spacer(minLength: 0)
+                    }.foregroundStyle(accent)
+                    ForEach(rows) { row in link(row) { compactRow(row) } }
+                    noteLine(rows)
+                }
+            }
+        case .block(let block):
+            blockLink(block) { card { BoardBlockView(block: block, palette: entry.palette, style: .large) } }
+        }
     }
 }
