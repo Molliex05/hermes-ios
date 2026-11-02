@@ -102,8 +102,8 @@ BOARD_SCHEMA = {
                            "heure": {"type": "string", "maxLength": 12, "description": "Heure à l'affiche, ex. « 13:45 »."},
                            "icone": {"type": "string", "description": "Nom d'un symbole SF (calendar, scissors, server.rack…)."},
                            "ton": {"type": "string", "enum": ["positive", "warning", "negative", "neutral"]},
-                           "courriels": {"type": "array", "maxItems": board.MAX_MAIL_IDS, "items": {"type": "string", "maxLength": 64},
-                                         "description": "Ids Gmail des courriels dont parle la ligne (jamais affichés). Quand Maxime touche « Vu », "
+                           "courriels": {"type": "array", "maxItems": board.MAX_MAIL_IDS, "items": {"type": "string", "maxLength": 1300},
+                                         "description": "Ids des courriels dont parle la ligne (Gmail, ou Noriven m1.…), jamais affichés. Quand Maxime touche « Vu », "
                                                         "la ligne quitte le tableau et ces courriels sont archivés et marqués lus."}},
                            "required": ["texte"], "additionalProperties": False}},
             "a_retenir": {"type": "string", "maxLength": 140, "description": "Une seule chose à garder en tête."},

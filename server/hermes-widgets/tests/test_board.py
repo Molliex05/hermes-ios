@@ -67,6 +67,9 @@ class Seen(unittest.TestCase):
         made = board.build({"lignes": [{"texte": "Hydro", "courriels": ["18f2a9c0d1e2", "pas un id!", 7, "18f2a9c0d1e2"]}, {"texte": "Sans"}]}, NOW)
         self.assertEqual(made["items"][0]["mail_ids"], ["18f2a9c0d1e2"]); self.assertNotIn("mail_ids", made["items"][1])
         self.assertNotIn("mail_ids", board.public(made)["items"][0]); self.assertIn("mail_ids", made["items"][0], "the stored board keeps them")
+        noriven = "m1.WyJtc2ciLCJwb2xhcmlzOjEiXQ." + "a" * 22
+        hermes = board.build({"lignes": [{"texte": "Client", "courriels": [noriven, noriven + "/../x", "m1.court"]}]}, NOW)
+        self.assertEqual(hermes["items"][0]["mail_ids"], [noriven], "Noriven's signed ids are kept, nothing else")
 
     def test_the_same_line_added_again_keeps_the_emails_of_both(self):
         old = board.build({"lignes": [{"texte": "Hydro", "courriels": ["aaaaaaaa"]}]}, NOW)

@@ -10,6 +10,7 @@ dépendent plus d'une réponse exactement `[SILENT]`, et une réponse « rien à
 | `hermes-alertes.prompt.fr.txt` | noriven | script `hermes_alertes.py` toutes les 15 min (aucun coût tant que rien ne change) | alertes proactives du serveur |
 | `jarvis-tableau.prompt.fr.txt` | personnel | 5 passages par jour | met à jour le widget « À l'affiche » |
 | `jarvis-courriels.prompt.fr.txt` | personnel | script `jarvis_courriels.py` toutes les 5 min | tri des courriels, brouillons de réponse |
+| `hermes-courriels.prompt.fr.txt` | noriven | script `hermes_courriels.py` toutes les 5 min (aucun coût tant qu'aucun courriel n'arrive) | boîtes Polaris de Noriven : tri prudent, brouillons, widget, alerte si urgent |
 
 ```bash
 # Alertes d'Hermès (script dans <profil>/scripts/, tâche créée en pause puis reprise)
@@ -47,3 +48,9 @@ dans les jeux d'outils des tâches (`hermes tools enable … --platform cron`).
   Maxime depuis l'app : `GET/POST /api/plugins/hermes-widgets/drafts/<profil>/<id>[/send]` (`outbox.py`, plugin 0.6.0, copie
   `hermes-widgets.bak-envoi-20261101`), avec empreinte, 20 envois par heure, journal `personnel/widgets/envois.jsonl`.
   L'agent n'a toujours aucun chemin d'envoi.
+
+- Préparé le 2026-11-02 : « Courriels Noriven » (noriven). Script `hermes-noriven-courriel/scripts/hermes_courriels.py` copié dans
+  `noriven/scripts/`. Il lit les boîtes par l'API agent de noriven-web (jeton agent seulement, jamais le jeton relais) et se souvient
+  3 jours des courriels vus en boîte de réception : ranger ne réveille pas l'agent. Les « Vu » du widget (`noriven/widgets/a_classer/`)
+  sont marqués lus puis archivés sans modèle. Le tableau accepte les ids `m1.…` de Noriven (`hermes-widgets` 0.7.1).
+  `hermes -p noriven cron create --name "Courriels Noriven" --monitor-script hermes_courriels.py --deliver local --paused "every 5m" "$(cat hermes-courriels.prompt.fr.txt)"`

@@ -16,6 +16,8 @@ from typing import Any, Dict, Optional
 
 MAX_ITEMS = 5
 MAX_MAIL_IDS = 8
+# Gmail's short ids (Jarvis), or the ids Noriven's Dashboard signs for its Polaris boxes (Hermès).
+MAIL_ID = re.compile(r"[A-Za-z0-9_-]{6,64}|m1\.[A-Za-z0-9_-]{1,1200}\.[A-Za-z0-9_-]{22}")
 DEFAULT_HOURS, MAX_HOURS = 6.0, 48.0
 TONES = {"positive", "warning", "negative", "neutral"}
 
@@ -35,7 +37,7 @@ def _symbol(value: Any) -> str:
 def _mail_ids(value: Any) -> list:
     """Gmail message ids a line is about (never shown): what « Vu » hands over for archiving. Anything else is dropped."""
     rows = value if isinstance(value, list) else []
-    return list(dict.fromkeys(str(row) for row in rows[:MAX_MAIL_IDS] if re.fullmatch(r"[A-Za-z0-9_-]{6,64}", str(row))))
+    return list(dict.fromkeys(str(row) for row in rows[:MAX_MAIL_IDS] if MAIL_ID.fullmatch(str(row))))
 
 
 def build(args: Dict[str, Any], now: Optional[datetime] = None) -> Dict[str, Any]:

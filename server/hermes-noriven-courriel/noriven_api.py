@@ -33,7 +33,11 @@ _ALLOWED = (
 
 
 class NorivenError(RuntimeError):
-    """A failure whose text is safe to show the agent (no secret, no internal detail)."""
+    """A failure whose text is safe to show the agent (no secret, no internal detail). `status`: the HTTP code, 0 if none."""
+
+    def __init__(self, message: str, status: int = 0):
+        super().__init__(message)
+        self.status = status
 
 
 def _env(name: str) -> str:
@@ -107,7 +111,7 @@ def request(method: str, path: str, *, params: Optional[Dict[str, Any]] = None, 
         raise NorivenError("Le jeton courriel de ce profil est refusé : dis à Maxime de le vérifier.")
     if status >= 400:
         message = _clean(payload.get("error") if isinstance(payload, dict) else "") or f"Erreur {status}."
-        raise NorivenError(message)
+        raise NorivenError(message, status)
     if not isinstance(payload, dict):
         raise NorivenError("Réponse inattendue du Dashboard Noriven.")
     return payload
