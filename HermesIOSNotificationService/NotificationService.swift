@@ -14,6 +14,7 @@ final class NotificationService: UNNotificationServiceExtension {
         self.delivery = delivery
         fallback = request.content
         let (content, sender) = Self.decrypted(request.content)
+        fallback = content                                  // a slow donation must not cost the decrypted preview
         guard let sender else { return delivery.send(content) }
         let intent = INSendMessageIntent(recipients: nil, outgoingMessageType: .outgoingMessageText, content: content.body,
                                          speakableGroupName: nil, conversationIdentifier: content.threadIdentifier.isEmpty ? nil : content.threadIdentifier,

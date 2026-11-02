@@ -14,6 +14,18 @@ final class ChatCardsTests: XCTestCase {
         XCTAssertEqual(language, "swift", "ordinary code stays code")
     }
 
+    /// A hostile or broken number must never crash a render (the message stays in history and would crash every reopen).
+    func testHugeNumbersAreDroppedInsteadOfCrashing() {
+        for json in [#"{"type":"triage","total":1e20,"dossiers":[{"nom":"A","nombre":"99999999999999999999"}]}"#,
+                     #"{"type":"weather","place":"Ici","now":{"temp":1e300}}"#,
+                     #"{"type":"courriel","id":"18f2a9c0d1e2","objet":"x","pieces_jointes":1e20}"#] {
+            if let card = ChatCard.parse(json) { _ = ChatCard.summary(json); _ = card }
+        }
+        XCTAssertEqual(JSONValue.number(1e300).int, 0)
+        XCTAssertEqual(JSONValue.number(42.9).int, 42)
+        XCTAssertNil(ChatCard.number(.number(1e20)))
+    }
+
     /// A real Jarvis reply: the fence glued to the sentence, a stray backslash after the closing fence, a second card.
     func testAGluedCardFenceAndAStrayBackslashStillGiveCards() {
         let reply = "Le brouillon **n’a pas été envoyé**.```ui\n{\"type\":\"courriel\",\"id\":\"1a189923a35e8083\",\"objet\":\"Test\"}\n```\\\n"

@@ -61,9 +61,19 @@ final class PushNotifications {
         if authorized && !enabled.isEmpty { UIApplication.shared.registerForRemoteNotifications() }
         // Registering rotates the encryption key and costs one request per connection: only when something changed,
         // or after a long while (so a server that lost the registration gets it back).
-        let signature = "\(deviceToken ?? "")|\(authorized)|\(enabled.map(\.uuidString).sorted())|\(saved.map { $0.id.uuidString }.sorted())"
-        if signature == lastSyncSignature, Date.now.timeIntervalSince(lastSyncAt) < 6 * 3600 { return }
-        if deviceToken != nil { await synchronize(); lastSyncSignature = signature; lastSyncAt = .now }
+        await synchronizeIfChanged()
+    }
+
+    /// What a registration depends on: the same token, permission, switches and servers need no new one.
+    private var syncSignature: String {
+        "\(deviceToken ?? "")|\(authorized)|\(enabled.map(\.uuidString).sorted())|\(connections.map { $0.id.uuidString }.sorted())"
+    }
+
+    private func synchronizeIfChanged() async {
+        let signature = syncSignature
+        guard deviceToken != nil, signature != lastSyncSignature || Date.now.timeIntervalSince(lastSyncAt) >= 6 * 3600 else { return }
+        lastSyncSignature = signature; lastSyncAt = .now
+        await synchronize()
     }
     private var lastSyncSignature = ""
     private var lastSyncAt = Date.distantPast
@@ -76,9 +86,11 @@ final class PushNotifications {
     }
     #endif
 
+    /// iOS hands the token back on every registration, so at each return to the app: an unchanged one changes nothing
+    /// (a new key each time would leave a push encrypted with the previous key unreadable).
     func receiveToken(_ data: Data) {
         deviceToken = data.map { String(format: "%02x", $0) }.joined()
-        Task { await synchronize() }
+        Task { await synchronizeIfChanged() }
     }
 
     func registrationFailed() {

@@ -175,7 +175,7 @@ struct CardImage: View {
     var body: some View {
         ZStack {
             LinearGradient(colors: [AppTheme.accent.opacity(0.18), AppTheme.accent.opacity(0.05)], startPoint: .topLeading, endPoint: .bottomTrailing)
-            if let image {
+            if let image, ChatCard.publicHost(image) {
                 AsyncImage(url: image, transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
                     if let picture = phase.image { picture.resizable().scaledToFill().transition(.opacity) }
                     else if phase.error != nil { placeholder }
@@ -497,7 +497,9 @@ private struct WeatherCard: View {
             }
             if !weather.days.isEmpty {
                 let lows = weather.days.compactMap(\.low), highs = weather.days.compactMap(\.high)
-                let minimum = lows.min() ?? 0, maximum = max(highs.max() ?? 1, minimum + 1)
+                // The scale spans every temperature given, lows and highs alike: a day with only one of them stays inside.
+                let all = lows + highs
+                let minimum = all.min() ?? 0, maximum = max(all.max() ?? 1, minimum + 1)
                 VStack(spacing: 8) {
                     ForEach(weather.days) { day in
                         HStack(spacing: 10) {
@@ -506,7 +508,8 @@ private struct WeatherCard: View {
                             Text(day.low.map { "\(Int($0.rounded()))°" } ?? "").font(.subheadline).opacity(0.75).lineLimit(1).minimumScaleFactor(0.7).frame(width: 36, alignment: .trailing)
                             GeometryReader { geometry in
                                 let low = day.low ?? minimum, high = day.high ?? maximum
-                                let start = (low - minimum) / (maximum - minimum), end = (high - minimum) / (maximum - minimum)
+                                let start = min(max((low - minimum) / (maximum - minimum), 0), 1)
+                                let end = min(max((high - minimum) / (maximum - minimum), start), 1)
                                 Capsule().fill(.white.opacity(0.2)).overlay(alignment: .leading) {
                                     Capsule().fill(LinearGradient(colors: [.cyan, .yellow, .orange], startPoint: .leading, endPoint: .trailing))
                                         .frame(width: max(6, geometry.size.width * (end - start))).offset(x: geometry.size.width * start)

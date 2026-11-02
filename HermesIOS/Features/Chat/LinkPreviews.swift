@@ -62,6 +62,9 @@ struct SafariView: UIViewControllerRepresentable {
     func cached(_ url: URL) -> Preview? { cache.object(forKey: url as NSURL) }
 
     func preview(for url: URL) async -> Preview? {
+        // Fetching a page is a visit: never a private address, never a link that acts when opened (unsubscribe, token…),
+        // whichever card or reply asked for it.
+        guard ChatCard.previewable(url) else { return nil }
         if let cached = cached(url) { return cached }
         if let failed = failures[url], Date.now.timeIntervalSince(failed) < 600 { return nil }
         if let inFlight = pending[url] { return await inFlight.value }

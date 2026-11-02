@@ -156,6 +156,9 @@ final class AppModel {
     @ObservationIgnored private var dirtyChats = Set<String>()
     @ObservationIgnored private var chatFingerprints: [String: Int] = [:]
     @ObservationIgnored private var saveAgain = false
+    @ObservationIgnored private var widgetRefreshing = false
+    @ObservationIgnored private var pendingSaveDelay: Duration?
+    @ObservationIgnored private var saveToken = UUID()
     @ObservationIgnored private var heldOverflow = false
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private var pathSignature: String?
@@ -284,7 +287,10 @@ final class AppModel {
     func refreshWidgets(retryUnavailable: Bool = false) async {
         if retryUnavailable { widgetUnavailable = false }      // a new connection retries a plugin installed meanwhile
         // A « Vu » tapped on the widget is sent as soon as the app comes back, whatever the quarter of an hour.
-        guard !demo, !widgetUnavailable, let http, Date.now.timeIntervalSince(widgetRefreshedAt) > 15 * 60 || WidgetRefresh.hasSeenToSend else { return }
+        guard !demo, !widgetUnavailable, !widgetRefreshing, let http, Date.now.timeIntervalSince(widgetRefreshedAt) > 15 * 60 || WidgetRefresh.hasSeenToSend else { return }
+        // Coming back to the app asks twice (connected, then active): one refresh at a time, or each « Vu » goes twice.
+        widgetRefreshing = true
+        defer { widgetRefreshing = false }
         // The wait starts only once the boards are saved: a network blip does not block the next try for a quarter of an hour.
         switch await WidgetRefresh.run(using: http) {
         case .saved: widgetRefreshedAt = .now
@@ -445,6 +451,7 @@ final class AppModel {
 
     func activate(_ connection: SavedConnection) async {
         saveTask?.cancel(); saveTask = nil
+        await presence.leave()
         await persistNow()
         reconnectTask?.cancel(); reconnectTask = nil
         refreshTask?.cancel(); streamTask?.cancel()
@@ -544,6 +551,9 @@ final class AppModel {
                     catch { return }
                 }
             }
+            // Left without connecting because the app went to the background meanwhile: free the slot, or coming back
+            // would find a finished task in it and never reconnect again.
+            if let self, !Task.isCancelled, generation == self.connectionGeneration, self.state != .connected { self.reconnectTask = nil }
         }
     }
 
@@ -1008,11 +1018,15 @@ final class AppModel {
             try validate()
             if let i = transcript.messages.firstIndex(where: { $0.id == optimistic.id }) { transcript.messages[i].delivery = .confirmed }
         } catch {
-            guard generation == selectionGeneration, connection == connectionGeneration, self.socket === socket else { throw CancellationError() }
+            // The files leave the composer for good unless they are given back to it below (refused, not delivered).
+            func discardSentFiles() async { if consumeDraft { for item in pending { await cache.removeAttachment(item.id) } } }
+            guard generation == selectionGeneration, connection == connectionGeneration, self.socket === socket else {
+                await discardSentFiles(); throw CancellationError()
+            }
             // A history refresh may already have confirmed this turn while its RPC
             // acknowledgement was delayed. Never downgrade that authoritative receipt.
             let delivery = transcript.submissionFailed(id: optimistic.id, error: error)
-            if delivery == .confirmed { await persistNow(); return optimistic.id }
+            if delivery == .confirmed { await discardSentFiles(); await persistNow(); return optimistic.id }
             if let refusal = error as? RPCFailure, refusal.sessionOwnedElsewhere {
                 // Hermes rejects ownership before admitting or persisting this prompt.
                 // Keep the draft, not a duplicate failed bubble in the transcript.
@@ -1032,6 +1046,7 @@ final class AppModel {
             }
             // Keep the last known execution state. Resume will resolve receipt and
             // running status from Hermes; never resubmit a prompt with an unknown outcome.
+            await discardSentFiles()
             await persistNow()
             if self.socket === socket {
                 suspendConnection()
@@ -1196,7 +1211,12 @@ final class AppModel {
         guard generation == connectionGeneration else { throw CancellationError() }
         if profile == name { await changeProfile("default") }
         workspace.chats = workspace.chats.filter { $0.value.profile != name }
-        for chatKey in workspace.chatIndex.keys where chatKey.hasPrefix(name + ":") { workspace.chatIndex[chatKey] = nil }
+        let removed = workspace.chatIndex.keys.filter { $0.hasPrefix(name + ":") }
+        for chatKey in removed { workspace.chatIndex[chatKey] = nil; dirtyChats.remove(chatKey); chatFingerprints[chatKey] = nil }
+        // Their files too: persistNow only deletes the chats it prunes itself.
+        if let connection = activeConnection?.id.uuidString {
+            for chatKey in removed { try? await cache.remove(LocalCache.chatKey(connection: connection, chat: chatKey)) }
+        }
         conversationActivity.remove(profile: name)
         botConversations[name] = nil
         historyIndex.update([], profile: name)
@@ -1462,17 +1482,28 @@ final class AppModel {
     /// recoverable from the server (`events.since`), and rewriting the chat file every second drains the battery.
     private func scheduleSave(delay: Duration = .milliseconds(700)) {
         guard !demo else { return }
-        // A change made while a write is in flight gets its own save once that write finishes.
-        if saveTask != nil { saveAgain = true; return }
-        let generation = connectionGeneration
+        // A change made while a write is in flight gets its own save once that write finishes, at the pace it asked for
+        // (8 s while a reply streams, not the default).
+        if saveTask != nil { saveAgain = true; pendingSaveDelay = min(pendingSaveDelay ?? delay, delay); return }
+        let generation = connectionGeneration, token = UUID()
+        saveToken = token
         saveTask = Task { [weak self] in
             do { try await Task.sleep(for: delay) } catch { return }
-            guard let self, generation == self.connectionGeneration, !Task.isCancelled else { return }
+            guard let self else { return }
+            // Only this save frees its slot: one left over from another server must not keep it forever.
+            guard generation == self.connectionGeneration, !Task.isCancelled else {
+                if self.saveToken == token { self.saveTask = nil }
+                return
+            }
             self.saveAgain = false
             await self.persistNow()
+            if self.saveToken == token { self.saveTask = nil }
             guard generation == self.connectionGeneration else { return }
-            self.saveTask = nil
-            if self.saveAgain { self.saveAgain = false; self.scheduleSave() }
+            if self.saveAgain {
+                let next = self.pendingSaveDelay ?? .milliseconds(700)
+                self.saveAgain = false; self.pendingSaveDelay = nil
+                self.scheduleSave(delay: next)
+            }
         }
     }
 
@@ -1511,6 +1542,7 @@ final class AppModel {
             }
         }
         if activeConnection?.id == connection.id {
+            await presence.leave()
             saveTask?.cancel(); saveTask = nil; reconnectTask?.cancel(); reconnectTask = nil
             socket?.close(); http?.invalidate(); http = nil; socket = nil
             connectionGeneration = UUID(); selectionGeneration = UUID(); openRequest = UUID()

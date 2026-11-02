@@ -649,9 +649,12 @@ enum ChatCard: Equatable {
         return collapsed.count > limit ? String(collapsed.prefix(limit - 1)) + "…" : collapsed
     }
 
+    /// Beyond this a card number is nonsense, and turning it into an `Int` would crash the app on every render.
+    static let numberLimit = 1e12
+
     static func number(_ value: JSONValue) -> Double? {
         switch value {
-        case .number(let n): return n.isFinite ? n : nil
+        case .number(let n): return n.isFinite && abs(n) <= numberLimit ? n : nil
         case .string(let s):
             // The first number written, the way people write it: « 12 400 $ », « 8,2 km », « 1,234.56 », « 1.234,56 »,
             // « 4,000 », « −5,2 », « 4.5/5 ». « 140–160 g » is 140, never 140160.
@@ -669,7 +672,7 @@ enum ChatCard: Equatable {
             } else if dots > 1 {
                 token = token.firstMatch(of: /^-?\d{1,3}(?:\.\d{3})+$/) != nil ? token.replacingOccurrences(of: ".", with: "") : ""
             }
-            return Double(token).flatMap { $0.isFinite ? $0 : nil }
+            return Double(token).flatMap { $0.isFinite && abs($0) <= numberLimit ? $0 : nil }
         default: return nil
         }
     }
@@ -745,12 +748,19 @@ enum ChatCard: Equatable {
     }
 
     /// Whether a page may be fetched for a preview without a tap.
-    static func previewable(_ url: URL) -> Bool {
-        guard let host = url.host?.lowercased(), url.port == nil || url.port == 443 || url.port == 80 else { return false }
+    /// A host on the open internet, reached on its usual port: never this phone's network, the tailnet or a server's
+    /// private address (an image or a preview fetched there would reach Maxime's own machines).
+    static func publicHost(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
+              let host = url.host?.lowercased(), url.port == nil || url.port == 443 || url.port == 80 else { return false }
         let local = host == "localhost" || host.hasSuffix(".local") || host.hasSuffix(".internal") || host.hasSuffix(".ts.net")
             || host.firstMatch(of: /^(?:127\.|10\.|192\.168\.|169\.254\.|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.|172\.(?:1[6-9]|2\d|3[01])\.)/) != nil
-            || host.contains(":")                                                                   // an IPv6 literal
-        guard !local else { return false }
+            || host.contains(":") || !host.contains(".")                                             // an IPv6 literal, a bare name
+        return !local
+    }
+
+    static func previewable(_ url: URL) -> Bool {
+        guard publicHost(url) else { return false }
         // Whole words of the path or of a parameter name: « /login », « ?token= », but not « apple-keynote ».
         let acting = /(?i)(?:^|[\/_.\-=&?])(token|access_token|auth|apikey|api_key|key|sig|signature|session|code|otp|password|reset|verify|verification|confirm|confirmation|unsubscribe|desabonnement|magic|login|signin|logout|invite)(?:$|[\/_.\-=&?])/
         return url.path.firstMatch(of: acting) == nil && ("?" + (url.query ?? "")).firstMatch(of: acting) == nil
