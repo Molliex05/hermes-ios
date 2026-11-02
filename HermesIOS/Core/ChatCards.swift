@@ -799,11 +799,20 @@ enum ChatCard: Equatable {
         case .agenda(let title, let items): lines = [title] + items.map { joined($0.start, $0.end, $0.title, $0.location) }
         case .workout(let w): lines = [joined(w.title, w.subtitle)] + w.stats.map { "\($0.label) : \($0.value)" } + w.exercises.map { joined($0.name, $0.sets, $0.weight) }
         case .route(let r): lines = [r.title] + r.stats.map { "\($0.label) : \($0.value)" }
-        case .status(let st): lines = [joined(st.title, st.subtitle)] + st.gauges.map { "\($0.label) : \(Int(($0.fraction * 100).rounded())) %" } + st.items.map { joined($0.name, $0.detail) }
+        case .status(let st):
+            let gauges: [String] = st.gauges.map { "\($0.label) : \(Int(($0.fraction * 100).rounded())) %" }
+            lines = [joined(st.title, st.subtitle)] + gauges + st.items.map { joined($0.name, $0.detail) }
         case .news(let title, let items): lines = [title] + items.map { joined($0.title, $0.source, $0.url?.absoluteString ?? "") }
-        case .brief(let b): lines = [joined(b.greeting, b.date)] + b.sections.flatMap { section in
-                [section.title] + (section.text.isEmpty ? [] : [section.text]) + section.lines.map { joined($0.time, $0.text, $0.detail) }
-                    + section.articles.map { joined($0.title, $0.source) } } + [b.focus]
+        case .brief(let b):
+            // Built step by step: one long expression takes some compilers too long to type-check.
+            var all = [joined(b.greeting, b.date)]
+            for section in b.sections {
+                all.append(section.title)
+                if !section.text.isEmpty { all.append(section.text) }
+                all += section.lines.map { joined($0.time, $0.text, $0.detail) }
+                all += section.articles.map { joined($0.title, $0.source) }
+            }
+            lines = all + [b.focus]
         case .emails(let inbox): lines = [inbox.title] + inbox.items.map { joined($0.sender.label, $0.subject, $0.summary) }
         case .email(let m): lines = [joined(m.email.sender.label, m.email.subject), m.email.summary] + m.points.map { "• " + $0 } + [m.due]
         case .triage(let t): lines = [joined(t.title, t.total > 0 ? "\(t.total) rangés" : "", t.archived > 0 ? "\(t.archived) archivés" : "")]

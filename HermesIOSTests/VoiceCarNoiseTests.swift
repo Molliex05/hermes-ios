@@ -27,10 +27,13 @@ final class VoiceCarNoiseTests: XCTestCase {
     private func engine(seconds: Double, rms: Double) -> [Double] {
         var noise = Noise()
         let count = Int(seconds * rate)
+        let partials: [(frequency: Double, gain: Double)] = [(55, 1), (82, 0.8), (110, 0.6), (165, 0.4), (220, 0.25)]
         let raw = (0..<count).map { n -> Double in
             let t = Double(n) / rate
-            let tone = [(55.0, 1.0), (82.0, 0.8), (110.0, 0.6), (165.0, 0.4), (220.0, 0.25)].reduce(0) { $0 + $1.1 * sin(2 * .pi * $1.0 * t) }
-            return (tone * (1 + 0.1 * sin(2 * .pi * 1.5 * t)) + 0.5 * noise.next())
+            var tone = 0.0
+            for partial in partials { tone += partial.gain * sin(2 * Double.pi * partial.frequency * t) }
+            let flutter = 1 + 0.1 * sin(2 * Double.pi * 1.5 * t)
+            return tone * flutter + 0.5 * noise.next()
         }
         return normalized(raw, rms: rms)
     }
