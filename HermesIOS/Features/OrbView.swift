@@ -53,6 +53,22 @@ extension EnvironmentValues {
 /// Draws one frame of an agent's neural network: small points and fine links laid out by the agent's personality.
 /// At rest a few points light up now and then; listening lights the centre with the voice; thinking sends signals along
 /// the links; speaking sends a wave of light outward from the centre.
+/// An agent's illustration at rest on a disc of its palette: its picture in a notification. Drawn in one pass (no
+/// timeline), so it can be rendered to an image.
+struct AgentNotificationPicture: View {
+    let look: AgentLook
+    var body: some View {
+        GeometryReader { proxy in
+            Canvas { context, size in
+                let rest = OrbMotion().settle(target: .init(listening: false, thinking: false, speaking: false, level: 0))
+                OrbArtist(look: look, dark: false, compact: true).draw(context, size: size, time: 0, state: rest)
+            }
+            .padding(proxy.size.width * 0.17)
+            .background(look.palette.light, in: Circle())
+        }
+    }
+}
+
 private struct OrbArtist {
     let look: AgentLook
     let dark: Bool

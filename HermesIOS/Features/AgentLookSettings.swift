@@ -49,8 +49,9 @@ struct AgentLookSection: View {
         } header: {
             Text("Apparence")
         } footer: {
-            Text("La personnalité de l’agent : son réseau de points et sa façon de bouger, dans l’en-tête, la conversation vocale, les listes et les réponses. Enregistré sur cet iPhone.").font(.footnote)
+            Text("La personnalité de l’agent : son réseau de points et sa façon de bouger, dans l’en-tête, la conversation vocale, les listes, les réponses et ses notifications. Enregistré sur cet iPhone.").font(.footnote)
         }
         .accessibilityIdentifier("agent-look")
+        .onChange(of: current) { _, _ in AgentAvatars.publish([profile]) }   // its notifications show the new picture
     }
 }

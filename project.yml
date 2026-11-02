@@ -50,6 +50,8 @@ targets:
           - NotificationCrypto.swift
           - NotificationEnvelope.swift
           - NotificationKeyStore.swift
+          - SharedBlob.swift
+          - NotificationAvatar.swift
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.hermesios.HermesIOS.NotificationService

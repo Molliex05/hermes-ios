@@ -581,6 +581,7 @@ final class AppModel {
         profiles = result["profiles"].array.map(AgentProfile.init)
         SharedProfiles.write(profiles.filter { $0.hidden != true }.map { SharedProfile(name: $0.name, title: $0.title) })
         AgentShortcuts.updateAppShortcutParameters()          // Siri learns the agents' names
+        AgentAvatars.publish(profiles.map(\.name))            // each agent's picture for its notifications
         let canonical = result["profiles"].array.compactMap { row -> Conversation? in
             let session = row["canonical_session"]
             guard !session["id"].string.isEmpty else { return nil }
