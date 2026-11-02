@@ -233,13 +233,22 @@ class Calendar(Base):
     def test_calendar_list_tool(self):
         names = [c["nom"] for c in self.call("agenda_calendriers")["agendas"]]
         self.assertEqual(names, ["Maxime", "Travail", "Ancien", "Jours fériés"])
-    def test_writes_stay_on_primary(self):
+    def test_writes_go_to_primary_or_a_calendar_maxime_can_edit(self):
         self.call("agenda_creer", titre="Test", debut="2026-10-22T09:30")
         posts = [c[1] for c in self.fake.api_calls() if c[0] == "POST" and c[1].endswith("/events")]
-        self.assertTrue(all("/calendars/primary/events" in u for u in posts))
-        for url in (f"{api.CALENDAR}/calendars/work%40corp.com/events", f"{api.CALENDAR}/calendars/work%40corp.com/events/e9"):
-            with self.assertRaises(api.GoogleError): api.request("POST", url)
-        with self.assertRaises(api.GoogleError): api.request("DELETE", f"{api.CALENDAR}/calendars/work%40corp.com/events/e9")
+        self.assertTrue(posts and all("/calendars/primary/events" in u for u in posts), "« Personnel » by default")
+        real = api.calendar_calendars
+        api.calendar_calendars = lambda: real() + [{"id": "police@group.calendar.google.com", "nom": "Police", "principal": False, "role": "owner", "affiche": True, "fuseau": "America/Toronto"}]
+        try:
+            self.assertTrue(self.call("agenda_creer", titre="Quart", debut="2026-11-09T13:00", fin="2026-11-09T21:45", calendrier="police")["ok"])
+            last = [c[1] for c in self.fake.api_calls() if c[0] == "POST" and c[1].endswith("/events")][-1]
+            self.assertIn("/calendars/police%40group.calendar.google.com/events", last)
+            self.assertIn("lecture seule", self.call("agenda_creer", titre="X", debut="2026-11-09T13:00", calendrier="Travail")["error"])
+            self.assertIn("Aucun agenda", self.call("agenda_creer", titre="X", debut="2026-11-09T13:00", calendrier="inconnu")["error"])
+            plugin._in_cron = lambda: True
+            self.assertIn("Personnel", self.call("agenda_creer", titre="X", debut="2026-11-09T13:00", calendrier="Police")["error"], "never from an unattended run")
+        finally:
+            api.calendar_calendars = real
     def test_modify_keeps_duration_and_notifies_nobody(self):
         r = self.call("agenda_modifier", id="e1", debut="2026-10-22T10:00", titre="Dentiste (déplacé)")
         self.assertTrue(r["ok"]); self.assertEqual(r["titre"], "Dentiste (déplacé)")
