@@ -37,6 +37,8 @@ final class NativeSpeechStream {
     // Large websocket frames are decoded with backpressure. Report the very first
     // scheduled buffer while enqueuePCM is still awaiting the remainder of that frame.
     var hasAudio: Bool { VoiceMetrics.shared.silent || receivedAudio || queuedSeconds > 0.001 }
+    /// The reply's speech holds the phone's output (one reservation per reply): a clip played now would cut it off.
+    var holdsOutput: Bool { playbackID != nil }
     var drained: Bool { VoiceMetrics.shared.silent || (ended && queuedSeconds < 0.001) }
     /// The reply must be spoken through the regular speech endpoint instead.
     var needsFallback: Bool { !VoiceMetrics.shared.silent && (unavailable || fallback || (streamFailure != nil && !hasAudio)) }

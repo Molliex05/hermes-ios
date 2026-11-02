@@ -283,6 +283,22 @@ class Calendar(Base):
     def test_bad_dates(self):
         self.assertIn("Paramètre invalide", self.call("agenda_creer", titre="x", debut="demain")["error"])
         self.assertIn("après le début", self.call("agenda_creer", titre="x", debut="2026-10-22T10:00", fin="2026-10-22T09:00")["error"])
+    def test_a_series_is_created_in_one_call(self):
+        shifts = [{"titre": "Quart", "debut": f"2026-11-{d:02d}T13:00", "fin": f"2026-11-{d:02d}T21:45"} for d in (9, 10, 11, 12)]
+        r = self.call("agenda_creer", evenements=shifts)
+        self.assertTrue(r["ok"]); self.assertEqual(r["crees"], 4); self.assertEqual(len(r["evenements"]), 4)
+        posts = [c for c in self.fake.api_calls() if c[0] == "POST" and c[1].endswith("/events")]
+        self.assertEqual(sorted(c[2]["json"]["start"]["dateTime"][:10] for c in posts), ["2026-11-09", "2026-11-10", "2026-11-11", "2026-11-12"])
+        self.assertTrue(all(c[2]["params"] == {"sendUpdates": "none"} for c in posts))
+    def test_a_series_with_one_bad_event_creates_nothing(self):
+        r = self.call("agenda_creer", evenements=[{"titre": "Quart", "debut": "2026-11-09T13:00"}, {"titre": "Quart", "debut": "demain"}])
+        self.assertIn("Événement 2", r["error"]); self.assertIn("Rien n'a été créé", r["error"])
+        self.assertEqual([c for c in self.fake.api_calls() if c[0] == "POST" and c[1].endswith("/events")], [])
+        self.assertIn("1 à", self.call("agenda_creer", evenements=[{"titre": "Q", "debut": "2026-11-09"}] * (plugin.MAX_BATCH + 1))["error"])
+    def test_a_series_counts_against_the_hourly_limit(self):
+        many = [{"titre": "Q", "debut": "2026-11-09"}] * plugin.MAX_BATCH
+        self.assertTrue(self.call("agenda_creer", evenements=many)["ok"])
+        self.assertIn("Limite", self.call("agenda_creer", evenements=many)["error"], "the whole series is refused, not half of it")
 
 
 if __name__ == "__main__":

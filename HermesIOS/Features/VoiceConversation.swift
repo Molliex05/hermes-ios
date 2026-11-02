@@ -67,6 +67,14 @@ final class VoiceConversation {
     @ObservationIgnored private var spokenFilter = SpokenTextFilter()
     /// A « Je regarde ça » was played in this reply: only then can it come back as an echo.
     @ObservationIgnored private var fillerSpoken = false
+    /// What the call said this turn about the agent's work (`VoiceProgress`): never the same line twice, and part of what the
+    /// echo guard knows the speaker said.
+    @ObservationIgnored private var narrated: [String] = []
+    /// Tool steps already weighed for a progress line this turn (said, or covered by the agent's own words).
+    @ObservationIgnored private var weighedSteps: Set<String> = []
+    @ObservationIgnored private var lastNarrationAt = -Double.infinity
+    /// When the agent's own text last arrived: words it just said cover the tool it starts.
+    @ObservationIgnored private var lastDeltaAt = -Double.infinity
     @ObservationIgnored private var leaseWarmup: Task<Void, Never>?
     @ObservationIgnored private var replyStatus: String?
     @ObservationIgnored private var liveDelegation: String?
@@ -362,6 +370,7 @@ final class VoiceConversation {
             if let failure = audio.failure { throw RPCFailure(failure) }
             let transcript = tools.app.transcript
             let now = ProcessInfo.processInfo.systemUptime
+            if !isLive, !awaitingUser, narrateProgress(transcript, now: now) { holdingLine = true }
             if !holdingLine, VoiceMetrics.shared.holdingLineEnabled, !isLive, !awaitingUser, reply.display.isEmpty, !speechStream.hasAudio, !audio.playing {
                 if toolSince == nil, transcript.toolSteps.contains(where: { $0.state == .running }) { toolSince = now }
                 let toolWaited = toolSince.map { now - $0 >= Self.holdingToolDelay } ?? false
@@ -482,10 +491,33 @@ final class VoiceConversation {
 
     /// « Je regarde ça » from the bundled recording, through the call's own audio engine (so echo cancellation
     /// knows it) and without waiting for speech synthesis. The reply's own speech replaces it when it arrives.
+    /// Says what the agent is doing when a tool with a known line starts and the call is quiet: « Je regarde ton agenda. »,
+    /// recorded in the agent's voice and played from the phone. A tool the agent has just announced in its own words (its
+    /// text arrived within 3 s) is not said again. True when the running tool is covered, so the generic filler stays quiet.
+    private func narrateProgress(_ transcript: Transcript, now: TimeInterval) -> Bool {
+        guard let step = transcript.toolSteps.last(where: { $0.state == .running }), let line = VoiceProgress.line(for: step) else { return false }
+        guard !weighedSteps.contains(step.id) else { return true }
+        if now - lastDeltaAt < 3 || narrated.contains(line.text) { weighedSteps.insert(step.id); return true }
+        // Only before the reply's own speech: it reserves the output once, and a clip after it would cut the rest of the reply.
+        guard !speechStream.holdsOutput else { weighedSteps.insert(step.id); return true }
+        guard !audio.playing, now - lastNarrationAt >= 2.5 else { return true }
+        weighedSteps.insert(step.id)
+        guard let url = Bundle.main.url(forResource: line.clip, withExtension: "pcm"), let data = try? Data(contentsOf: url) else { return true }
+        narrated.append(line.text); lastNarrationAt = now
+        VoiceMetrics.shared.note("progressLines", Double(narrated.count))
+        playClip(data)
+        return true
+    }
+
     private func playFiller() {
         guard let data = VoiceFiller.next() else { return }
         fillerSpoken = true
         VoiceMetrics.shared.mark(.filler); VoiceMetrics.shared.note("holdingSpoken", 1)
+        playClip(data)
+    }
+
+    /// A line recorded in the agent's voice (24 kHz mono PCM in the bundle), played from the phone with no synthesis round trip.
+    private func playClip(_ data: Data) {
         let engine = audio.engine, id = UUID()
         Task {
             do {
@@ -499,6 +531,7 @@ final class VoiceConversation {
 
     private func openReply(seed: String = "") {
         reply = VoiceReplyText(seed: seed); replyStatus = nil; replyOpen = true; spokenFilter = SpokenTextFilter(); fillerSpoken = false
+        narrated = []; weighedSteps = []; lastNarrationAt = -.infinity; lastDeltaAt = -.infinity
         answer = seed
         if !isLive { speechStream.send(spokenFilter.feed(seed)) }
     }
@@ -513,6 +546,7 @@ final class VoiceConversation {
         switch event {
         case .delta(_, let text):
             VoiceMetrics.shared.mark(.firstDelta)
+            if !text.isEmpty { lastDeltaAt = ProcessInfo.processInfo.systemUptime }
             let spoken = reply.append(text)
             if isLive { emitLive(done: false) } else { let said = spokenFilter.feed(spoken); if !said.isEmpty { VoiceMetrics.shared.mark(.firstTextToTTS) }; speechStream.send(said) }
             answer = reply.display
@@ -671,7 +705,7 @@ final class VoiceConversation {
         let speaking = phase == .speaking || audio.playing
         // What the speaker actually said: the reply without its cards and code, which are never read aloud (the raw text
         // put a card's JSON in the comparison, and the echo of the last sentence went unrecognised).
-        let spoken = speaking ? SpokenTextFilter.strip(reply.display) : ""
+        let spoken = speaking ? ([SpokenTextFilter.strip(reply.display)] + narrated).joined(separator: " ") : ""
         barge = nil
         audio.holdPlayback(true)
         beginUtterance(barge: true, spoken: spoken, attempt: attempt)
