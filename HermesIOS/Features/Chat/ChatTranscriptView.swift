@@ -28,7 +28,7 @@ struct ChatTranscriptView: View {
         }
         // Here rather than on the list: a conversation that opens through the skeleton has no list yet, and its list must
         // still start at the end, not where the previous conversation was left.
-        .onChange(of: model.selected?.storedID) { _, _ in position.scrollTo(edge: .bottom) }
+        .onChange(of: model.selected?.storedID) { _, _ in Self.scrollToEnd($position) }
     }
 
     private func messages(_ transcript: Transcript) -> some View {
@@ -73,7 +73,7 @@ struct ChatTranscriptView: View {
                         CredentialCard(payload: credential, model: model).equatable().id(credential["rpc_id"].string + credential["request_id"].string)
                     }
                     // Keeps the newest reply off the last row: a tall last row fell out of the accessibility tree.
-                    Color.clear.frame(height: 1).padding(.top, -26).accessibilityHidden(true)
+                    Color.clear.frame(height: 1).padding(.top, -26).accessibilityHidden(true).id(Self.endID)
                 }
             }.padding(.horizontal, 26).padding(.top, 14).frame(maxWidth: 720).frame(maxWidth: .infinity)   // the end row's spacing is the bottom margin
         }
@@ -100,7 +100,7 @@ struct ChatTranscriptView: View {
             scrolled(distance: distance)
         }
         .onChange(of: transcript.messages.count) { _, _ in
-            if pinnedToBottom { follower.didScroll(); position.scrollTo(edge: .bottom) }
+            if pinnedToBottom { follower.didScroll(); Self.scrollToEnd($position) }
         }
         .overlay(alignment: .bottomTrailing) {
             // Comes and goes like the composer's send button, instead of popping.
@@ -109,7 +109,7 @@ struct ChatTranscriptView: View {
                     RoundButton(symbol: "arrow.down", label: "Dernier message") {
                         pinnedToBottom = true
                         follower.didScroll()
-                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { position.scrollTo(edge: .bottom) }
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { Self.scrollToEnd($position) }
                     }.padding(18)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
@@ -130,13 +130,23 @@ struct ChatTranscriptView: View {
         if headerFolded != fold { headerFolded = fold }
         if !follower.dragging, visible, !pinnedToBottom { pinnedToBottom = true }
         let target = $position
-        if ScrollGap.isPastEnd(distance) { follower.heal { target.wrappedValue.scrollTo(edge: .bottom) } }
+        if ScrollGap.isPastEnd(distance) { follower.heal { Self.scrollToEnd(target) } }
         guard pinnedToBottom, !follower.dragging, distance > 1 else { return }
         follower.follow { [pinnedBinding = $pinnedToBottom] in
-            if pinnedBinding.wrappedValue { target.wrappedValue.scrollTo(edge: .bottom) }
+            if pinnedBinding.wrappedValue { Self.scrollToEnd(target) }
         }
     }
 
+    /// The transcript's 1-point end row.
+    private static let endID = "transcript-end"
+
+    /// Goes to the end of the list. A `ScrollPosition` already set to the bottom edge ignores the same request again, so a
+    /// list left past its end (the keyboard closing as a message is sent) stayed blank until dragged: alternating with the
+    /// end row makes every request a change.
+    static func scrollToEnd(_ position: Binding<ScrollPosition>) {
+        if position.wrappedValue.edge == .bottom { position.wrappedValue.scrollTo(id: endID, anchor: .bottom) }
+        else { position.wrappedValue.scrollTo(edge: .bottom) }
+    }
 }
 
 /// Coalesces follow-the-stream scrolls to the stream's flush cadence (~30 fps).
