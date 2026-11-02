@@ -57,8 +57,8 @@ def handle(args, **kwargs) -> str:
             from gateway.session_context import get_session_env
             if (get_session_env("HERMES_SESSION_PLATFORM", "") or "") in BLOCKED_PLATFORMS:
                 return json.dumps({"error": "Outil indisponible sur cette plateforme."}, ensure_ascii=False)
-        except Exception:
-            pass
+        except Exception:                        # the platform cannot be read: refused, never assumed allowed
+            return json.dumps({"error": "Outil indisponible : contexte de la session illisible."}, ensure_ascii=False)
         module = _snapshot_module()
         if (args or {}).get("periode") == "annee":
             return json.dumps({"devise": "CAD", **_run(module.year_to_date())}, ensure_ascii=False)
@@ -133,8 +133,8 @@ def handle_board(args, **kwargs) -> str:
             from gateway.session_context import get_session_env
             if (get_session_env("HERMES_SESSION_PLATFORM", "") or "") in BLOCKED_PLATFORMS:
                 return json.dumps({"error": "Outil indisponible sur cette plateforme."}, ensure_ascii=False)
-        except Exception:
-            pass
+        except Exception:                        # the platform cannot be read: refused, never assumed allowed
+            return json.dumps({"error": "Outil indisponible : contexte de la session illisible."}, ensure_ascii=False)
         from hermes_constants import get_hermes_home
         module, home, args = _board_module(), get_hermes_home(), args if isinstance(args, dict) else {}
         if args.get("effacer") is True or str(args.get("effacer")).strip().lower() in {"true", "1", "oui"}:

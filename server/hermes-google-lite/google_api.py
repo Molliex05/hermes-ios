@@ -178,6 +178,11 @@ def gmail_read(message_id: str, max_chars: int = 8000) -> Dict[str, Any]:
 
 
 _EMAIL = re.compile(r"^[^@\s<>,;\"']+@[^@\s<>,;\"']+\.[^@\s<>,;\"']+$")
+# Control, invisible and bidi-override characters: what the iPhone shows before Maxime sends must be what leaves, so a
+# draft carrying them is refused (same rule as Noriven's drafts).
+_UNSAFE = r"\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff"
+UNSAFE_BODY = re.compile(f"[{_UNSAFE}]")
+UNSAFE_SUBJECT = re.compile(f"[{_UNSAFE}\t\r\n]|=\\?")
 
 
 def _addresses(value: str, label: str) -> list:
@@ -186,7 +191,7 @@ def _addresses(value: str, label: str) -> list:
         if not raw.strip():
             continue
         address = parseaddr(raw)[1]
-        if not _EMAIL.match(address) or "\n" in raw or "\r" in raw:
+        if not _EMAIL.match(address) or "\n" in raw or "\r" in raw or UNSAFE_BODY.search(raw):
             raise GoogleError(f"Adresse invalide dans `{label}`.")
         found.append(address)
     return found
@@ -201,10 +206,12 @@ def gmail_draft(to: str, subject: str, body: str, cc: str = "", reply_to_message
     recipients, copies = _addresses(to, "a"), _addresses(cc, "cc")
     if not recipients:
         raise GoogleError("Au moins un destinataire est requis.")
-    if re.search(r"[\r\n]", subject or ""):
-        raise GoogleError("L'objet ne peut pas contenir de saut de ligne.")
+    if UNSAFE_SUBJECT.search(subject or ""):
+        raise GoogleError("L'objet tient sur une ligne, sans caractère invisible ni « =? ».")
     if not (body or "").strip():
         raise GoogleError("Le corps du message est vide.")
+    if UNSAFE_BODY.search(body):
+        raise GoogleError("Le texte contient des caractères invisibles ou de contrôle : réécris-le sans eux.")
     mail = EmailMessage()
     mail["To"] = ", ".join(recipients)
     if copies:

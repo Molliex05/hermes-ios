@@ -1,5 +1,5 @@
 name: hermes-noriven-courriel
-version: 0.2.0
+version: 0.2.1
 description: "Boîtes courriel Noriven (Polaris), par le Dashboard Noriven : chercher, lire, ranger, brouillons avec pièces jointes — jamais d'envoi ni de suppression."
 author: Hermès iOS
 kind: standalone

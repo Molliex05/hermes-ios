@@ -17,7 +17,9 @@ from zoneinfo import ZoneInfo
 from . import google_api as api
 
 TOOLSET = "google_perso"
-BLOCKED_PLATFORMS = {"api_server"}        # the dashboard's email assistant reads untrusted content
+# The dashboard's email assistant reads untrusted content; "?" is a context that cannot be read (a Hermes update renamed
+# it): refused rather than treated as allowed.
+BLOCKED_PLATFORMS = {"api_server", "?"}
 DRAFTS_PER_HOUR = 10
 TRIAGE_PER_HOUR = 1000     # messages touched per hour
 EVENTS_PER_HOUR = 10
@@ -90,7 +92,7 @@ def _env_platform() -> str:
         from gateway.session_context import get_session_env
         return get_session_env("HERMES_SESSION_PLATFORM", "") or ""
     except Exception:
-        return ""
+        return "?"
 
 
 # Unattended runs (the email watcher) read untrusted mail: they may file, create events and notify, but never edit or delete.
@@ -100,9 +102,9 @@ CRON_BLOCKED = {"agenda_modifier", "agenda_supprimer"}
 def _in_cron() -> bool:
     try:
         from gateway.session_context import get_session_env
-        return bool(get_session_env("HERMES_CRON_SESSION", ""))
+        return bool(get_session_env("HERMES_CRON_SESSION", "")) or get_session_env("HERMES_SESSION_PLATFORM", "") == "cron"
     except Exception:
-        return False
+        return True                              # unreadable: the stricter rules apply
 
 
 def _profile_home() -> Path:

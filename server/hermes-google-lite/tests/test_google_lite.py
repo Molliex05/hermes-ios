@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("hermes_google_lite", ROOT / "__init__.py", submodule_search_locations=[str(ROOT)])
 plugin = importlib.util.module_from_spec(spec); sys.modules["hermes_google_lite"] = plugin; spec.loader.exec_module(plugin)
 api = sys.modules["hermes_google_lite.google_api"]
+REAL_PLATFORM, REAL_IN_CRON = plugin._env_platform, plugin._in_cron
 
 
 class Resp:
@@ -61,7 +62,7 @@ class Base(unittest.TestCase):
         api._token.update(value="", expires=0.0); api._timezone.clear()
         for window in plugin._recent.values(): window.clear()
         api._env = lambda name: {"GOOGLE_CLIENT_ID": "cid", "GOOGLE_CLIENT_SECRET": "sec", "GOOGLE_REFRESH_TOKEN": "rt"}.get(name, "")
-        plugin._env_platform = lambda: "desktop"
+        plugin._env_platform = lambda: "desktop"; plugin._in_cron = lambda: False
         self.tools = {}
         outer = self
         class Ctx:
@@ -128,7 +129,7 @@ class Mail(Base):
         self.assertNotIn("secret", json.dumps([c[2] for c in self.fake.api_calls()]))
     def test_draft_validation(self):
         self.assertIn("invalide", self.call("gmail_brouillon", a="pas une adresse", objet="x", corps="y")["error"])
-        self.assertIn("saut de ligne", self.call("gmail_brouillon", a="b@y.org", objet="x\nBcc: z@z.org", corps="y")["error"])
+        self.assertIn("une ligne", self.call("gmail_brouillon", a="b@y.org", objet="x\nBcc: z@z.org", corps="y")["error"])
         self.assertIn("vide", self.call("gmail_brouillon", a="b@y.org", objet="x", corps="  ")["error"])
     def test_draft_rate_limit(self):
         for _ in range(plugin.DRAFTS_PER_HOUR): self.assertTrue(self.call("gmail_brouillon", a="b@y.org", objet="x", corps="y")["ok"])
@@ -277,3 +278,18 @@ class Calendar(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnsafeCharactersTests(unittest.TestCase):
+    def test_drafts_refuse_what_the_iphone_could_not_show_faithfully(self):
+        for subject, body, to in [("Facture \u202egnp.exe", "ok", "a@b.co"), ("=?utf-8?b?x?=", "ok", "a@b.co"),
+                                  ("Objet", "Payer\u200b ici", "a@b.co"), ("Objet", "ok", "a\u200b@b.co")]:
+            with self.subTest(subject=subject, body=body, to=to), self.assertRaises(api.GoogleError):
+                api.gmail_draft(to, subject, body)
+
+
+class FailClosedTests(unittest.TestCase):
+    def test_an_unreadable_session_context_is_refused_not_allowed(self):
+        sys.modules.pop("gateway.session_context", None)              # outside Hermes: the import fails
+        self.assertIn(REAL_PLATFORM(), plugin.BLOCKED_PLATFORMS)
+        self.assertTrue(REAL_IN_CRON())
