@@ -65,6 +65,7 @@ final class VoiceConversation {
     @ObservationIgnored private var spokenFilter = SpokenTextFilter()
     /// A « Je regarde ça » was played in this reply: only then can it come back as an echo.
     @ObservationIgnored private var fillerSpoken = false
+    @ObservationIgnored private var leaseWarmup: Task<Void, Never>?
     @ObservationIgnored private var replyStatus: String?
     @ObservationIgnored private var liveDelegation: String?
     @ObservationIgnored private var liveCursor = VoiceLiveReplyCursor()
@@ -175,8 +176,8 @@ final class VoiceConversation {
         audio.setInputMuted(inputMuted)
         tools.app.speechSink = { [weak self] event in self?.receiveSpeech(event, attempt: attempt) }
         startMonitoring(attempt)
-        // Warm the server's TTS (and local STT) while the user starts speaking.
-        await acquireLeases(attempt)
+        // Warm the server's TTS (and local STT) while the user starts speaking: listening does not wait for it.
+        acquireLeases()
         try validate(attempt)
         // Reopening voice during an admitted turn follows that same turn.
         if tools.app.transcript.running,
@@ -922,19 +923,25 @@ final class VoiceConversation {
               tools.profile == tools.app.profile, sessionID == tools.app.selected?.storedID else { throw CancellationError() }
         guard tools.app.state == .connected else { throw RPCFailure("La connexion à Hermès a été interrompue. Retrouvez la réponse dans le chat, puis reprenez la voix.") }
     }
-    private func acquireLeases(_ attempt: UUID) async {
-        for path in ["/api/audio/tts-lease", "/api/audio/stt-lease"] {
-            let id = "ios-" + UUID().uuidString
-            leases.append((path, id))
-            _ = try? await tools.request(path, method: "POST", body: ["lease": .string(id), "active": true])
-            if generation != attempt { return }
+    private func acquireLeases() {
+        let fresh = ["/api/audio/tts-lease", "/api/audio/stt-lease"].map { ($0, "ios-" + UUID().uuidString) }
+        leases.append(contentsOf: fresh)
+        let tools = tools
+        leaseWarmup = Task {
+            await withTaskGroup(of: Void.self) { group in
+                for (path, id) in fresh {
+                    group.addTask { _ = try? await tools.request(path, method: "POST", body: ["lease": .string(id), "active": true]) }
+                }
+            }
         }
     }
     private func releaseLeases() {
         let held = leases; leases = []
-        let tools = tools
+        let tools = tools, warmup = leaseWarmup
+        leaseWarmup = nil
         for lease in held {
-            Task { _ = try? await tools.request(lease.path, method: "POST", body: ["lease": .string(lease.id), "active": false]) }
+            // After the warm-up has landed: a late « active » must never overwrite this « inactive ».
+            Task { await warmup?.value; _ = try? await tools.request(lease.path, method: "POST", body: ["lease": .string(lease.id), "active": false]) }
         }
     }
     private func stopLocalAudio() {

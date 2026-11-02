@@ -60,6 +60,9 @@ enum ChatCard: Equatable {
     struct Option: Equatable, Identifiable {
         let id: Int
         let label: String, reply: String, detail: String, icon: String
+        /// A tap sends a sentence other than the label: it is shown, never hidden (an injected card could otherwise
+        /// show « Oui » and send something else in Maxime's name).
+        var sendsOtherText: Bool { reply.caseInsensitiveCompare(label) != .orderedSame }
     }
     /// A question with its answers; several may be picked when `multiple`.
     struct Question: Equatable, Identifiable {

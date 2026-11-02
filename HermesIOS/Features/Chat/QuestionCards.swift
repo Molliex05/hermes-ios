@@ -77,6 +77,9 @@ struct QuestionStep: View {
                 .frame(width: 30, height: 30)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(option.label).font(.body.weight(.medium)).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                    if option.sendsOtherText {
+                        Text("Envoie : « \(option.reply) »").font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                    }
                     if !option.detail.isEmpty {
                         Text(option.detail).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading)
                     }
@@ -283,7 +286,8 @@ private struct QuickReplies: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: picked ? "checkmark" : "arrow.turn.down.right").font(.caption.weight(.bold))
-                        Text(option.label).font(.subheadline.weight(.medium)).multilineTextAlignment(.leading)
+                        // The pill reads what it sends when that differs from its label: nothing is said in Maxime's name unseen.
+                        Text(option.sendsOtherText ? option.reply : option.label).font(.subheadline.weight(.medium)).multilineTextAlignment(.leading)
                     }
                     .padding(.horizontal, 14).padding(.vertical, 9)
                     .foregroundStyle(picked ? Color.white : AppTheme.accent)
