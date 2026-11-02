@@ -43,7 +43,7 @@ extension ChatCard {
         /// Attachments known only by their number.
         let attachmentCount: Int
 
-        var gmailURL: URL? { messageID.isEmpty ? nil : URL(string: "https://mail.google.com/mail/u/0/#all/\(messageID)") }
+        var gmailURL: URL? { messageID.isEmpty || MailID.isNoriven(messageID) ? nil : URL(string: "https://mail.google.com/mail/u/0/#all/\(messageID)") }
         var hasAttachments: Bool { attachmentCount > 0 || !attachments.isEmpty }
         /// « le courriel de Hydro-Québec (18f2a9c0d1e2) », for what the app sends.
         var reference: String {
@@ -151,7 +151,7 @@ extension ChatCard {
         let folders = (value["dossiers"].isNull ? value["folders"] : value["dossiers"]).array.prefix(6)
             .map { clean($0.string, 40) }.filter { !$0.isEmpty && !isSystemLabel($0) }
         let tone = value["tone"].string.lowercased()
-        return Email(id: id, messageID: rawID.wholeMatch(of: /[A-Za-z0-9_-]{6,64}/) != nil ? rawID : "", sender: sender,
+        return Email(id: id, messageID: MailID.validMessage(rawID) ? rawID : "", sender: sender,
                      to: clean(firstString(value, "a", "à", "to"), 160), cc: clean(value["cc"].string, 160), subject: subject,
                      summary: clean(summary, 240), date: emailDate(firstString(value, "date", "recu", "reçu", "received")),
                      unread: flag(firstNonNull(value, "non_lu", "unread")), important: flag(value["important"]) || tone == "warning" || tone == "negative",

@@ -258,10 +258,15 @@ final class AppModel {
         return draft
     }
 
-    /// Sends a draft Maxime has just read (and confirmed with Face ID): the server refuses it if it changed since.
+    /// Sends a draft Maxime has just read (and confirmed with Face ID): the server refuses it if it changed since. A Noriven
+    /// draft carries an approval signed by this iPhone's Secure Enclave key, which asks for Face ID itself.
     func sendDraft(_ draft: OutboxDraft, profile: String) async throws {
         guard let http, let path = OutboxDraft.path(profile: profile, draftID: draft.draftID) else { throw RPCFailure("Ce brouillon ne peut pas être envoyé d’ici.") }
-        _ = try await http.request(path + "/send", method: "POST", body: .object(["fingerprint": .string(draft.fingerprint)]))
+        var body: [String: JSONValue] = ["fingerprint": .string(draft.fingerprint)]
+        if draft.needsDeviceApproval {
+            body["approval"] = try ApprovalKey.approve(draftID: draft.draftID, fingerprint: draft.fingerprint, reason: "Envoyer ce courriel depuis \(draft.mailbox.isEmpty ? "Noriven" : draft.mailbox)")
+        }
+        _ = try await http.request(path + "/send", method: "POST", body: .object(body))
         SentDrafts.add(draft.draftID)
     }
 

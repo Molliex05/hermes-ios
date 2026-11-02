@@ -29,6 +29,10 @@ _outbox_spec = importlib.util.spec_from_file_location("hermes_widgets_outbox", P
 outbox_module = importlib.util.module_from_spec(_outbox_spec)
 sys.modules[_outbox_spec.name] = outbox_module
 _outbox_spec.loader.exec_module(outbox_module)
+_noriven_spec = importlib.util.spec_from_file_location("hermes_widgets_noriven_outbox", Path(__file__).resolve().parent.parent / "noriven_outbox.py")
+noriven_outbox = importlib.util.module_from_spec(_noriven_spec)
+sys.modules[_noriven_spec.name] = noriven_outbox
+_noriven_spec.loader.exec_module(noriven_outbox)
 log = logging.getLogger("hermes_widgets")
 
 router = APIRouter()
@@ -65,9 +69,30 @@ def _google_profile(profile: str) -> Path:
     return root
 
 
+def _noriven_profile(profile: str):
+    """The profile's Noriven relay settings (address and relay token), read from its `.env` at each call."""
+    root = Path(os.environ.get("HERMES_PROFILES_DIR", "/opt/data/profiles"))
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", profile or "") or not (root / profile).is_dir():
+        raise HTTPException(404, "Profil inconnu.")
+    env = agenda_module.read_env(root, profile, noriven_outbox.KEYS)
+    if not noriven_outbox.configured(env):
+        raise HTTPException(404, "L'envoi Noriven n'est pas configuré pour ce profil.")
+    return root, env
+
+
 @router.get("/drafts/{profile}/{draft_id}")
 def draft_read(profile: str, draft_id: str):
-    """A Gmail draft as Gmail holds it, for the app to show before Maxime sends it."""
+    """A draft as its mailbox holds it (Gmail, or Noriven's Polaris boxes for an `m1.` id), for the app to show before
+    Maxime sends it."""
+    if noriven_outbox.is_noriven(draft_id):
+        _, env = _noriven_profile(profile)
+        try:
+            return noriven_outbox.read(env, draft_id)
+        except noriven_outbox.OutboxError as error:
+            raise HTTPException(error.status, str(error)) from None
+        except Exception as error:
+            log.warning("Noriven draft read failed (%s)", type(error).__name__)
+            raise HTTPException(502, "Le brouillon n'a pas pu être lu.") from None
     root = _google_profile(profile)
     try:
         return outbox_module.read(agenda_module._google(root, profile), draft_id)
@@ -80,7 +105,17 @@ def draft_read(profile: str, draft_id: str):
 
 @router.post("/drafts/{profile}/{draft_id}/send")
 def draft_send(profile: str, draft_id: str, payload: dict = Body(...)):
-    """Maxime sends a draft from the app (after Face ID): only if it is still exactly what he read."""
+    """Maxime sends a draft from the app (after Face ID): only if it is still exactly what he read. A Noriven draft also
+    needs the approval the iPhone signed."""
+    if noriven_outbox.is_noriven(draft_id):
+        root, env = _noriven_profile(profile)
+        try:
+            return noriven_outbox.send(env, draft_id, str((payload or {}).get("fingerprint") or ""), (payload or {}).get("approval"), root / profile)
+        except noriven_outbox.OutboxError as error:
+            raise HTTPException(error.status, str(error)) from None
+        except Exception as error:
+            log.warning("Noriven draft send failed (%s)", type(error).__name__)
+            raise HTTPException(502, "L'envoi a échoué ; vérifie dans Envoyés avant de réessayer.") from None
     root = _google_profile(profile)
     try:
         return outbox_module.send(agenda_module._google(root, profile), draft_id, str((payload or {}).get("fingerprint") or ""), root / profile)

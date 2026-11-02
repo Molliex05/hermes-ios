@@ -20,6 +20,7 @@ struct DraftCard: View {
     private static let changes = ["Plus court", "Plus formel", "Plus chaleureux"]
     private var live: Bool { reply != nil && interactive && asked == nil && !sent }
     private var sendable: Bool { outbox != nil && !draft.draftID.isEmpty }
+    private var noriven: Bool { MailID.isNoriven(draft.draftID) }
     private var long: Bool { draft.body.count > 280 || draft.body.filter(\.isNewline).count > 5 }
 
     var body: some View {
@@ -63,12 +64,14 @@ struct DraftCard: View {
                             .padding(.horizontal, 12).padding(.vertical, 11).foregroundStyle(.white).background(AppTheme.accent, in: Capsule())
                     }.buttonStyle(PressableStyle()).accessibilityIdentifier("draft-review")
                 }
-                Button { Haptics.select(); openURL(draft.url ?? Self.drafts) } label: {
-                    Label("Ouvrir dans Gmail", systemImage: "arrow.up.right.square").font(.caption.weight(.semibold))
-                        .padding(.horizontal, 12).padding(.vertical, 11)
-                        .foregroundStyle(sendable || sent ? AppTheme.accent : .white)
-                        .background(sendable || sent ? AppTheme.accent.opacity(0.12) : AppTheme.accent, in: Capsule())
-                }.buttonStyle(PressableStyle())
+                if !noriven {
+                    Button { Haptics.select(); openURL(draft.url ?? Self.drafts) } label: {
+                        Label("Ouvrir dans Gmail", systemImage: "arrow.up.right.square").font(.caption.weight(.semibold))
+                            .padding(.horizontal, 12).padding(.vertical, 11)
+                            .foregroundStyle(sendable || sent ? AppTheme.accent : .white)
+                            .background(sendable || sent ? AppTheme.accent.opacity(0.12) : AppTheme.accent, in: Capsule())
+                    }.buttonStyle(PressableStyle())
+                }
                 if !sent {
                     ForEach(Self.changes, id: \.self) { change in
                         Button {
@@ -82,8 +85,7 @@ struct DraftCard: View {
                     }
                 }
             }
-            Text(sent ? "Envoyé depuis Gmail, par vous." : sendable ? "Rien ne part sans vous : vous relisez le brouillon tel qu’il est dans Gmail, puis Face ID."
-                 : "Rien n’est envoyé : c’est vous qui envoyez, depuis Gmail.").font(.caption2).foregroundStyle(.tertiary)
+            Text(caption).font(.caption2).foregroundStyle(.tertiary)
         }
         .padding(14).cardSurface()
         .accessibilityElement(children: .contain)
@@ -92,6 +94,12 @@ struct DraftCard: View {
         .sheet(isPresented: $reviewing) {
             if let outbox { DraftSendSheet(draftID: draft.draftID, outbox: outbox) { sent = true } }
         }
+    }
+
+    private var caption: String {
+        if noriven { return sent ? "Envoyé par vous." : "Rien ne part sans vous : vous relisez le brouillon tel qu’il est dans la boîte, puis Face ID signe l’envoi." }
+        return sent ? "Envoyé depuis Gmail, par vous." : sendable ? "Rien ne part sans vous : vous relisez le brouillon tel qu’il est dans Gmail, puis Face ID."
+            : "Rien n’est envoyé : c’est vous qui envoyez, depuis Gmail."
     }
 
     private func field(_ name: String, _ value: String) -> some View {
@@ -113,6 +121,7 @@ struct DraftSendSheet: View {
     @State private var problem: String?
     @State private var sending = false
     @State private var done = false
+    private var noriven: Bool { MailID.isNoriven(draftID) }
 
     var body: some View {
         NavigationStack {
@@ -123,7 +132,7 @@ struct DraftSendSheet: View {
                             .padding(12).frame(maxWidth: .infinity, alignment: .leading)
                             .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
-                    if let draft { content(draft) } else if problem == nil { ProgressView("Lecture du brouillon dans Gmail…").frame(maxWidth: .infinity).padding(.top, 40) }
+                    if let draft { content(draft) } else if problem == nil { ProgressView(noriven ? "Lecture du brouillon…" : "Lecture du brouillon dans Gmail…").frame(maxWidth: .infinity).padding(.top, 40) }
                 }
                 .padding(16)
             }
@@ -156,14 +165,15 @@ struct DraftSendSheet: View {
             VStack(spacing: 10) {
                 Image(systemName: "checkmark.circle.fill").font(.system(size: 52)).foregroundStyle(.green)
                 Text("Courriel envoyé").font(.title3.weight(.semibold))
-                Text("Il est dans « Envoyés » de Gmail.").font(.subheadline).foregroundStyle(.secondary)
+                Text(noriven ? "Il est dans « Envoyés » de \(draft.mailbox.isEmpty ? "la boîte" : draft.mailbox)." : "Il est dans « Envoyés » de Gmail.").font(.subheadline).foregroundStyle(.secondary)
             }.frame(maxWidth: .infinity).padding(.top, 40)
         } else {
             VStack(alignment: .leading, spacing: 6) {
+                if !draft.mailbox.isEmpty { row("De", draft.mailbox) }
                 row("À", draft.to)
                 if !draft.cc.isEmpty { row("Cc", draft.cc) }
                 if !draft.bcc.isEmpty { row("Cci", draft.bcc, warn: true) }
-                if !draft.hasRecipient { Text("Aucun destinataire : ajoute-le dans Gmail.").font(.caption).foregroundStyle(.orange) }
+                if !draft.hasRecipient { Text(noriven ? "Aucun destinataire : demande à l’agent de l’ajouter." : "Aucun destinataire : ajoute-le dans Gmail.").font(.caption).foregroundStyle(.orange) }
             }
             Text(draft.subject.isEmpty ? "(sans objet)" : draft.subject).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
             Text(draft.body).font(.body).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
@@ -203,18 +213,22 @@ struct DraftSendSheet: View {
         guard !sending else { return }
         sending = true
         defer { sending = false }
-        let context = LAContext()
-        do {
-            guard try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Envoyer ce courriel") else { return }
-        } catch { return }                                                  // cancelled: nothing happens
+        if !shown.needsDeviceApproval {                                     // a Noriven send asks for Face ID when it signs
+            let context = LAContext()
+            do {
+                guard try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Envoyer ce courriel") else { return }
+            } catch { return }                                              // cancelled: nothing happens
+        }
         do {
             try await outbox.send(shown)
             Haptics.send(); done = true; onSent()
             try? await Task.sleep(for: .seconds(1.2))
             dismiss()
+        } catch ApprovalKey.Failure.cancelled {
+            return
         } catch let failure as RPCFailure where failure.code == 409 {
             draft = nil
-            await load()                                                    // show what Gmail holds now
+            await load()                                                    // show what the mailbox holds now
             problem = failure.localizedDescription
         } catch {
             problem = error.localizedDescription

@@ -305,7 +305,7 @@ enum ChatCard: Equatable {
             let draft = Draft(to: recipients(json["to"].isNull ? json["a"] : json["to"]), cc: recipients(json["cc"]),
                               subject: clean(firstString(json, "subject", "objet"), 140), body: body,
                               url: webURL(json["url"].string).flatMap { $0.scheme == "https" && $0.host == "mail.google.com" ? $0 : nil },
-                              draftID: draftID.wholeMatch(of: /[A-Za-z0-9_-]{1,64}/) != nil ? draftID : "",
+                              draftID: MailID.validDraft(draftID) ? draftID : "",
                               attachments: Array(files.array.prefix(8).map { clean($0.string.isEmpty ? firstString($0, "nom", "name") : $0.string, 80) }.filter { !$0.isEmpty }))
             return draft.subject.isEmpty && draft.body.isEmpty ? nil : .draft(draft)
         case "links":

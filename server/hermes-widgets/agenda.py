@@ -34,8 +34,8 @@ _modules: Dict[str, Dict[str, Any]] = {}
 _guard = threading.Lock()
 
 
-def read_env(profiles_dir: Path, profile: str) -> Dict[str, str]:
-    """The three Google credentials of a profile's `.env` (and nothing else)."""
+def read_env(profiles_dir: Path, profile: str, keys=None) -> Dict[str, str]:
+    """The three Google credentials of a profile's `.env` (and nothing else), or the `keys` asked for."""
     values: Dict[str, str] = {}
     try:
         lines = (profiles_dir / profile / ".env").read_text(encoding="utf-8").splitlines()
@@ -49,7 +49,7 @@ def read_env(profiles_dir: Path, profile: str) -> Dict[str, str]:
             continue
         key, value = line.split("=", 1)
         key, value = key.strip(), value.strip()
-        if key not in NEEDED:
+        if key not in (keys or NEEDED):
             continue
         if value[:1] in "\"'" and value.count(value[0]) >= 2:
             value = value[1:value.index(value[0], 1)]
