@@ -49,7 +49,7 @@ dans les jeux d'outils des tâches (`hermes tools enable … --platform cron`).
   `hermes-widgets.bak-envoi-20261101`), avec empreinte, 20 envois par heure, journal `personnel/widgets/envois.jsonl`.
   L'agent n'a toujours aucun chemin d'envoi.
 
-- Préparé le 2026-11-02 : « Courriels Noriven » (noriven). Script `hermes-noriven-courriel/scripts/hermes_courriels.py` copié dans
+- Déployé le 2026-11-01 (22 h 45, lancé par Maxime) : « Courriels Noriven » (noriven, tâche `041840e66b1b`, copies `*.bak-veille-20261101`). Script `hermes-noriven-courriel/scripts/hermes_courriels.py` copié dans
   `noriven/scripts/`. Il lit les boîtes par l'API agent de noriven-web (jeton agent seulement, jamais le jeton relais) et se souvient
   3 jours des courriels vus en boîte de réception : ranger ne réveille pas l'agent. Les « Vu » du widget (`noriven/widgets/a_classer/`)
   sont marqués lus puis archivés sans modèle. Le tableau accepte les ids `m1.…` de Noriven (`hermes-widgets` 0.7.1).
