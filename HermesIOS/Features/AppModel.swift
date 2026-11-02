@@ -1264,6 +1264,13 @@ final class AppModel {
             reattachSelected(); return
         }
         guard let runtime = selected?.runtimeID, event["session_id"].string == runtime else { return }
+        // Hermes names the conversation (a short title from its title model): the header and the list follow at once.
+        if type == "session.title" {
+            if let title = ConversationTitle.clean(event["payload"]["title"].string), title != selected?.title {
+                selected?.title = title; scheduleSave(); scheduleListRefresh()
+            }
+            return
+        }
         if let speechSink {
             switch type {
             case "message.delta" where !event["payload"]["text"].string.isEmpty:

@@ -125,6 +125,7 @@
 		B3E754254F266AC7A3A72788 /* LocalCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = D69DD335D5BB61C6A77C2EC6 /* LocalCache.swift */; };
 		B4F7674BD7E40625FFA1833A /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C4EE51D78FA0482C1CE5323 /* OnboardingView.swift */; };
 		B5CF2AD754D560B1008E216E /* RichCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AEFC910E5CBFB0EDE731D28 /* RichCards.swift */; };
+		B65D72CB6A9A04874540B07D /* ConversationTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6BB1418556563AAEF6FBCE6 /* ConversationTitle.swift */; };
 		B8683193F9756EE676D1E4DB /* NotificationEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = E42A71A430869150B40B16D6 /* NotificationEnvelope.swift */; };
 		B9769A1645106A420D44BF99 /* web.wav in Resources */ = {isa = PBXBuildFile; fileRef = 79C37338BEC56A3322AAC1CF /* web.wav */; };
 		BA6318803D1A3C27303451A8 /* ScrollGap.swift in Sources */ = {isa = PBXBuildFile; fileRef = F422B4D6EFE7EBEF4D11C54C /* ScrollGap.swift */; };
@@ -373,6 +374,7 @@
 		D3C40E207DFACCFAA12FE387 /* VoiceMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceMetrics.swift; sourceTree = "<group>"; };
 		D513D2D2E040EB5C8A89EFF3 /* AgentAvatars.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentAvatars.swift; sourceTree = "<group>"; };
 		D69DD335D5BB61C6A77C2EC6 /* LocalCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalCache.swift; sourceTree = "<group>"; };
+		D6BB1418556563AAEF6FBCE6 /* ConversationTitle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationTitle.swift; sourceTree = "<group>"; };
 		D8C2642D7ADE3DDF465C6E89 /* MarkdownText.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownText.swift; sourceTree = "<group>"; };
 		DADC755EB5C6AE8DE0E16B01 /* HermesIOSNotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HermesIOSNotificationService.entitlements; sourceTree = "<group>"; };
 		DB56049C88F161EF3BA08C67 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -667,6 +669,7 @@
 				B19818CCC8AD6C15BBC328BA /* ConfigurationValue.swift */,
 				46031F875793783DE776A6F7 /* ConversationActivity.swift */,
 				5045723AB4101C15BB122A44 /* ConversationIndex.swift */,
+				D6BB1418556563AAEF6FBCE6 /* ConversationTitle.swift */,
 				B083DF2BEBD828CF266749E2 /* DraftAttachment.swift */,
 				5AA9531D4948791BED70E2CD /* EmailCards.swift */,
 				EA403258EBDBCDA2BBA568D1 /* Endpoint.swift */,
@@ -1013,6 +1016,7 @@
 				8C0DDCAC1E38E1662C7E3A25 /* ConversationActions.swift in Sources */,
 				F7B0A2CD200167B5E798EA4F /* ConversationActivity.swift in Sources */,
 				BDE7E9AD8486B77176875B30 /* ConversationIndex.swift in Sources */,
+				B65D72CB6A9A04874540B07D /* ConversationTitle.swift in Sources */,
 				48C38EA4D6AF9C7DE6F2E160 /* CredentialsSettingsView.swift in Sources */,
 				A95A1A969026C220303DA621 /* DraftAttachment.swift in Sources */,
 				FAE781DE367CD7BAE34BC157 /* DraftCard.swift in Sources */,
