@@ -108,7 +108,10 @@ final class AppModel {
     var chatError: String?
     var toast: String?
     private var conversationActivity = ConversationActivity()
+    /// The conversation is on screen (no sheet or page over it): its alerts stay silent, wherever it is scrolled.
     @ObservationIgnored private var chatVisible = true
+    /// Its last message is in view: only then does it count as read.
+    @ObservationIgnored private var chatAtBottom = true
     private var ownershipConflictContext: String?
     var canContinueInNewChat: Bool { notice == RPCFailure.ownershipMessage && ownershipConflictContext == attachmentContext && !sending && !voiceActive }
     var commandOutput: String?
@@ -1337,8 +1340,8 @@ final class AppModel {
         scheduleSave()
     }
 
-    func setChatVisible(_ visible: Bool) {
-        chatVisible = visible
+    func setChatVisible(_ visible: Bool, atBottom: Bool = true) {
+        chatVisible = visible; chatAtBottom = atBottom
         refreshPresence()
         if visible { markCurrentConversationRead(); clearDeliveredForSelected() }
     }
@@ -1366,7 +1369,7 @@ final class AppModel {
     }
 
     private func markCurrentConversationRead() {
-        guard foreground, chatVisible, !opening, let selected,
+        guard foreground, chatVisible, chatAtBottom, !opening, let selected,
               demo || (hydratedSelection == selectionGeneration && !selected.runtimeID.isEmpty && state == .connected) else { return }
         conversationActivity.markRead(profile: selected.profile, id: selected.storedID)
         scheduleSave()

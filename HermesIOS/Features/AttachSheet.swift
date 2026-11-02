@@ -19,21 +19,10 @@ struct AttachPanel: View {
     private let cameraAvailable = UIImagePickerController.isSourceTypeAvailable(.camera)
 
     var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 6) {
-                item("Appareil photo", symbol: "camera", enabled: cameraAvailable && remaining > 0, id: "attach-camera") { choose(.camera) }
-                item("Photos", symbol: "photo.on.rectangle", enabled: remaining > 0, id: "attach-photos") { choose(.photos) }
-                item("Fichiers", symbol: "doc", enabled: remaining > 0, id: "attach-files") { choose(.files) }
-            }
-            // The system's own paste button: it reads the clipboard without iOS asking for permission each time.
-            PasteButton(supportedContentTypes: pastableTypes) { providers in
-                Task { @MainActor in choose(.paste(providers)) }
-            }
-            .labelStyle(.titleAndIcon).buttonBorderShape(.capsule).tint(AppTheme.accent).disabled(remaining == 0)
-            .accessibilityIdentifier("attach-paste")
-            Text(remaining == 0 ? "\(limit) fichiers au maximum par message" : attached == 0 ? "Jusqu’à \(limit) fichiers de 10 Mo · photos, PDF, documents"
-                 : "Encore \(remaining) fichier\(remaining > 1 ? "s" : "") possible\(remaining > 1 ? "s" : "")")
-                .font(.caption2).foregroundStyle(.secondary)
+        HStack(spacing: 6) {
+            item("Appareil photo", symbol: "camera", enabled: cameraAvailable && remaining > 0, id: "attach-camera") { choose(.camera) }
+            item("Photos", symbol: "photo.on.rectangle", enabled: remaining > 0, id: "attach-photos") { choose(.photos) }
+            item("Fichiers", symbol: "doc", enabled: remaining > 0, id: "attach-files") { choose(.files) }
         }
         .padding(10)
         .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))

@@ -224,7 +224,7 @@ struct ChatView: View {
     }
 
     /// The chat counts as seen (no banner, read marks) only when nothing covers it and its end is on screen.
-    private func updateVisibility() { model.setChatVisible(sheet == nil && webPage == nil && eventPage == nil && bottomVisible) }
+    private func updateVisibility() { model.setChatVisible(sheet == nil && webPage == nil && eventPage == nil, atBottom: bottomVisible) }
 
     /// A card's event: its page from the phone's calendars, else Calendar on that day.
     private func showEvent(_ request: CalendarEventRequest) {

@@ -24,7 +24,16 @@ enum ChatMarkdown {
 
     static func normalized(_ source: String) -> String {
         // "\r\n" is one Character, so look for the carriage return byte instead.
-        source.utf8.contains(13) ? source.replacingOccurrences(of: "\r\n", with: "\n") : source
+        let text = source.utf8.contains(13) ? source.replacingOccurrences(of: "\r\n", with: "\n") : source
+        return text.contains("```") ? repairedCardFences(text) : text
+    }
+
+    /// Models sometimes glue a card fence to the sentence before it (« envoyé.```ui ») or leave a stray backslash after
+    /// the closing fence (« ```\ »). Both are put back on their own line, so the card still shows. Only card languages
+    /// are moved: inline code such as « ```npm install``` » never ends with one.
+    static func repairedCardFences(_ text: String) -> String {
+        text.replacing(#/(?m)^(.*[^\s`])[ \t]*(`{3,}(?:ui|hermes-ui|card|carte)[ \t]*)$/#) { "\($0.output.1)\n\($0.output.2)" }
+            .replacing(#/(?m)^( {0,3}`{3,})\\+[ \t]*$/#) { String($0.output.1) }
     }
 
     /// Parses already-normalized text and reports the last checkpoint reached.

@@ -14,6 +14,25 @@ final class ChatCardsTests: XCTestCase {
         XCTAssertEqual(language, "swift", "ordinary code stays code")
     }
 
+    /// A real Jarvis reply: the fence glued to the sentence, a stray backslash after the closing fence, a second card.
+    func testAGluedCardFenceAndAStrayBackslashStillGiveCards() {
+        let reply = "Le brouillon **n’a pas été envoyé**.```ui\n{\"type\":\"courriel\",\"id\":\"1a189923a35e8083\",\"objet\":\"Test\"}\n```\\\n"
+            + "```ui\n{\"type\":\"draft\",\"id\":\"r57\",\"to\":\"moi@example.com\",\"subject\":\"Test\",\"body\":\"Salut\"}\n```"
+        let blocks = ChatMarkdown.parse(reply)
+        XCTAssertEqual(blocks.count, 3)
+        guard case .paragraph(let text) = blocks[0] else { return XCTFail("expected the sentence") }
+        XCTAssertEqual(text, "Le brouillon **n’a pas été envoyé**.")
+        for block in blocks.dropFirst() {
+            guard case .card(let json, let complete) = block else { return XCTFail("expected a card") }
+            XCTAssertTrue(complete); XCTAssertNotNil(ChatCard.parse(json))
+        }
+        XCTAssertEqual(ChatCard.stripCards(reply), "Le brouillon **n’a pas été envoyé**.")
+        guard case .card = ChatMarkdown.parse("Voici. ```ui\n{\"type\":\"draft\"}\n```").last else { return XCTFail("a space before the fence") }
+        XCTAssertEqual(ChatMarkdown.parse("Lancez ```npm install``` maintenant").count, 1, "inline code is left alone")
+        guard case .code(let language, _) = ChatMarkdown.parse("Exemple :```swift\nlet a = 1\n```").last else { return XCTFail() }
+        XCTAssertNotEqual(language, "swift", "only card fences are moved")
+    }
+
     func testCarouselKeepsOnlySafeLinksAndBoundsItems() {
         let items = (0..<20).map { "{\"title\":\"Maison \($0)\",\"price\":\"450 000 $\",\"image\":\"https://img.example/\($0).jpg\",\"url\":\"https://example.com/\($0)\",\"badges\":[\"3 ch.\",\"2 sdb\"]}" }
         let json = "{\"type\":\"annonces\",\"title\":\"Maisons\",\"items\":[\(items.joined(separator: ","))]}"
