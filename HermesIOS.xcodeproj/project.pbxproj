@@ -158,6 +158,7 @@
 		DCA80968B07895526470C4E6 /* InsightCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 384DDEDB7A703B22350AA929 /* InsightCards.swift */; };
 		DDCED966D0CD49F0861AC32D /* NativeSpeechStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6E4B7452159378C20628C7D /* NativeSpeechStream.swift */; };
 		DE77F2176DA513D995062892 /* AgentIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2BB69B8FF1C16F9DAD19B5C3 /* AgentIntents.swift */; };
+		E05FCFD54C6EB3E94038984D /* VoiceHeard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C606DC15B703A147031EE7E /* VoiceHeard.swift */; };
 		E2B72CF575D11C71E9389465 /* MarkSeenIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF96F4E673AB5D3980104309 /* MarkSeenIntent.swift */; };
 		E3BDA5080F70B105FDDA04F3 /* MarkdownText.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8C2642D7ADE3DDF465C6E89 /* MarkdownText.swift */; };
 		E3DA86494DC72FD507EB20CA /* AgentBoardWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E31E8D5E5B6D38BAEB4EB697 /* AgentBoardWidget.swift */; };
@@ -343,6 +344,7 @@
 		94007CB33EECD7455229853A /* VoiceLiveTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLiveTransportTests.swift; sourceTree = "<group>"; };
 		94E003103ABED5DE7BD3D43B /* AgentsHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsHubView.swift; sourceTree = "<group>"; };
 		98AA1ACBDDA529E8147CB542 /* AgentLook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentLook.swift; sourceTree = "<group>"; };
+		9C606DC15B703A147031EE7E /* VoiceHeard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceHeard.swift; sourceTree = "<group>"; };
 		9FE8B5391134DE1081572A11 /* OrbView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbView.swift; sourceTree = "<group>"; };
 		A0560CDB37DB5361F6266DB9 /* MessagingSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingSettingsView.swift; sourceTree = "<group>"; };
 		A1197D5BDD7DEED40843B4D4 /* MailIDs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailIDs.swift; sourceTree = "<group>"; };
@@ -707,6 +709,7 @@
 				F4AB6902CDC3145E8E242E03 /* VoiceBandFilter.swift */,
 				BD8B320D314E6D15DCC251E2 /* VoiceBargeIn.swift */,
 				89EE48329163EAD45DBC3865 /* VoiceCards.swift */,
+				9C606DC15B703A147031EE7E /* VoiceHeard.swift */,
 				5FFBB999CB80F593A702DC86 /* VoiceLiveProtocol.swift */,
 				92A2BB106302AD38E8FB4767 /* VoiceNoiseFloor.swift */,
 				2FA5B594D96A6A55C14D98BA /* VoiceStreams.swift */,
@@ -1106,6 +1109,7 @@
 				B2C665BB05FF342AF14A2213 /* VoiceDiagnostics.swift in Sources */,
 				5F43FC5FB21C3D63A134BB60 /* VoiceEnvironmentSettings.swift in Sources */,
 				28423163919A6E21C7FB224D /* VoiceFiller.swift in Sources */,
+				E05FCFD54C6EB3E94038984D /* VoiceHeard.swift in Sources */,
 				A9067A76C700ABE1CBC373E9 /* VoiceLiveProtocol.swift in Sources */,
 				ECBF5ACD960F55A35F1DA570 /* VoiceLiveTransport.swift in Sources */,
 				BACC5A498A68882663AD5B37 /* VoiceMetrics.swift in Sources */,

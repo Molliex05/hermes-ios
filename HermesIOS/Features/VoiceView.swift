@@ -12,6 +12,9 @@ struct VoiceView: View {
     @State private var environment = VoiceEnvironmentSetting.mode
     /// The agent's replies already in the chat when the call started: their cards are not the call's.
     @State private var before: Set<String>?
+    /// Natural height of the cards on screen and of the line above them: the cards shrink to fit what is left.
+    @State private var cardsHeight: CGFloat = 0
+    @State private var headHeight: CGFloat = 0
 
     init(app: AppModel, returnToChat: @escaping () -> Void) {
         self.app = app; self.returnToChat = returnToChat
@@ -22,38 +25,21 @@ struct VoiceView: View {
         let shown = before.flatMap { VoiceCards.latest(in: app.transcript.messages, before: $0) }
         NavigationStack {
             GeometryReader { geometry in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        agentContext.padding(.top, 8)
-                        Spacer(minLength: shown == nil ? 24 : 12)
-                        // A card on screen: the orb steps back to leave it room, and keeps showing who speaks.
-                        VoicePresence(conversation: conversation)
-                            .frame(maxWidth: shown != nil ? 150 : typeSize.isAccessibilitySize ? 200 : 330)
-                            .aspectRatio(1, contentMode: .fit)
-                            .padding(.bottom, 18)
-                        VStack(spacing: 10) {
-                            Text(app.demo ? "Parlons simplement." : conversation.title)
-                                .font(.system(.title, design: .serif)).tracking(-0.4)
-                                .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                                .id(conversation.title).transition(.opacity)
-                                .accessibilityAddTraits(.isHeader)
-                            if let hint = guidance {
-                                Text(hint).font(.subheadline).foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                                    .frame(maxWidth: 320)
-                            }
-                            if conversation.inputMuted || conversation.phase == .paused { microphoneState.padding(.top, 2) }
-                        }.animation(.easeInOut(duration: 0.25), value: conversation.title)
-                        if let shown { VoiceCardsPanel(shown: shown).padding(.top, 22) }
-                        if conversation.requiresStandardMode { standardModePrompt.padding(.top, 22) }
-                        if let error = conversation.error { errorMessage(error).padding(.top, 20) }
-                        else if let notice = conversation.notice { noticeMessage(notice).padding(.top, 20) }
-                        Spacer(minLength: 24)
-                    }.padding(.horizontal, shown == nil ? 26 : 16).padding(.bottom, 8)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        Group {
+                            if let shown { cardLayout(shown, viewport: geometry.size.height) }
+                            else { callLayout }
+                        }
+                        .padding(.horizontal, shown == nil ? 26 : 16).padding(.bottom, 8)
                         .animation(.spring(response: 0.45, dampingFraction: 0.86), value: shown?.messageID)
                         .frame(maxWidth: 620).frame(maxWidth: .infinity)
-                        .frame(minHeight: geometry.size.height)
-                }.scrollIndicators(.hidden)
+                        .frame(minHeight: geometry.size.height, alignment: shown == nil ? .center : .top)
+                        .id(Self.top)
+                    }.scrollIndicators(.hidden)
+                    // A new card is read from its top, whatever was scrolled before.
+                    .onChange(of: shown?.messageID) { _, _ in withAnimation { proxy.scrollTo(Self.top, anchor: .top) } }
+                }
             }
             .background(AppTheme.background)
             .safeAreaInset(edge: .bottom, spacing: 0) { callControls }
@@ -105,6 +91,76 @@ struct VoiceView: View {
                 conversation.systemInterrupted("L’audio de l’iPhone a redémarré. Réactivez le micro pour reprendre.")
             }
         }.presentationBackground(AppTheme.background)
+    }
+
+    private static let top = "voice-top"
+    /// The cards shrink down to this to fit the screen; below, the text would be too small to read at a glance.
+    private static let smallestCard = 0.72
+
+    /// No card: the orb takes the middle of the screen, the state under it.
+    private var callLayout: some View {
+        VStack(spacing: 0) {
+            agentContext.padding(.top, 8)
+            Spacer(minLength: 24)
+            VoicePresence(conversation: conversation)
+                .frame(maxWidth: typeSize.isAccessibilitySize ? 200 : 330)
+                .aspectRatio(1, contentMode: .fit)
+                .padding(.bottom, 18)
+            VStack(spacing: 10) {
+                Text(app.demo ? "Parlons simplement." : conversation.title)
+                    .font(.system(.title, design: .serif)).tracking(-0.4)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                    .id(conversation.title).transition(.opacity)
+                    .accessibilityAddTraits(.isHeader)
+                if let hint = guidance {
+                    Text(hint).font(.subheadline).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 320)
+                }
+                if conversation.inputMuted || conversation.phase == .paused { microphoneState.padding(.top, 2) }
+            }.animation(.easeInOut(duration: 0.25), value: conversation.title)
+            messages
+            Spacer(minLength: 24)
+        }
+    }
+
+    /// A card on screen: the orb and the state fold into one line at the top and the card gets the rest of the screen,
+    /// shrunk if needed so all of it shows without touching the phone (driving).
+    private func cardLayout(_ shown: VoiceCards.Shown, viewport: CGFloat) -> some View {
+        let room = viewport - headHeight - 22
+        let scale = cardsHeight > room && cardsHeight > 0 ? max(Self.smallestCard, room / cardsHeight) : 1
+        return VStack(spacing: 0) {
+            VStack(spacing: 12) {
+                agentContext
+                HStack(spacing: 14) {
+                    VoicePresence(conversation: conversation).frame(width: 64, height: 64)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(app.demo ? "Parlons simplement." : conversation.title)
+                            .font(.system(.title3, design: .serif)).lineLimit(2)
+                            .contentTransition(.opacity).animation(.easeInOut(duration: 0.25), value: conversation.title)
+                            .accessibilityAddTraits(.isHeader)
+                        if let hint = guidance { Text(hint).font(.footnote).foregroundStyle(.secondary).lineLimit(2) }
+                    }
+                    Spacer(minLength: 0)
+                    if conversation.inputMuted || conversation.phase == .paused { microphoneState }
+                }
+            }
+            .padding(.top, 8)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { headHeight = $0 }
+            VoiceCardsPanel(shown: shown)
+                .fixedSize(horizontal: false, vertical: true)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardsHeight = $0 }
+                .scaleEffect(scale, anchor: .top)
+                .frame(height: cardsHeight > 0 ? cardsHeight * scale : nil, alignment: .top)
+                .padding(.top, 14)
+            messages
+        }
+    }
+
+    @ViewBuilder private var messages: some View {
+        if conversation.requiresStandardMode { standardModePrompt.padding(.top, 22) }
+        if let error = conversation.error { errorMessage(error).padding(.top, 20) }
+        else if let notice = conversation.notice { noticeMessage(notice).padding(.top, 20) }
     }
 
     /// Agent and call time: the only text besides the state, so the screen stays calm.

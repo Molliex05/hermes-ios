@@ -52,6 +52,8 @@ final class VoiceConversation {
     @ObservationIgnored private var barge: VoiceBargeIn?
     @ObservationIgnored private var capture: Utterance?
     @ObservationIgnored private var finished: [Utterance] = []
+    /// The transcription of a sound heard over the agent's turn, deciding whether it was someone speaking.
+    @ObservationIgnored private var bargeCheck: Task<Void, Never>?
     @ObservationIgnored private var turnActive = false
     @ObservationIgnored private var awaitingUser = false
     @ObservationIgnored private var bargeRequested = false
@@ -194,7 +196,12 @@ final class VoiceConversation {
         while true {
             try validate(attempt)
             let utterance = try await nextUtterance(attempt)
-            let words = try await transcribe(utterance, attempt: attempt)
+            var words = try await transcribe(utterance, attempt: attempt)
+            if VoiceHeard.isNoise(words) {
+                // A sound the recogniser turned into a stock word (« Yep ») or into nothing: no message.
+                if !words.isEmpty { VoiceDiag.log("noise transcript dropped chars=\(words.count)") }
+                words = ""
+            }
             if utterance.barge, !words.isEmpty, !utterance.spoken.isEmpty, await Self.isEcho(words, spoken: utterance.spoken + (fillerSpoken ? " " + VoiceFiller.phrases.joined(separator: " ") : "")) {
                 // Hermes heard itself: no submit, and the next real turn isn't annotated.
                 interruptedTurn = false
@@ -253,6 +260,7 @@ final class VoiceConversation {
 
     /// Live transcript when the profile streams STT, else the compact 16 kHz recording.
     private func transcribe(_ utterance: Utterance, attempt: UUID) async throws -> String {
+        if let heard = utterance.heard { return heard }
         if capture == nil { phase = .transcribing }
         VoiceDiag.log("transcribe begin")
         let recording: Data
@@ -639,6 +647,7 @@ final class VoiceConversation {
         guard let utterance = capture else { return }
         capture = nil
         utterance.end()
+        if utterance.tentative { confirmBarge(utterance); return }
         VoiceMetrics.shared.mark(.endpoint, overwrite: true)
         finished.append(utterance)
         if !turnActive { phase = .transcribing }
@@ -651,20 +660,66 @@ final class VoiceConversation {
         capture = nil
         utterance.transcriber?.cancel(); utterance.recording?.cancel(); utterance.end()
         audio.cancelCapture()
+        if utterance.tentative { releaseHold() }
     }
 
+    /// A sound over the agent's turn may be someone speaking, or the road (a bump, a blinker). The agent's voice holds where
+    /// it is and the sound is recorded; only words the transcription confirms cut the turn off (`commitBarge`). Anything
+    /// else lets the voice go on from where it stopped, and the request keeps running on the server.
     private func interruptForSpeech(_ attempt: UUID) {
         guard generation == attempt, capture == nil else { return }
         let speaking = phase == .speaking || audio.playing
         // What the speaker actually said: the reply without its cards and code, which are never read aloud (the raw text
         // put a card's JSON in the comparison, and the echo of the last sentence went unrecognised).
         let spoken = speaking ? SpokenTextFilter.strip(reply.display) : ""
-        let running = tools.app.transcript.running
-        bargeRequested = true; barge = nil
-        if running || speaking || replyOpen { interruptedTurn = true }
-        speechStream.stop(); audio.stopPlayback(); response?.cancel()
-        if running { interruption = Task { await self.sendInterrupt() } }
+        barge = nil
+        audio.holdPlayback(true)
         beginUtterance(barge: true, spoken: spoken, attempt: attempt)
+        capture?.tentative = true
+    }
+
+    /// The sound heard over the agent ended: its words decide. Real words stop the agent and go as the next request; noise,
+    /// an invented « Yep » or the agent's own voice let it go on.
+    private func confirmBarge(_ utterance: Utterance) {
+        let attempt = generation
+        let echoText = utterance.spoken + (fillerSpoken ? " " + VoiceFiller.phrases.joined(separator: " ") : "")
+        bargeCheck?.cancel()
+        bargeCheck = Task { [weak self] in
+            guard let self else { return }
+            let words = (try? await self.transcribe(utterance, attempt: attempt)) ?? ""
+            guard self.generation == attempt, !Task.isCancelled else { return }
+            var echo = false
+            if !words.isEmpty, !utterance.spoken.isEmpty { echo = await Self.isEcho(words, spoken: echoText) }
+            guard self.generation == attempt, !Task.isCancelled else { return }
+            if !echo, VoiceHeard.confirmsInterruption(words) {
+                VoiceDiag.log("barge confirmed chars=\(words.count)")
+                utterance.heard = words
+                self.commitBarge(utterance)
+            } else {
+                VoiceDiag.log("barge dropped: \(echo ? "echo" : "noise") chars=\(words.count)")
+                self.releaseHold()
+            }
+            self.bargeCheck = nil
+        }
+    }
+
+    /// Someone did speak: the agent stops, its request is interrupted, and the words already transcribed go next.
+    private func commitBarge(_ utterance: Utterance) {
+        let running = tools.app.transcript.running
+        bargeRequested = true
+        if running || audio.playing || replyOpen { interruptedTurn = true }
+        speechStream.stop(); audio.stopPlayback(); audio.holdPlayback(false); response?.cancel()
+        if running { interruption = Task { await self.sendInterrupt() } }
+        VoiceMetrics.shared.mark(.endpoint, overwrite: true)
+        finished.append(utterance)
+        speechStream.prepare(tools: tools)
+    }
+
+    /// It was not someone speaking: the agent's voice goes on, and a new sound can be weighed again.
+    private func releaseHold() {
+        audio.holdPlayback(false); partial = ""
+        if phase == .listening || phase == .transcribing { phase = audio.playing || speechStream.hasAudio ? .speaking : .thinking }
+        if turnActive { barge = makeBarge(preferences) }
     }
 
     private func sendInterrupt() async -> Bool {
@@ -950,6 +1005,7 @@ final class VoiceConversation {
         stopTimer?.cancel(); stopTimer = nil
         monitor?.cancel(); monitor = nil; response?.cancel(); response = nil
         interruption?.cancel(); interruption = nil
+        bargeCheck?.cancel(); bargeCheck = nil
         dropCapture()
         for utterance in finished { utterance.transcriber?.cancel(); utterance.recording?.cancel(); utterance.end() }
         finished.removeAll()
@@ -987,6 +1043,10 @@ private final class Utterance {
     var activity: VoiceActivity
     var elapsed = 0.0
     let barge: Bool
+    /// Heard over the agent's turn and not yet confirmed as speech: its end goes to `confirmBarge`, not to the request loop.
+    var tentative = false
+    /// Words already transcribed while confirming a barge-in: the request loop does not transcribe them again.
+    var heard: String?
     /// Reply text playing when a barge-in started (echo guard).
     let spoken: String
     let transcriber: StreamingTranscriber?

@@ -46,6 +46,8 @@ final class VoiceAudioEngine: @unchecked Sendable {
     private var inputTapInstalled = false
     private var outputTapInstalled = false
     private var recoveries: [TimeInterval] = []
+    /// The agent's voice is held where it was (a sound that may be someone speaking): queued audio waits, nothing restarts it.
+    private var held = false
 
     var snapshot: Snapshot { state.snapshot() }
 
@@ -220,6 +222,17 @@ final class VoiceAudioEngine: @unchecked Sendable {
         }
     }
 
+    /// Holds the agent's voice where it is, or lets it go on from there. The audio already queued, and what still arrives,
+    /// waits meanwhile: a noise mistaken for speech costs a short pause, not the reply.
+    func holdPlayback(_ hold: Bool) {
+        Self.queue.async { [self] in
+            guard held != hold else { return }
+            held = hold
+            guard playbackID != nil, let player else { return }
+            if hold { player.pause() } else if engine?.isRunning == true { player.play() }
+        }
+    }
+
     func stopPlayback(id: UUID? = nil) {
         guard let stopped = state.cancelOutput(id: id) else { return }
         Self.queue.async { [self] in
@@ -339,7 +352,7 @@ final class VoiceAudioEngine: @unchecked Sendable {
                     }
                     engine.prepare()
                     try engine.start()
-                    if resumePlayback { player?.play() }
+                    if resumePlayback, !held { player?.play() }
                     VoiceDiag.log("recovered in place running=\(engine.isRunning)")
                     return
                 } catch { VoiceDiag.log("in-place recovery failed: \(error)") }
@@ -349,7 +362,7 @@ final class VoiceAudioEngine: @unchecked Sendable {
         teardownGraphOnQueue()
         do {
             try prepareOnQueue(generation: generation)
-            if resumePlayback { player?.play() }
+            if resumePlayback, !held { player?.play() }
             VoiceDiag.log("recovered by rebuild")
         } catch {
             VoiceDiag.log("rebuild failed: \(error)")
@@ -396,7 +409,7 @@ final class VoiceAudioEngine: @unchecked Sendable {
     }
 
     private func stopOutputOnQueue() {
-        player?.stop()
+        player?.stop(); held = false
         converter = nil; pcmCarry = nil; playbackID = nil
         audioFile = nil
         if let url = audioFileURL { try? FileManager.default.removeItem(at: url) }
@@ -453,7 +466,7 @@ final class VoiceAudioEngine: @unchecked Sendable {
                     // Never stop the player from its render callback (Apple documents a deadlock).
                     Self.queue.async { [weak self] in self?.state.removeQueued(duration, id: id) }
                 }
-                if player?.isPlaying != true { player?.play() }
+                if player?.isPlaying != true, !held { player?.play() }
                 scheduled = true
             }
             if status == .inputRanDry || status == .endOfStream { return scheduled }
