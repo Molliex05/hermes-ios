@@ -11,7 +11,6 @@ final class HermesIOSUITests: XCTestCase {
         XCTAssertFalse(app.tabBars.firstMatch.exists)
         XCTAssertLessThan(app.buttons["app-navigation"].frame.maxY, app.textFields["chat-composer"].frame.minY)
         XCTAssertLessThan(app.windows.firstMatch.frame.maxY - app.textFields["chat-composer"].frame.maxY, 130)
-        XCTAssertLessThan(app.buttons["switch-profile"].frame.maxY, app.textFields["chat-composer"].frame.minY)
         assertControlsInsideComposer(in: app)
         capture("01-chat")
         openNavigation("Agents", in: app)
@@ -904,13 +903,13 @@ final class HermesIOSUITests: XCTestCase {
     private func assertControlsInsideComposer(in app: XCUIApplication) {
         let surface = app.otherElements["composer-surface"]
         XCTAssertTrue(surface.exists)
-        // The pill holds the plus, the field and one trailing button (voice while empty, send once there is text);
-        // navigation and agent controls live in the header above it.
-        XCTAssertTrue(app.buttons["message-actions"].exists)
-        XCTAssertTrue(surface.frame.contains(app.buttons["message-actions"].frame), "message-actions belongs inside the composer pill")
-        XCTAssertTrue(app.buttons["voice-mode"].exists || app.buttons["send-message"].exists)
-        for identifier in ["switch-profile", "app-navigation"] {
-            XCTAssertLessThan(app.buttons[identifier].frame.maxY, surface.frame.minY, "\(identifier) belongs in the header")
+        // The pill holds the plus, the agent, the field and one trailing button (voice while empty, send once there is
+        // text); navigation lives in the header above it.
+        for identifier in ["message-actions", "switch-profile"] {
+            XCTAssertTrue(app.buttons[identifier].exists)
+            XCTAssertTrue(surface.frame.contains(app.buttons[identifier].frame), "\(identifier) belongs inside the composer pill")
         }
+        XCTAssertTrue(app.buttons["voice-mode"].exists || app.buttons["send-message"].exists)
+        XCTAssertLessThan(app.buttons["app-navigation"].frame.maxY, surface.frame.minY, "app-navigation belongs in the header")
     }
 }

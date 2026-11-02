@@ -102,8 +102,9 @@ struct ChatComposer: View, Equatable {
                             .accessibilityLabel("Fermer le message")
                     }.foregroundStyle(AppTheme.accent).padding(.leading, 8).accessibilityIdentifier("chat-error")
                 }
-                HStack(alignment: .bottom, spacing: 2) {
+                HStack(alignment: .bottom, spacing: 0) {
                     messageActions
+                    agentButton
                     TextField("Demander à \(state.agentTitle)", text: $model.draft, axis: .vertical)
                         .lineLimit(1...6).font(.body).focused(focused)
                         .padding(.vertical, 8).frame(minHeight: 44)
@@ -132,6 +133,20 @@ struct ChatComposer: View, Equatable {
                 .frame(width: 44, height: 44).contentShape(Rectangle())
         }.buttonStyle(.plain).disabled(state.attachDisabled && state.attachments.count < 4)
             .accessibilityLabel(state.attachOpen ? "Fermer les pièces jointes" : "Ajouter une pièce jointe").accessibilityIdentifier("message-actions")
+    }
+
+    /// The agent this conversation is with, by its avatar: a tap opens the switcher, right where the next message is written.
+    private var agentButton: some View {
+        Button { Haptics.select(); attachOpen = false; present(.agents) } label: {
+            AgentAvatar(name: state.agentName, size: 28)
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy)).foregroundStyle(.secondary)
+                        .frame(width: 13, height: 13).background(AppTheme.surface, in: Circle())
+                        .overlay(Circle().strokeBorder(AppTheme.line, lineWidth: 0.5)).offset(x: 3, y: 3)
+                }
+                .frame(width: 44, height: 44).contentShape(Rectangle())
+        }.buttonStyle(PressableStyle())
+            .accessibilityLabel("Changer d’agent : \(state.agentTitle)").accessibilityIdentifier("switch-profile")
     }
 
     /// Voice while the field is empty; send (or stop) as soon as there is something to send or a reply is running.

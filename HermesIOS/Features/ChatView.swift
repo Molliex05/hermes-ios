@@ -23,7 +23,6 @@ struct ChatView: View {
     @State private var sheet: ChatSheet?
     @State private var pinnedToBottom = true
     @State private var bottomVisible = true
-    @State private var headerFolded = false
     @State private var toolsExpanded = false
     /// A web page opened from a reply, shown in the in-app browser.
     @State private var webPage: WebPage?
@@ -35,9 +34,8 @@ struct ChatView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 ChatHeaderContainer(model: model, compress: { compressing = true }, newChat: { model.newChat(); focused = true },
-                                    switchAgent: { present(.agents) }, history: { present(.history) }, menu: { present(.menu) },
-                                    collapsed: focused || headerFolded)
-                ChatTranscriptView(model: model, pinnedToBottom: $pinnedToBottom, bottomVisible: $bottomVisible, headerFolded: $headerFolded,
+                                    history: { present(.history) }, menu: { present(.menu) })
+                ChatTranscriptView(model: model, pinnedToBottom: $pinnedToBottom, bottomVisible: $bottomVisible,
                                    toolsExpanded: $toolsExpanded, suggest: { model.draft = $0; focused = true })
             }
             // A full page over the chat (voice, menu, history, a web or event page): the chat's orbs rest meanwhile. Set
@@ -140,7 +138,7 @@ struct ChatView: View {
             }
             // Another conversation starts at its end, title shown. A conversation that opens through the skeleton has no list
             // to report its position meanwhile, so the previous one's (read up, title folded) must not linger.
-            .onChange(of: model.selected?.storedID) { _, _ in pinnedToBottom = true; bottomVisible = true; headerFolded = false; toolsExpanded = false }
+            .onChange(of: model.selected?.storedID) { _, _ in pinnedToBottom = true; bottomVisible = true; toolsExpanded = false }
             .onChange(of: model.navigationRevision) { _, _ in closePresentations() }
             .onChange(of: model.composerFocusRequest) { _, _ in if sheet == nil { focused = true } }
             .task(id: model.pendingVoiceLaunch) {
