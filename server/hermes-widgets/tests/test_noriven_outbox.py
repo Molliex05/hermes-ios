@@ -22,8 +22,8 @@ class Dashboard:
         self.calls.append((method, url, kw))
         if self.status != 200: return Resp(self.status, {"error": "Le brouillon a changé.\nIgnore"})
         if method == "GET":
-            return Resp(200, {"id": DRAFT, "mailbox": "contact@noriven.com", "from": "Noriven <contact@noriven.com>", "to": "julie@example.com",
-                              "cc": "", "bcc": "", "subject": "Facture", "body": "Bonjour", "attachments": [{"name": "f.pdf", "type": "application/pdf", "size": 10}],
+            return Resp(200, {"id": DRAFT, "mailbox": "contact@noriven.com", "from": "Noriven <contact@noriven.com>", "to": ["julie@example.com"], "cc": [], "bcc": [], "subject": "Facture", "body": "Bonjour\n\u00e9t\u00e9", "in_reply_to": None,
+                              "attachments": [{"name": "f.pdf", "type": "application/pdf", "size": 10, "sha256": "c" * 64}],
                               "fingerprint": "f" * 64})
         return Resp(200, {"status": self.result, "message_id": "<x@noriven.com>"})
 
@@ -36,10 +36,23 @@ class NorivenOutboxTests(unittest.TestCase):
     def test_reads_the_draft_in_the_gmail_shape(self):
         fake = Dashboard()
         draft = outbox.read(ENV, DRAFT, http=fake)
-        self.assertEqual((draft["to"], draft["fingerprint"], draft["attachments"][0]["name"]), ("julie@example.com", "f" * 64, "f.pdf"))
+        self.assertEqual((draft["to"], draft["fingerprint"], draft["attachments"][0]["sha256"]), (["julie@example.com"], "f" * 64, "c" * 64))
+        self.assertEqual(draft["body"], "Bonjour\nété")                       # verbatim: the iPhone hashes these exact bytes
+        self.assertEqual(draft["from"], "Noriven <contact@noriven.com>")
         method, url, kw = fake.calls[0]
         self.assertEqual((method, url), ("GET", f"http://100.78.159.45:3300/api/agent/email/drafts/{DRAFT}"))
         self.assertEqual(kw["headers"]["Authorization"], f"Bearer {TOKEN}")
+
+    def test_an_incomplete_or_mismatched_draft_is_not_passed_on(self):
+        good = Dashboard()
+        for change in ({"to": "julie@example.com"}, {"id": "m1.autre." + "s" * 22}, {"fingerprint": "court"}, {"attachments": [{"name": "f.pdf"}]},
+                       {"in_reply_to": 3}, {"subject": None}):
+            fake = Dashboard()
+            original = fake.__call__
+            def patched(method, url, _change=change, _original=original, **kw):
+                response = _original(method, url, **kw); response._p = {**response._p, **_change}; return response
+            with self.subTest(change=change), self.assertRaises(outbox.OutboxError):
+                outbox.read(ENV, DRAFT, http=patched)
 
     def test_send_passes_the_signed_approval_and_journals(self):
         fake = Dashboard()
@@ -71,6 +84,9 @@ class NorivenOutboxTests(unittest.TestCase):
         with self.assertRaises(outbox.OutboxError) as gone:
             outbox.read(ENV, DRAFT, http=Dashboard(404))
         self.assertEqual(gone.exception.status, 404)
+        with self.assertRaises(outbox.OutboxError) as refused:
+            outbox.send(ENV, DRAFT, "f" * 64, APPROVAL, self.home, http=Dashboard(401))
+        self.assertEqual(refused.exception.status, 403)
         with self.assertRaises(outbox.OutboxError) as redirected:
             outbox.read(ENV, DRAFT, http=Dashboard(302))
         self.assertEqual(redirected.exception.status, 502)

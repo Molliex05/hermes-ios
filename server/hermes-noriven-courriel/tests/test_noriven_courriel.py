@@ -134,7 +134,11 @@ class ToolTests(Base):
 
     def test_draft_refuses_header_injection_and_too_many_recipients(self):
         self.assertIn("invalide", run("courriel_brouillon", boite="contact@noriven.com", a="a@b.com\nBcc: x@evil.com", objet="o", corps="c")["error"])
-        self.assertIn("une ligne", run("courriel_brouillon", boite="contact@noriven.com", a="a@b.com", objet="o\r\nBcc: x@evil.com", corps="c")["error"])
+        for subject in ("o\r\nBcc: x@evil.com", "=?utf-8?b?x?=", "fac\u202eture", "a" * 241):
+            self.assertIn("une ligne", run("courriel_brouillon", boite="contact@noriven.com", a="a@b.com", objet=subject, corps="c")["error"])
+        self.assertIn("invisibles", run("courriel_brouillon", boite="contact@noriven.com", a="a@b.com", objet="o", corps="Payer\u200b ici")["error"])
+        self.assertNotIn("error", run("courriel_brouillon", boite="contact@noriven.com", a="a@b.com", objet="Été", corps="Ligne 1\n\tLigne 2\r\n"))
+        self.fake.calls.clear()
         many = ", ".join(f"p{i}@example.com" for i in range(21))
         self.assertIn("20", run("courriel_brouillon", boite="contact@noriven.com", a=many, objet="o", corps="c")["error"])
         self.assertEqual(self.fake.calls, [])
@@ -150,9 +154,9 @@ class AttachmentTests(Base):
                 plugin._sent_files([ref], self.home)
 
     def test_forbidden_types_and_sizes(self):
-        (self.home / "attachments" / "outil.exe").write_bytes(b"MZ")
-        (self.home / "attachments" / "macro.docm").write_bytes(b"x")
-        for name in ("outil.exe", "macro.docm"):
+        for name in ("outil.exe", "macro.docm", "devis.docx", "archive.zip", "script.js"):
+            (self.home / "attachments" / name).write_bytes(b"x")
+        for name in ("outil.exe", "macro.docm", "devis.docx", "archive.zip", "script.js"):
             with self.assertRaises(api.NorivenError):
                 plugin._sent_files([name], self.home)
         big = self.home / "images" / "gros.jpg"

@@ -32,3 +32,39 @@ final class MailIDTests: XCTestCase {
         XCTAssertTrue(outbox.needsDeviceApproval); XCTAssertEqual(outbox.mailbox, "contact@noriven.com")
     }
 }
+
+final class NorivenFingerprintTests: XCTestCase {
+    private let id = "m1.WyJkcmYiLCJwb2xhcmlzOjEiXQ." + String(repeating: "s", count: 22)
+
+    private func payload(fingerprint: String, subject: String = "Été — facture", bcc: [String] = ["moi@noriven.com"]) -> JSONValue {
+        .object(["id": .string(id), "mailbox": .string("contact@noriven.com"), "from": .string("contact@noriven.com"),
+                 "to": .array([.string("Julie Été <julie@example.com>"), .string("bob@example.org")]), "cc": .array([]), "bcc": .array(bcc.map { .string($0) }),
+                 "subject": .string(subject), "body": .string("Bonjour,\n\nCi-joint.\n\nMaxime"), "in_reply_to": .string("<abc@x.org>"),
+                 "attachments": .array([.object(["name": .string("facture.pdf"), "type": .string("application/pdf"), "size": .number(12345), "sha256": .string(String(repeating: "a", count: 64))])]),
+                 "fingerprint": .string(fingerprint)])
+    }
+
+    /// Vectors computed with noriven-web's own `draftFingerprint`.
+    func testMatchesNorivenWebByteForByte() throws {
+        let reference = "b989b51f0598a15383f1a9db7c430b4c53ccde0bc724232e2a6393407129ca6e"
+        let draft = try XCTUnwrap(OutboxDraft(payload(fingerprint: reference)))
+        XCTAssertTrue(draft.fingerprintMatches)
+        XCTAssertEqual(draft.to, "Julie Été <julie@example.com>, bob@example.org")
+        XCTAssertEqual(OutboxDraft.norivenFingerprint(id: id, from: "contact@noriven.com", to: ["a@b.co"], cc: [], bcc: [], subject: "", body: "",
+                                                      inReplyTo: "", attachments: []), "2804bd0f7681c32cbd9320599f79eeb72c645fa14464c42bcbf81fd43d5bbab8")
+    }
+
+    func testAShownDraftThatIsNotTheSignedOneIsCaught() throws {
+        let reference = "b989b51f0598a15383f1a9db7c430b4c53ccde0bc724232e2a6393407129ca6e"
+        XCTAssertFalse(try XCTUnwrap(OutboxDraft(payload(fingerprint: reference, subject: "Autre chose"))).fingerprintMatches)
+        XCTAssertFalse(try XCTUnwrap(OutboxDraft(payload(fingerprint: reference, bcc: []))).fingerprintMatches, "a hidden Bcc changes everything")
+        var flattened = payload(fingerprint: reference).object
+        flattened["to"] = .string("Julie Été <julie@example.com>, bob@example.org")             // a relay that flattens the lists
+        XCTAssertFalse(try XCTUnwrap(OutboxDraft(.object(flattened))).fingerprintMatches)
+        var truncated = payload(fingerprint: reference).object
+        truncated["truncated"] = .bool(true)
+        XCTAssertFalse(try XCTUnwrap(OutboxDraft(.object(truncated))).fingerprintMatches)
+        let gmail = try XCTUnwrap(OutboxDraft(.object(["id": .string("r123"), "fingerprint": .string("x"), "to": .string("a@b.c")])))
+        XCTAssertTrue(gmail.fingerprintMatches, "Gmail drafts keep their server-side check")
+    }
+}

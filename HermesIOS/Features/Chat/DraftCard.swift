@@ -147,9 +147,9 @@ struct DraftSendSheet: View {
                             Text(sending ? "Envoi…" : "Envoyer")
                         }
                         .font(.headline).foregroundStyle(.white).frame(maxWidth: .infinity).padding(.vertical, 15)
-                        .background(draft.hasRecipient ? AppTheme.accent : Color.gray, in: Capsule())
+                        .background(draft.hasRecipient && draft.fingerprintMatches ? AppTheme.accent : Color.gray, in: Capsule())
                     }
-                    .buttonStyle(PressableStyle()).disabled(sending || !draft.hasRecipient)
+                    .buttonStyle(PressableStyle()).disabled(sending || !draft.hasRecipient || !draft.fingerprintMatches)
                     .padding(.horizontal, 16).padding(.bottom, 8).background(AppTheme.background)
                     .accessibilityIdentifier("draft-send")
                 }
@@ -173,6 +173,7 @@ struct DraftSendSheet: View {
                 row("À", draft.to)
                 if !draft.cc.isEmpty { row("Cc", draft.cc) }
                 if !draft.bcc.isEmpty { row("Cci", draft.bcc, warn: true) }
+                if !draft.inReplyTo.isEmpty { row("Rép.", "en réponse à un message de la boîte") }
                 if !draft.hasRecipient { Text(noriven ? "Aucun destinataire : demande à l’agent de l’ajouter." : "Aucun destinataire : ajoute-le dans Gmail.").font(.caption).foregroundStyle(.orange) }
             }
             Text(draft.subject.isEmpty ? "(sans objet)" : draft.subject).font(.title3.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
@@ -205,12 +206,21 @@ struct DraftSendSheet: View {
     }
 
     private func load() async {
-        do { draft = try await outbox.load(draftID); problem = nil }
+        do {
+            let loaded = try await outbox.load(draftID)
+            draft = loaded
+            problem = loaded.fingerprintMatches ? nil : "Ce brouillon ne correspond pas à ce qui serait envoyé : envoi bloqué. Demande à l’agent de le refaire."
+        }
         catch { problem = error.localizedDescription }
     }
 
     private func send(_ shown: OutboxDraft) async {
         guard !sending else { return }
+        // What is shown must be exactly what will be signed: otherwise nothing is signed, nothing leaves.
+        guard shown.fingerprintMatches else {
+            problem = "Ce brouillon ne correspond pas à ce qui serait envoyé : envoi bloqué. Demande à l’agent de le refaire."
+            return
+        }
         sending = true
         defer { sending = false }
         if !shown.needsDeviceApproval {                                     // a Noriven send asks for Face ID when it signs

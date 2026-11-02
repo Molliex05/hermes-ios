@@ -89,10 +89,10 @@ def _call(env: Dict[str, str], method: str, draft_id: str, *, body: Optional[dic
     if 300 <= status < 400:
         raise OutboxError("Le Dashboard Noriven a répondu par une redirection, refusée.", 502)
     if status == 401:
-        raise OutboxError("Le jeton d'envoi de ce profil est refusé.", 502)
+        raise OutboxError(message or "Refusé : jeton du relais ou approbation de l'iPhone non reconnus.", 403)
     if status in (403, 404):
         raise OutboxError(message or "Ce brouillon n'existe plus (déjà envoyé, modifié ou supprimé).", 404)
-    if status in (409, 429, 400, 413):
+    if status in (409, 429, 400, 413, 503):
         raise OutboxError(message or f"Refusé (HTTP {status}).", status)
     if status >= 400:
         raise OutboxError(message or f"Le Dashboard Noriven a refusé (HTTP {status}).", 502)
@@ -102,17 +102,25 @@ def _call(env: Dict[str, str], method: str, draft_id: str, *, body: Optional[dic
 
 
 def read(env: Dict[str, str], draft_id: str, http: Callable = None) -> Dict[str, Any]:
-    """The draft as the mailbox holds it, in the same shape as a Gmail draft, with noriven-web's opaque fingerprint."""
+    """The draft as the mailbox holds it, passed on VERBATIM: the iPhone recomputes the fingerprint from these exact fields
+    before Face ID, so nothing is cleaned, joined or cut here. Only the types are checked."""
     draft = _call(env, "GET", draft_id, http=http)
-    fingerprint = str(draft.get("fingerprint") or "")
-    if not fingerprint:
-        raise OutboxError("Le brouillon est arrivé sans empreinte.", 502)
-    files = [{"name": _clean(f.get("name"), 200), "type": _clean(f.get("type"), 100), "size": int(f.get("size") or 0)}
-             for f in draft.get("attachments") or [] if isinstance(f, dict)]
-    return {"id": draft_id, "message_id": "", "from": _clean(draft.get("from"), 300), "mailbox": _clean(draft.get("mailbox"), 254),
-            "to": _clean(draft.get("to"), 2000), "cc": _clean(draft.get("cc"), 2000), "bcc": _clean(draft.get("bcc"), 2000),
-            "subject": _clean(draft.get("subject"), 300), "body": str(draft.get("body") or ""), "truncated": bool(draft.get("truncated")),
-            "attachments": files, "fingerprint": fingerprint, "approval": "device"}
+    strings = lambda v: isinstance(v, list) and len(v) <= 20 and all(isinstance(x, str) for x in v)
+    files = draft.get("attachments")
+    well_formed = (
+        draft.get("id") == draft_id and all(isinstance(draft.get(k), str) for k in ("mailbox", "from", "subject", "body"))
+        and all(strings(draft.get(k)) for k in ("to", "cc", "bcc"))
+        and (draft.get("in_reply_to") is None or isinstance(draft.get("in_reply_to"), str))
+        and isinstance(files, list) and len(files) <= 10
+        and all(isinstance(f, dict) and isinstance(f.get("name"), str) and isinstance(f.get("type"), str)
+                and isinstance(f.get("size"), int) and not isinstance(f.get("size"), bool) and f["size"] >= 0
+                and isinstance(f.get("sha256"), str) and re.fullmatch(r"[0-9a-f]{64}", f["sha256"]) for f in files)
+        and isinstance(draft.get("fingerprint"), str) and re.fullmatch(r"[0-9a-f]{64}", draft["fingerprint"]))
+    if not well_formed:
+        raise OutboxError("Le brouillon reçu est incomplet : envoi impossible.", 502)
+    keys = ("id", "mailbox", "from", "to", "cc", "bcc", "subject", "body", "in_reply_to", "fingerprint")
+    return {**{k: draft.get(k) for k in keys}, "attachments": [{k: f[k] for k in ("name", "type", "size", "sha256")} for f in files],
+            "truncated": False, "approval": "device"}
 
 
 def _approval(value: Any) -> Dict[str, Any]:
@@ -130,7 +138,7 @@ def _approval(value: Any) -> Dict[str, Any]:
 def send(env: Dict[str, str], draft_id: str, fingerprint: str, approval: Any, home: Path, http: Callable = None,
          now: Optional[datetime] = None) -> Dict[str, Any]:
     signed = _approval(approval)
-    if not re.fullmatch(r"[A-Za-z0-9_.:=-]{16,200}", fingerprint or ""):
+    if not re.fullmatch(r"[0-9a-f]{64}", fingerprint or ""):
         raise OutboxError("Empreinte invalide : relis le brouillon.", 409)
     with _lock:
         moment = time.time()
@@ -155,4 +163,4 @@ def send(env: Dict[str, str], draft_id: str, fingerprint: str, approval: Any, ho
         return {"ok": True, "message_id": result.get("message_id"), "thread": None}
     if status == "uncertain":
         raise OutboxError("Envoi incertain : regarde dans Envoyés avant de réessayer. Le brouillon ne repartira pas tout seul.", 504)
-    raise OutboxError("Le serveur de courriel a refusé l'envoi.", 502)
+    raise OutboxError(_clean(result.get("error")) or "Le serveur de courriel a refusé l'envoi.", 502)

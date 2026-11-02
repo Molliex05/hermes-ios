@@ -1,6 +1,28 @@
 # Contrat courriel Noriven ↔ Hermès (v1)
 
-Statut : validé par Maxime le 2026-11-01, ajusté le même jour avec la session Polaris (points 1 à 7), à implémenter. Ce document fait foi entre les deux dépôts :
+Statut : validé par Maxime le 2026-11-01, ajusté le même jour avec la session Polaris (points 1 à 7), puis aligné sur
+l'implémentation de noriven-web (`docs/email-agent.md` et `lib/mail/agent/service.ts` y font foi pour le détail).
+
+## Alignement sur l'implémentation (2026-11-01)
+
+- **L'iPhone recalcule l'empreinte.** `GET /drafts/{id}` rend chaque champ sans le tronquer : `id, mailbox, from,
+  to[], cc[], bcc[], subject, body, in_reply_to, attachments: [{ name, type, size, sha256 }], fingerprint`.
+  - Le relais les transmet tels quels.
+  - L'app recalcule `draftFingerprint` (préfixe `noriven-email-draft-v2`, voir `OutboxDraft.norivenFingerprint`) et bloque tout écart
+    avant Face ID. Un relais compromis ne peut donc pas montrer un brouillon et en faire signer un autre.
+- Objet : 240 caractères au plus, sans `=?`, caractère de contrôle, invisible ni renversement bidi. Le corps refuse les mêmes
+  caractères, sauf `\n`, `\t` et `\r`.
+- Pièces jointes permises : pdf, png, jpg, jpeg, gif, webp, heic, txt, md, csv, ics. Pas de fichiers Office ni d'archives en v1.
+  Le contenu est vérifié, et un PDF actif (JavaScript, Launch, fichier intégré) est refusé.
+- `Idempotency-Key` : de 16 à 100 caractères parmi `A-Za-z0-9_-`. Plafond de 30 brouillons et 100 Mio par jeton et par heure.
+- `GET /messages` : `snippet` vaut toujours `null`, et `limit` va de 1 à 30 (20 par défaut). `organize` répond `{ "status": "done" }`.
+- Envoi : une tentative menée à son terme répond 200 avec `{ status, message_id, error? }`.
+  - 401 : clé, signature, délai ou nonce refusés.
+  - 409 : empreinte changée, ou 5 tentatives refusées.
+  - 503 : indisponible.
+  - Une reprise demande une signature neuve et ne renvoie jamais un envoi en cours, incertain ou accepté.
+- Jetons `nrv_ag_…` (agent) et `nrv_rl_…` (relais), créés dans Dashboard → Paramètres → Agent courriel.
+- URL de staging : `http://noriven-mcp-staging:3000`. Ce document fait foi entre les deux dépôts :
 noriven-web (côté Polaris) et hermes-ios (greffons Hermès et app iOS).
 
 ## But

@@ -254,7 +254,7 @@ final class AppModel {
     /// A draft as Gmail holds it, for the « Envoyer » sheet.
     func loadDraft(_ draftID: String, profile: String) async throws -> OutboxDraft {
         guard let http, let path = OutboxDraft.path(profile: profile, draftID: draftID) else { throw RPCFailure("Ce brouillon ne peut pas être ouvert ici.") }
-        guard let draft = OutboxDraft(try await http.request(path)) else { throw RPCFailure("Le brouillon reçu est illisible.") }
+        guard let draft = OutboxDraft(try await http.request(path)), draft.draftID == draftID else { throw RPCFailure("Le brouillon reçu est illisible.") }
         return draft
     }
 
