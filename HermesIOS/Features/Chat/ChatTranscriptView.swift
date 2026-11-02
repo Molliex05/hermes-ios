@@ -28,7 +28,7 @@ struct ChatTranscriptView: View {
         }
         // Here rather than on the list: a conversation that opens through the skeleton has no list yet, and its list must
         // still start at the end, not where the previous conversation was left.
-        .onChange(of: model.selected?.storedID) { _, _ in Self.scrollToEnd($position) }
+        .onChange(of: model.selected?.storedID) { _, _ in position.scrollTo(edge: .bottom) }
     }
 
     private func messages(_ transcript: Transcript) -> some View {
@@ -73,7 +73,7 @@ struct ChatTranscriptView: View {
                         CredentialCard(payload: credential, model: model).equatable().id(credential["rpc_id"].string + credential["request_id"].string)
                     }
                     // Keeps the newest reply off the last row: a tall last row fell out of the accessibility tree.
-                    Color.clear.frame(height: 1).padding(.top, -26).accessibilityHidden(true).id(Self.endID)
+                    Color.clear.frame(height: 1).padding(.top, -26).accessibilityHidden(true)
                 }
             }.padding(.horizontal, 26).padding(.top, 14).frame(maxWidth: 720).frame(maxWidth: .infinity)   // the end row's spacing is the bottom margin
         }
@@ -92,15 +92,17 @@ struct ChatTranscriptView: View {
             })
         // The distance to the real end of the content, from the scroll view's own geometry. It drives following the stream
         // and putting the list back when it ends up past its end.
-        .onScrollGeometryChange(for: Double.self) { geometry in
-            ScrollGap.distanceFromEnd(contentHeight: geometry.contentSize.height, insetTop: geometry.contentInsets.top,
-                                      insetBottom: geometry.contentInsets.bottom, contentOffset: geometry.contentOffset.y,
-                                      container: geometry.containerSize.height)
-        } action: { _, distance in
-            scrolled(distance: distance)
+        .onScrollGeometryChange(for: ScrollSpot.self) { geometry in
+            ScrollSpot(distance: ScrollGap.distanceFromEnd(contentHeight: geometry.contentSize.height, insetTop: geometry.contentInsets.top,
+                                                           insetBottom: geometry.contentInsets.bottom, contentOffset: geometry.contentOffset.y,
+                                                           container: geometry.containerSize.height),
+                       offset: geometry.contentOffset.y)
+        } action: { _, spot in
+            follower.offset = spot.offset
+            scrolled(distance: spot.distance)
         }
         .onChange(of: transcript.messages.count) { _, _ in
-            if pinnedToBottom { follower.didScroll(); Self.scrollToEnd($position) }
+            if pinnedToBottom { follower.didScroll(); position.scrollTo(edge: .bottom) }
         }
         .overlay(alignment: .bottomTrailing) {
             // Comes and goes like the composer's send button, instead of popping.
@@ -109,7 +111,7 @@ struct ChatTranscriptView: View {
                     RoundButton(symbol: "arrow.down", label: "Dernier message") {
                         pinnedToBottom = true
                         follower.didScroll()
-                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { Self.scrollToEnd($position) }
+                        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) { position.scrollTo(edge: .bottom) }
                     }.padding(18)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
@@ -130,30 +132,30 @@ struct ChatTranscriptView: View {
         if headerFolded != fold { headerFolded = fold }
         if !follower.dragging, visible, !pinnedToBottom { pinnedToBottom = true }
         let target = $position
-        if ScrollGap.isPastEnd(distance) { follower.heal { Self.scrollToEnd(target) } }
+        if ScrollGap.isPastEnd(distance) {
+            // The list already holds « bottom edge », and the same request again is ignored: it first goes to the end's own
+            // offset (a point, a change), then to the edge, which is a change again and lands exactly.
+            follower.heal(toOffset: { target.wrappedValue.scrollTo(y: $0) }, thenToEnd: { target.wrappedValue.scrollTo(edge: .bottom) })
+        }
         guard pinnedToBottom, !follower.dragging, distance > 1 else { return }
         follower.follow { [pinnedBinding = $pinnedToBottom] in
-            if pinnedBinding.wrappedValue { Self.scrollToEnd(target) }
+            if pinnedBinding.wrappedValue { target.wrappedValue.scrollTo(edge: .bottom) }
         }
     }
+}
 
-    /// The transcript's 1-point end row.
-    private static let endID = "transcript-end"
-
-    /// Goes to the end of the list. A `ScrollPosition` already set to the bottom edge ignores the same request again, so a
-    /// list left past its end (the keyboard closing as a message is sent) stayed blank until dragged: alternating with the
-    /// end row makes every request a change.
-    static func scrollToEnd(_ position: Binding<ScrollPosition>) {
-        if position.wrappedValue.edge == .bottom { position.wrappedValue.scrollTo(id: endID, anchor: .bottom) }
-        else { position.wrappedValue.scrollTo(edge: .bottom) }
-    }
+/// Where the list stands: its distance to the real end (see `ScrollGap`) and its raw offset.
+private struct ScrollSpot: Equatable {
+    var distance: Double
+    var offset: Double
 }
 
 /// Coalesces follow-the-stream scrolls to the stream's flush cadence (~30 fps).
 @MainActor final class ScrollFollower {
     var dragging = false
-    /// Last distance to the real end of the content (see `ScrollGap`).
+    /// Last distance to the real end of the content (see `ScrollGap`), and the offset it was measured at.
     var distance = 0.0
+    var offset = 0.0
     private var healing = false
     private var scheduled = false
     private var last = Date.distantPast
@@ -162,17 +164,22 @@ struct ChatTranscriptView: View {
     func didScroll() { last = Date() }
 
     /// Brings the list back to its end when it stays scrolled past it. Waits a moment and re-checks, so a normal
-    /// overscroll bounce or a keyboard still moving never fights the user.
-    func heal(_ scroll: @escaping @MainActor () -> Void) {
+    /// overscroll bounce or a keyboard still moving never fights the user. The end's offset is where the list stands now
+    /// plus its (negative) distance to the end.
+    func heal(toOffset: @escaping @MainActor (Double) -> Void, thenToEnd: @escaping @MainActor () -> Void) {
         guard !healing else { return }
         healing = true
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(160))
             guard let self else { return }
-            self.healing = false
-            guard !self.dragging, ScrollGap.isPastEnd(self.distance) else { return }
+            guard !self.dragging, ScrollGap.isPastEnd(self.distance) else { self.healing = false; return }
             self.last = Date()
-            scroll()
+            toOffset(self.offset + self.distance)
+            try? await Task.sleep(for: .milliseconds(50))
+            self.healing = false
+            guard !self.dragging else { return }
+            self.last = Date()
+            thenToEnd()
         }
     }
 
