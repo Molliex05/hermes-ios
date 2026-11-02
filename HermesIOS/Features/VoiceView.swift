@@ -10,6 +10,8 @@ struct VoiceView: View {
     @State private var startedAt = Date()
     @State private var interruption = VoiceInterruptionSetting.mode
     @State private var environment = VoiceEnvironmentSetting.mode
+    /// The agent's replies already in the chat when the call started: their cards are not the call's.
+    @State private var before: Set<String>?
 
     init(app: AppModel, returnToChat: @escaping () -> Void) {
         self.app = app; self.returnToChat = returnToChat
@@ -17,14 +19,16 @@ struct VoiceView: View {
     }
 
     var body: some View {
+        let shown = before.flatMap { VoiceCards.latest(in: app.transcript.messages, before: $0) }
         NavigationStack {
             GeometryReader { geometry in
                 ScrollView {
                     VStack(spacing: 0) {
                         agentContext.padding(.top, 8)
-                        Spacer(minLength: 24)
+                        Spacer(minLength: shown == nil ? 24 : 12)
+                        // A card on screen: the orb steps back to leave it room, and keeps showing who speaks.
                         VoicePresence(conversation: conversation)
-                            .frame(maxWidth: typeSize.isAccessibilitySize ? 200 : 330)
+                            .frame(maxWidth: shown != nil ? 150 : typeSize.isAccessibilitySize ? 200 : 330)
                             .aspectRatio(1, contentMode: .fit)
                             .padding(.bottom, 18)
                         VStack(spacing: 10) {
@@ -40,11 +44,13 @@ struct VoiceView: View {
                             }
                             if conversation.inputMuted || conversation.phase == .paused { microphoneState.padding(.top, 2) }
                         }.animation(.easeInOut(duration: 0.25), value: conversation.title)
+                        if let shown { VoiceCardsPanel(shown: shown).padding(.top, 22) }
                         if conversation.requiresStandardMode { standardModePrompt.padding(.top, 22) }
                         if let error = conversation.error { errorMessage(error).padding(.top, 20) }
                         else if let notice = conversation.notice { noticeMessage(notice).padding(.top, 20) }
                         Spacer(minLength: 24)
-                    }.padding(.horizontal, 26).padding(.bottom, 8)
+                    }.padding(.horizontal, shown == nil ? 26 : 16).padding(.bottom, 8)
+                        .animation(.spring(response: 0.45, dampingFraction: 0.86), value: shown?.messageID)
                         .frame(maxWidth: 620).frame(maxWidth: .infinity)
                         .frame(minHeight: geometry.size.height)
                 }.scrollIndicators(.hidden)
@@ -77,7 +83,11 @@ struct VoiceView: View {
             }
             // Like a phone call: the screen doesn't auto-lock, and locking it or leaving the app
             // keeps the call running in the background (UIBackgroundModes `audio`).
-            .task { startedAt = Date(); UIApplication.shared.isIdleTimerDisabled = true; conversation.start() }
+            .task {
+                startedAt = Date(); UIApplication.shared.isIdleTimerDisabled = true
+                if before == nil { before = VoiceCards.snapshot(app.transcript.messages) }
+                conversation.start()
+            }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false; conversation.pause() }
             .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { notification in
                 if (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue {
@@ -197,6 +207,28 @@ struct VoiceView: View {
             .frame(maxWidth: .infinity).barBackground()
     }
 
+}
+
+/// The cards of the agent's newest reply during the call, to look at while talking. Nothing here sends a message: a quick
+/// reply would land in the chat mid-call. A link opens in Safari and an event in Calendar; the call keeps running.
+private struct VoiceCardsPanel: View {
+    let shown: VoiceCards.Shown
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ForEach(Array(shown.cards.enumerated()), id: \.offset) { _, card in
+                RichCardView(json: card.json, complete: card.complete).equatable()
+            }
+        }
+        .id(shown.messageID)
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .environment(\.cardsInteractive, false)
+        .environment(\.chatReply, nil)
+        .environment(\.calendarEvent, nil)
+        .environment(\.openURL, OpenURLAction { _ in .systemAction })
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("voice-cards")
+    }
 }
 
 /// The call's orb, driven by the conversation (phase, mute, microphone level). Only this surface observes the level.

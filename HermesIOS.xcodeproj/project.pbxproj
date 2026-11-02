@@ -103,6 +103,7 @@
 		96BB901CF1D7F75F57E206A4 /* ChatTranscriptView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1B95AADFCA8B42EAEAAFECD /* ChatTranscriptView.swift */; };
 		9772E0457C80C9E24FB69D1B /* VoiceActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B1ABEA9AE1C021FC85A2204 /* VoiceActivity.swift */; };
 		97929EF5F7B7AAF45EE32EF9 /* WorkspaceFilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F836B8FAB56D3E5A0BBD6BD2 /* WorkspaceFilesView.swift */; };
+		9824D71EBABED3DE4F23C0DA /* VoiceCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89EE48329163EAD45DBC3865 /* VoiceCards.swift */; };
 		9874167913400E71562873FD /* WebRTC in Frameworks */ = {isa = PBXBuildFile; productRef = 0C286819D281C36E12B151EF /* WebRTC */; };
 		9D2AC977251215EF76407011 /* SkillEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDD3296733D90E0C59590E48 /* SkillEditorView.swift */; };
 		A126D118743D5F3FB318EC9F /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4FC914201C38D1A165638D /* ChatView.swift */; };
@@ -329,6 +330,7 @@
 		8659E5441FEDEAF35AA3E772 /* HermesIOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HermesIOS.entitlements; sourceTree = "<group>"; };
 		87974C486547A508B8622998 /* PhoneAudio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneAudio.swift; sourceTree = "<group>"; };
 		88CDF5DC1D8A5E35BD92E7BF /* PresenceBeacon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresenceBeacon.swift; sourceTree = "<group>"; };
+		89EE48329163EAD45DBC3865 /* VoiceCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCards.swift; sourceTree = "<group>"; };
 		8A63F8F4353EC7F32A9C2FF8 /* LiveActivities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivities.swift; sourceTree = "<group>"; };
 		8B989A6021842DF3745AC235 /* ChatComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatComposer.swift; sourceTree = "<group>"; };
 		92A2BB106302AD38E8FB4767 /* VoiceNoiseFloor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNoiseFloor.swift; sourceTree = "<group>"; };
@@ -697,6 +699,7 @@
 				0B1ABEA9AE1C021FC85A2204 /* VoiceActivity.swift */,
 				F4AB6902CDC3145E8E242E03 /* VoiceBandFilter.swift */,
 				BD8B320D314E6D15DCC251E2 /* VoiceBargeIn.swift */,
+				89EE48329163EAD45DBC3865 /* VoiceCards.swift */,
 				5FFBB999CB80F593A702DC86 /* VoiceLiveProtocol.swift */,
 				92A2BB106302AD38E8FB4767 /* VoiceNoiseFloor.swift */,
 				2FA5B594D96A6A55C14D98BA /* VoiceStreams.swift */,
@@ -1089,6 +1092,7 @@
 				F54AE1A9CC08DBFCBBFDE842 /* VoiceBandFilter.swift in Sources */,
 				CE079D497EBE915D4F454CF1 /* VoiceBargeIn.swift in Sources */,
 				0BED67CD4A587DA4DCD37D66 /* VoiceBench.swift in Sources */,
+				9824D71EBABED3DE4F23C0DA /* VoiceCards.swift in Sources */,
 				FF1E18FC1887E5EA90E89A5F /* VoiceConversation.swift in Sources */,
 				B2C665BB05FF342AF14A2213 /* VoiceDiagnostics.swift in Sources */,
 				5F43FC5FB21C3D63A134BB60 /* VoiceEnvironmentSettings.swift in Sources */,
