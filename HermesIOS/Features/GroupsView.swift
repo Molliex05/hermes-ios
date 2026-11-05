@@ -219,6 +219,53 @@ private struct GroupEditor: View {
     }
 }
 
+/// What every agent of the group reads before answering, and who picks up a message that names nobody (`groups.context`).
+private struct GroupContextEditor: View {
+    let model: GroupModel
+    let room: String
+    let members: [JSONValue]
+    @State private var purpose: String
+    @State private var notes: String
+    @State private var lead: String
+    @Environment(\.dismiss) private var dismiss
+
+    init(model: GroupModel, room: String, members: [JSONValue], context: JSONValue) {
+        self.model = model; self.room = room; self.members = members
+        _purpose = State(initialValue: context["purpose"].string); _notes = State(initialValue: context["notes"].string)
+        _lead = State(initialValue: context["routing"].string == "lead" ? context["lead_member_id"].string : "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section { TextField("Ex. : suivre les finances de Noriven", text: $purpose, axis: .vertical).lineLimit(1...4) }
+                header: { Text("But du groupe") } footer: { Text("Tous les agents le lisent avant de répondre.") }
+                Section("Notes partagées") { TextField("Ce qu’ils doivent garder en tête", text: $notes, axis: .vertical).lineLimit(3...10) }
+                Section {
+                    Picker("Sans @", selection: $lead) {
+                        Text("Tout le monde répond").tag("")
+                        ForEach(members, id: \.["member_id"].string) { Text("\($0["display_name"].string) répartit").tag($0["member_id"].string) }
+                    }
+                } footer: { Text("Qui prend un message qui ne nomme personne.") }
+                if let error = model.error { Text(error).font(.caption).foregroundStyle(AppTheme.accent) }
+            }.modernList().navigationTitle("But et notes").navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    AppToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }
+                    AppToolbarItem(placement: .confirmationAction) {
+                        Button("Enregistrer") {
+                            Task {
+                                let saved = await model.action("groups.context", room: room, params: [
+                                    "event_id": .string(UUID().uuidString), "purpose": .string(String(purpose.prefix(500))), "notes": .string(notes),
+                                    "routing": .string(lead.isEmpty ? "everyone" : "lead"), "lead_member_id": .string(lead)])
+                                if saved { dismiss() }
+                            }
+                        }.disabled(model.busy)
+                    }
+                }
+        }.presentationBackground(AppTheme.background)
+    }
+}
+
 private struct GroupChatView: View {
     @Bindable var model: GroupModel
     let room: JSONValue
@@ -227,6 +274,7 @@ private struct GroupChatView: View {
     @State private var renaming = false
     @State private var title = ""
     @State private var disbanding = false
+    @State private var editingContext = false
     @State private var retry: JSONValue?
     private var currentRoom: JSONValue { model.states[id]?["room"] ?? room }
     private var id: String { room["room_id"].string }
@@ -235,6 +283,9 @@ private struct GroupChatView: View {
             LazyVStack(alignment: .leading, spacing: 25) {
                 Text(room["members"].array.map { $0["display_name"].string.isEmpty ? $0["profile"].string : $0["display_name"].string }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+                if let purpose = model.states[id]?["context"]["purpose"].string, !purpose.isEmpty {
+                    Text(purpose).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+                }
                 ForEach(model.data.events[id] ?? [], id: \.["event_id"].string) { event in
                     if ["message.user", "message.member"].contains(event["kind"].string) {
                         let member = room["members"].array.first { $0["member_id"] == event["actor"]["id"] }
@@ -271,10 +322,14 @@ private struct GroupChatView: View {
             .toolbar { AppToolbarItem(placement: .primaryAction) {
                 AppMenu {
                     AppMenuButton("Arrêter les agents", systemImage: "stop.circle") { Task { await model.stop(id) } }
+                    AppMenuButton("But et notes", systemImage: "text.badge.star") { editingContext = true }
                     AppMenuButton("Renommer", systemImage: "pencil") { title = currentRoom["name"].string; renaming = true }
                     AppMenuButton("Dissoudre le groupe", systemImage: "trash", role: .destructive) { disbanding = true }
                 } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.disabled(model.busy)
             } }
+            .sheet(isPresented: $editingContext) {
+                GroupContextEditor(model: model, room: id, members: members, context: model.states[id]?["context"] ?? [:])
+            }
             .appAlert("Renommer le groupe", isPresented: $renaming) {
                 TextField("Nom", text: $title)
                 Button("Enregistrer") { Task { _ = await model.action("groups.rename", room: id, params: ["name": .string(title), "event_id": .string(UUID().uuidString)]) } }

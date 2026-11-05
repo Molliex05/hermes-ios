@@ -21,6 +21,14 @@ def _script(path: Path) -> Any:
     return module
 
 
+def read_noriven(root: Path, profile: str, agenda: Any, message_id: str, load: Callable[[Path], Any] = _script) -> dict:
+    """A Noriven message's whole text for its card, through the same agent access. Reading marks nothing as read."""
+    script = load(Path(root) / profile / NORIVEN_SCRIPT)
+    api = script.load_api(agenda.read_env(root, profile, script.KEYS))
+    message = api.request("GET", api.message_path(message_id))
+    return {"id": message_id, "texte": message.get("text") or "", "tronque": bool(message.get("truncated"))}
+
+
 def archive(root: Path, profile: str, agenda: Any, load: Callable[[Path], Any] = _script) -> int:
     """How many emails left the inbox. Gmail for a profile with Google, else the Noriven boxes."""
     folder = Path(root) / profile / "widgets" / "a_classer"

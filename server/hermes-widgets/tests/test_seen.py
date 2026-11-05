@@ -33,3 +33,14 @@ class Seen(unittest.TestCase):
             fake, asked = Script(), []
             self.assertEqual(seen.archive(self.root, "p", Agenda(google), load=lambda path: asked.append(path) or fake), 2)
             self.assertEqual(asked, [script]); self.assertEqual(fake.calls, [(api, self.folder)])
+
+    def test_a_noriven_message_reads_whole_without_being_marked_read(self):
+        asked = []
+        class Api:
+            def message_path(self, message_id): return "/m/" + message_id
+            def request(self, method, path, **kwargs): asked.append((method, path, kwargs)); return {"text": "Bonjour", "truncated": True, "from": "x"}
+        class Loaded(Script):
+            def load_api(self, env): return Api()
+        read = seen.read_noriven(self.root, "noriven", Agenda(False), "m1.a.b", load=lambda path: Loaded())
+        self.assertEqual(read, {"id": "m1.a.b", "texte": "Bonjour", "tronque": True})
+        self.assertEqual(asked, [("GET", "/m/m1.a.b", {})])

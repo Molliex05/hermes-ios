@@ -267,7 +267,7 @@ struct EmailMessageCard: View {
                 .background(AppTheme.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(AppTheme.line))
             }
-            if email.gmailURL != nil { EmailBodyReader(messageID: email.messageID) }
+            if !email.messageID.isEmpty { EmailBodyReader(messageID: email.messageID) }
             if email.hasAttachments {
                 FlowLayout(spacing: 6) {
                     ForEach(email.attachments) { file in
@@ -348,7 +348,7 @@ private struct EmailBodyReader: View {
                     .background(AppTheme.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(AppTheme.line))
                     .accessibilityIdentifier("email-body")
-                    if mail.truncated { Text("La suite est dans Gmail.").font(.caption).foregroundStyle(.secondary) }
+                    if mail.truncated { Text("Le courriel continue au-delà de ce qui s’affiche ici.").font(.caption).foregroundStyle(.secondary) }
                 }
             }
         }

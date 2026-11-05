@@ -136,7 +136,16 @@ def draft_send(profile: str, draft_id: str, payload: dict = Body(...)):
 
 @router.get("/messages/{profile}/{message_id}")
 def message_read(profile: str, message_id: str):
-    """A received Gmail message's whole text, for Maxime to read in its card."""
+    """A received message's whole text (Gmail, or Noriven's Polaris boxes for an `m1.` id), for Maxime to read in its card."""
+    if noriven_outbox.is_noriven(message_id):
+        root = Path(os.environ.get("HERMES_PROFILES_DIR", "/opt/data/profiles"))
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", profile or "") or not (root / profile).is_dir():
+            raise HTTPException(404, "Profil inconnu.")
+        try:
+            return seen_module.read_noriven(root, profile, agenda_module, message_id)
+        except Exception as error:
+            log.warning("Noriven message read failed (%s)", type(error).__name__)
+            raise HTTPException(502, "Le courriel n'a pas pu être lu.") from None
     root = _google_profile(profile)
     try:
         return outbox_module.read_message(agenda_module._google(root, profile), message_id)

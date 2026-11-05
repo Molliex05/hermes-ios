@@ -84,11 +84,11 @@ public struct OutboxDraft: Equatable, Sendable {
     }
 }
 
-/// A received Gmail message's whole text, read by the server for its card. Someone else's words: shown as plain text, and
+/// A received message's whole text (Gmail or a Noriven box), read by the server for its card. Someone else's words: shown as plain text, and
 /// never sent back to the agent.
 public struct MailBody: Equatable, Sendable {
     public let text: String
-    /// Longer than what the server sends: the rest is in Gmail.
+    /// Longer than what the server sends.
     public let truncated: Bool
 
     public init?(_ json: JSONValue, messageID: String) {
@@ -98,7 +98,7 @@ public struct MailBody: Equatable, Sendable {
     }
 
     public static func path(profile: String, messageID: String) -> String? {
-        guard profile.wholeMatch(of: /[a-z0-9][a-z0-9_-]{0,63}/) != nil, MailID.validMessage(messageID), !MailID.isNoriven(messageID) else { return nil }
+        guard profile.wholeMatch(of: /[a-z0-9][a-z0-9_-]{0,63}/) != nil, MailID.validMessage(messageID) else { return nil }
         return "/api/plugins/hermes-widgets/messages/\(profile)/\(messageID)"
     }
 }

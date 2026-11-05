@@ -17,7 +17,7 @@ final class MailIDTests: XCTestCase {
 
     func testOnlyAGmailMessageOfThatIdReadsAsAWholeBody() {
         XCTAssertEqual(MailBody.path(profile: "personnel", messageID: "18f2a9c0d1e2"), "/api/plugins/hermes-widgets/messages/personnel/18f2a9c0d1e2")
-        XCTAssertNil(MailBody.path(profile: "personnel", messageID: noriven), "a Noriven message has no Gmail body")
+        XCTAssertEqual(MailBody.path(profile: "noriven", messageID: noriven), "/api/plugins/hermes-widgets/messages/noriven/\(noriven)")
         XCTAssertNil(MailBody.path(profile: "personnel", messageID: "../admin"))
         XCTAssertNil(MailBody.path(profile: "../x", messageID: "18f2a9c0d1e2"))
         let read = MailBody(.object(["id": .string("18f2a9c0d1e2"), "texte": .string("  Bonjour\n"), "tronque": .bool(true)]), messageID: "18f2a9c0d1e2")
