@@ -270,7 +270,7 @@ private struct GroupChatView: View {
                 Button("Dissoudre", role: .destructive) { Task { if await model.action("groups.disband", room: id, params: ["cancel_id": .string(UUID().uuidString)]) { dismiss() } } }
             } message: { Text("Hermes arrêtera les agents et fermera ce groupe pour tous ses membres.") }
             .appConfirm("Réessayer cette tâche ?", isPresented: Binding(get: { retry != nil }, set: { if !$0 { retry = nil } })) {
-                Button("Réessayer") { guard let action = retry else { return }; retry = nil; Task { _ = await model.action("groups.retry", room: id, params: ["task_id": action["task_id"]]) } }
+                Button("Réessayer") { guard let action = retry else { return }; retry = nil; Task { _ = await model.action("groups.retry", room: id, params: ["task_id": action["task_id"], "member_id": action["member_id"], "execution_generation": action["execution_generation"]]) } }
             } message: { Text("Le résultat de l’exécution précédente est incertain. Une nouvelle tentative peut répéter ses actions.") }
             .safeAreaInset(edge: .bottom) { composer }
             .environment(\.chatReply, ChatReplyAction { text in
