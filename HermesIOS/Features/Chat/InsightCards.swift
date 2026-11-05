@@ -2,7 +2,7 @@ import Charts
 import MapKit
 import SwiftUI
 
-/// Cards for what the agents read from Noriven, Noryv and the agenda: a chart, goals, a list of rows, a day, a workout
+/// Cards for what the agents read from Noriven and the agenda: a chart, goals, a list of rows, a day, a workout
 /// and a run on a map. Same surfaces and type as `RichCards`.
 
 // MARK: - Shared pieces
@@ -500,7 +500,7 @@ private struct FreeTime: View {
     }
 }
 
-// MARK: - Workout (Noryv)
+// MARK: - Workout
 
 struct WorkoutCard: View {
     let workout: ChatCard.Workout
@@ -596,7 +596,7 @@ private struct ExerciseRow: View {
     }
 }
 
-// MARK: - A run on the map (Noryv cardio)
+// MARK: - A run on the map
 
 struct RouteCard: View {
     let route: ChatCard.Route

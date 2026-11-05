@@ -18,7 +18,7 @@ from pathlib import Path
 sys.path.insert(0, "/opt/hermes")
 from tools.transcription_tools import _dispatch_stt_provider  # noqa: E402
 
-PROMPT = ("Conversation en français canadien (Québec). Noms propres possibles : Noriven, Glutax, Minori, Noryv, Hermès, "
+PROMPT = ("Conversation en français canadien (Québec). Noms propres possibles : Noriven, Glutax, Minori, Liftual, Hermès, "
           "Jarvis, Saint-Constant, MRR, Gemini, Open-Meteo, Tailscale, Supabase, RevenueCat.")
 NAMES = ["noriven", "glutax", "minori", "hermes", "jarvis", "saint-constant", "mrr", "app store", "apple intelligence"]
 

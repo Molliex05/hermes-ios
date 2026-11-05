@@ -19,7 +19,7 @@ public struct Transcript: Sendable {
             let parts = mcpParts
             return parts.count > 1 ? parts.dropFirst().joined(separator: "__") : name
         }
-        /// The MCP server a tool comes from (noriven, noryv, memoire), empty for built-in tools.
+        /// The MCP server a tool comes from (noriven, memoire), empty for built-in tools.
         public var server: String {
             let parts = mcpParts
             return parts.count > 1 ? parts[0] : ""
