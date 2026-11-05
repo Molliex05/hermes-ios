@@ -78,7 +78,7 @@ struct ChatComposer: View, Equatable {
             if model.onBotChat, model.draft.hasSuffix("@") {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(model.profiles.filter { $0.name != model.chatProfile }) { agent in
+                        ForEach(model.visibleBots.filter { $0.name != model.chatProfile }) { agent in
                             Button { model.draft += agent.name + " " } label: {
                                 HStack(spacing: 7) { AgentAvatar(name: agent.name, size: 24); Text(agent.title).font(.caption) }
                                     .padding(8).background(AppTheme.surface, in: Capsule())

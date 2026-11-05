@@ -180,7 +180,7 @@ private struct GroupEditor: View {
             Form {
                 TextField("Nom du groupe", text: $name)
                 Section("De 2 à 6 agents") {
-                    ForEach(model.app.profiles) { agent in
+                    ForEach(model.app.visibleBots) { agent in
                         Toggle(agent.title, isOn: Binding(get: { members.contains(agent.name) }, set: { enabled in
                             if enabled { members.insert(agent.name) } else { members.remove(agent.name) }
                         }))
@@ -194,7 +194,7 @@ private struct GroupEditor: View {
                         Button("Créer") {
                             busy = true
                             Task {
-                                do { try await model.create(name: name, members: model.app.profiles.filter { members.contains($0.name) }, id: roomID); dismiss() }
+                                do { try await model.create(name: name, members: model.app.visibleBots.filter { members.contains($0.name) }, id: roomID); dismiss() }
                                 catch { self.error = error.localizedDescription }
                                 busy = false
                             }
