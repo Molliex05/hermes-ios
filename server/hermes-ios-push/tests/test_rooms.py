@@ -30,25 +30,34 @@ class Store:
 class GroupNotifications(unittest.TestCase):
     def test_a_room_seen_for_the_first_time_brings_back_nothing(self):
         store = Store()
-        service.scan_rooms(store, Rooms([member(1, "noriven", "Salut"), settled(2)]))
+        service.scan_rooms(store, Rooms([member(1, "noriven", "Salut"), settled(2)]), ["db"])
         self.assertEqual(store.sent, []); self.assertEqual(store.cursors["ROOM-1"], 2)
 
     def test_a_discussion_is_told_once_when_it_settles(self):
         store = Store(); store.cursors["ROOM-1"] = 0
         rooms = Rooms([member(1, "noriven", "Bonjour"), member(2, "personnel", "Salut Hermès")])
-        service.scan_rooms(store, rooms)
+        service.scan_rooms(store, rooms, ["db"])
         self.assertEqual(store.sent, [], "still talking: nothing yet")
         rooms.events.append(settled(3))
-        service.scan_rooms(store, rooms); service.scan_rooms(store, rooms)
+        service.scan_rooms(store, rooms, ["db"]); service.scan_rooms(store, rooms, ["db"])
         self.assertEqual(len(store.sent), 1)
         _, profile, session, kind, content = store.sent[0]
         self.assertEqual((profile, session, kind), ("personnel", "ROOM-1", "room"))
         self.assertEqual(content["agent"], "Hermès et Jarvis"); self.assertEqual(content["conversation"], "Test")
         self.assertEqual(content["preview"], "Salut Hermès")
 
+    def test_one_unreadable_store_does_not_hide_the_other(self):
+        class Broken(Rooms):
+            def list_rooms(self, path):
+                if path == "bad": raise OSError("no such table")
+                return super().list_rooms(path)
+        store = Store(); store.cursors["ROOM-1"] = 0
+        service.scan_rooms(store, Broken([member(1, "noriven", "Bonjour"), settled(2)]), ["bad", "db"])
+        self.assertEqual(len(store.sent), 1)
+
     def test_a_silent_round_says_nothing(self):
         store = Store(); store.cursors["ROOM-1"] = 0
-        service.scan_rooms(store, Rooms([member(1, "noriven", "(pass)"), settled(2, "bounded")]))
+        service.scan_rooms(store, Rooms([member(1, "noriven", "(pass)"), settled(2, "bounded")]), ["db"])
         self.assertEqual(store.sent, []); self.assertEqual(store.cursors["ROOM-1"], 2)
 
     def test_a_group_alert_opens_the_group_and_offers_no_reply(self):

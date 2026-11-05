@@ -765,11 +765,25 @@ def room_note(room, events):
                         "preview": make_preview(spoke[-1]["payload"].get("text"))}}
 
 
-def scan_rooms(store, rooms=None):
+def room_stores(rooms):
+    """Where groups live: the gateway serving the profiles keeps them in its own `state.db`; `shared-state.db` holds those of a
+    standalone backend. Both are read, a room being in one or the other."""
+    from hermes_constants import get_hermes_home
+    return [Path(get_hermes_home()) / "state.db", rooms.default_db_path()]
+
+
+def scan_rooms(store, rooms=None, paths=None):
     """One worker pass over the groups' logs. A room seen for the first time starts from now: no old discussion comes back."""
     if rooms is None:
         from gateway import hosted_rooms as rooms
-    path = rooms.default_db_path()
+    for path in paths or room_stores(rooms):
+        try:
+            scan_room_store(store, rooms, path)
+        except Exception as error:
+            log.warning("Group log unreadable (%s)", type(error).__name__)
+
+
+def scan_room_store(store, rooms, path):
     for room in rooms.list_rooms(path):
         room_id = room["room_id"]
         seen = store.room_cursor(room_id)
