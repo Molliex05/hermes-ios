@@ -635,6 +635,13 @@ final class VoiceConversation {
         if let utterance = capture {
             utterance.elapsed += frame.duration
             if utterance.tentative, utterance.elapsed >= Self.bargeListenLimit { dropCapture(); return }
+            if utterance.transcriber?.alive == true {
+                switch utterance.pace.verdict(at: frame.time, elapsed: utterance.elapsed) {
+                case .finished: endUtterance(); return
+                case .nothingSaid: dropCapture(); return
+                case .listening: break
+                }
+            }
             if utterance.activity.sample(detection(frame)) || utterance.elapsed >= preferences.maxRecordingSeconds { endUtterance() }
             return
         }
@@ -665,6 +672,7 @@ final class VoiceConversation {
             guard let self, self.generation == attempt else { return }
             if !text.isEmpty { VoiceMetrics.shared.mark(.sttPartial) }
             self.partial = text
+            self.capture?.pace.heard(text, at: ProcessInfo.processInfo.systemUptime)
             self.weighPartial(text)
         }
         let utterance = Utterance(activity: VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.endpointSilence,
@@ -1110,6 +1118,7 @@ private final class Utterance {
     var tentative = false
     /// A partial is being compared with what the agent said.
     var weighing = false
+    var pace = VoiceWordPace()
     /// Words already transcribed while confirming a barge-in: the request loop does not transcribe them again.
     var heard: String?
     /// Reply text playing when a barge-in started (echo guard).
