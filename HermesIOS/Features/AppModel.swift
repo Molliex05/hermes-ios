@@ -885,7 +885,11 @@ final class AppModel {
         chatError = nil
         do {
             let result = try await socket.call("prompt.submit", VoiceLiveProtocol.prompt(runtime: runtime, text: text, context: nil, queued: true))
-            guard let index = transcript.queued.firstIndex(where: { $0.id == message.id }) else { return }
+            guard let index = transcript.queued.firstIndex(where: { $0.id == message.id }) else {
+                // The reply ended before this answer: the message has already taken its place in the conversation.
+                if let settled = transcript.messages.firstIndex(where: { $0.id == message.id }) { transcript.messages[settled].delivery = .confirmed }
+                return
+            }
             transcript.queued[index].delivery = .confirmed
             // The reply ended just before this arrived: Hermes started it at once.
             if result["status"].string != "queued" { transcript.drainQueued(); transcript.running = true }

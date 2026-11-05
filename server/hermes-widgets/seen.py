@@ -1,13 +1,18 @@
 """« Vu » on the widget archives its emails at once. The mail watchers that used to do it no longer run: they read the boxes
 every 5 minutes, which is what Maxime wanted gone. The archiving itself stays theirs (`archive_seen`, in each mail plugin), and
-a « Vu » that fails stays in `widgets/a_classer` for the next one, a week at most. Never trash, never delete.
+a « Vu » that fails stays in `widgets/a_classer` and is tried again when the widget next refreshes (`retry`), a week at most.
+Never trash, never delete.
 """
 from __future__ import annotations
 
 import importlib.util
+import logging
 import os
+import threading
 from pathlib import Path
 from typing import Any, Callable
+
+log = logging.getLogger("hermes_widgets")
 
 PLUGINS = Path(os.environ.get("HERMES_PLUGINS_DIR", "/opt/data/plugins"))
 GMAIL_SCRIPT = PLUGINS / "hermes-google-lite" / "scripts" / "jarvis_courriels.py"
@@ -19,6 +24,25 @@ def _script(path: Path) -> Any:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+_retrying = threading.Lock()
+
+
+def retry(root: Path, agenda: Any, load: Callable[[Path], Any] = _script) -> int:
+    """Every profile's « Vu » still waiting; only one pass at a time, and none at all when nothing waits."""
+    if not _retrying.acquire(blocking=False):
+        return 0
+    try:
+        done = 0
+        for folder in sorted(Path(root).glob("*/widgets/a_classer")):
+            try:
+                done += archive(root, folder.parent.parent.name, agenda, load)
+            except Exception as error:
+                log.warning("Seen emails not archived (%s)", type(error).__name__)
+        return done
+    finally:
+        _retrying.release()
 
 
 def read_noriven(root: Path, profile: str, agenda: Any, message_id: str, load: Callable[[Path], Any] = _script) -> dict:

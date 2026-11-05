@@ -151,7 +151,7 @@ struct ChatView: View {
                 if sheet != .voice { present(.voice) }
             }
             .onChange(of: sheet) { _, _ in updateVisibility() }
-            .onChange(of: model.roomRequest) { _, room in if room != nil, sheet != .groups { present(.groups) } }
+            .onChange(of: model.roomRequest, initial: true) { _, room in if room != nil, sheet != .groups { present(.groups) } }
             .onChange(of: webPage) { _, _ in updateVisibility() }
             .onChange(of: eventPage?.id) { _, _ in updateVisibility() }
             .onChange(of: bottomVisible) { _, _ in updateVisibility() }

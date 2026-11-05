@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import sys
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException
@@ -64,7 +65,11 @@ async def get_snapshot():
 def get_board():
     """Every agent's « À l'affiche » board (written by the agents themselves) and, for profiles with Google, the next events
     straight from the calendar, the weather of the place, and the blocks each agent composed the widget with, for the iPhone
-    widget. A plain `def`: the Google and weather calls block, FastAPI runs it in a thread."""
+    widget. A plain `def`: the Google and weather calls block, FastAPI runs it in a thread. The refresh is also when a « Vu »
+    whose archiving failed gets another try, on the side: the widget does not wait for it."""
+    root = Path(os.environ.get("HERMES_PROFILES_DIR", "/opt/data/profiles"))
+    if any(root.glob("*/widgets/a_classer/*.json")):
+        threading.Thread(target=seen_module.retry, args=(root, agenda_module), daemon=True).start()
     return blocks_module.with_blocks(weather_module.with_weather(board_module.with_agendas(board_module.load_all(), source=agenda_module.upcoming)))
 
 

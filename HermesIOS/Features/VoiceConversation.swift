@@ -636,11 +636,7 @@ final class VoiceConversation {
             utterance.elapsed += frame.duration
             if utterance.tentative, utterance.elapsed >= Self.bargeListenLimit { dropCapture(); return }
             if utterance.transcriber?.alive == true {
-                switch utterance.pace.verdict(at: frame.time, elapsed: utterance.elapsed) {
-                case .finished: endUtterance(); return
-                case .nothingSaid: dropCapture(); return
-                case .listening: break
-                }
+                if utterance.pace.verdict(at: frame.time, elapsed: utterance.elapsed, noisy: noisyPlace) != .listening { endUtterance(); return }
             }
             if utterance.activity.sample(detection(frame)) || utterance.elapsed >= preferences.maxRecordingSeconds { endUtterance() }
             return
@@ -789,7 +785,9 @@ final class VoiceConversation {
     /// It was not someone speaking: the agent's voice comes back up, and a new sound can be weighed again.
     private func releaseDuck() {
         audio.duckPlayback(false); partial = ""
-        if phase == .listening || phase == .transcribing { phase = audio.playing || speechStream.hasAudio ? .speaking : .thinking }
+        if phase == .listening || phase == .transcribing {
+            phase = !turnActive ? .listening : audio.playing || speechStream.hasAudio ? .speaking : .thinking
+        }
         if turnActive { barge = makeBarge(preferences); bargeRearmAt = ProcessInfo.processInfo.systemUptime + Self.bargeRearmDelay }
     }
 

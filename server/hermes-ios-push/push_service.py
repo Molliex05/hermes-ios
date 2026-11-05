@@ -787,6 +787,8 @@ def scan_room_store(store, rooms, path):
     for room in rooms.list_rooms(path):
         room_id = room["room_id"]
         seen = store.room_cursor(room_id)
+        if seen is not None and room.get("latest_seq") == seen:
+            continue                        # nothing new: the log is not read again
         page = rooms.read_events(path, room_id=room_id, since_seq=seen or 0, limit=ROOM_PAGE)
         if seen is None:
             store.set_room_cursor(room_id, page["latest_seq"])
@@ -811,8 +813,12 @@ def on_room_member_activity(*, room_id="", member_id="", kind="", task_id="", ex
     if kind != "request.opened" or not room_id or not member_id:
         return
     try:
+        from gateway import hosted_rooms
         from hermes_constants import get_hermes_home
-        content = {"agent": agent_display_name(get_hermes_home(), member_id), "conversation": "Groupe",
+        home = Path(get_hermes_home())
+        root = home.parent.parent if home.parent.name == "profiles" else home
+        named = [room.get("name") for path in room_stores(hosted_rooms) for room in hosted_rooms.list_rooms(path) if room["room_id"] == room_id]
+        content = {"agent": agent_display_name(root / "profiles" / member_id, member_id), "conversation": (named or ["Groupe"])[0],
                    "preview": "Attend ton autorisation pour continuer."}
         event = str(uuid.uuid5(uuid.NAMESPACE_URL, f"hermes-ios:room:{room_id}:{task_id}:{execution_generation}"))
         Store().enqueue(event, member_id, room_id, ROOM_KIND, content)

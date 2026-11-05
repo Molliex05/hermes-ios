@@ -44,3 +44,15 @@ class Seen(unittest.TestCase):
         read = seen.read_noriven(self.root, "noriven", Agenda(False), "m1.a.b", load=lambda path: Loaded())
         self.assertEqual(read, {"id": "m1.a.b", "texte": "Bonjour", "tronque": True})
         self.assertEqual(asked, [("GET", "/m/m1.a.b", {})])
+
+    def test_a_failed_seen_is_tried_again_and_one_bad_profile_does_not_stop_the_others(self):
+        self.folder.mkdir(parents=True); (self.folder / "1.json").write_text("{}")
+        other = self.root / "q" / "widgets" / "a_classer"; other.mkdir(parents=True); (other / "1.json").write_text("{}")
+        fake = Script()
+        class Half(Agenda):
+            def has_google(self, root, profile):
+                if profile == "p": raise OSError("env unreadable")
+                return True
+        self.assertEqual(seen.retry(self.root, Half(True), load=lambda path: fake), 2)
+        self.assertEqual(fake.calls, [("gmail", other)])
+

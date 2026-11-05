@@ -30,14 +30,14 @@ private final class GroupModel {
             await refreshStates()
         } catch { self.error = error.localizedDescription }
     }
-    /// What the list shows: which rooms are waiting for an answer.
+    /// What the list shows: each room's last message, and which are waiting for an answer.
     func refreshStates() async {
-        for room in data.rooms.map({ $0["room_id"].string }) { states[room] = try? await call("groups.state", ["room_id": .string(room)]) }
+        for room in data.rooms.map({ $0["room_id"].string }) { await refresh(room) }
     }
     func waiting(_ room: String) -> Bool {
-        !(states[room]?["driver_status"]["pending_actions"].array ?? []).isEmpty
-            || (data.events[room]?.last { $0["kind"].string == "message.member" }?["payload"]["text"].string.contains("@user") ?? false)
-                && data.events[room]?.last?["kind"].string == "message.member"
+        if !(states[room]?["driver_status"]["pending_actions"].array ?? []).isEmpty { return true }
+        guard let last = data.events[room]?.last(where: { ["message.user", "message.member"].contains($0["kind"].string) }) else { return false }
+        return last["kind"].string == "message.member" && last["payload"]["text"].string.contains("@user")
     }
     func working(_ room: String) -> Bool { states[room]?["driver_status"]["working"].bool ?? false }
     func preview(_ room: String) -> String? {
@@ -166,6 +166,7 @@ struct GroupsView: View {
             }
             .task { if model == nil { let m = GroupModel(app: app, connectionID: connectionID); model = m; await m.boot() }; booting = false; openRequested() }
             .onChange(of: app.roomRequest) { _, _ in openRequested() }
+            .onAppear { if let model, !booting { Task { await model.refreshStates() } } }
             .navigationDestination(isPresented: Binding(get: { requested != nil }, set: { if !$0 { requested = nil } })) {
                 if let model, let requested { GroupChatView(model: model, room: requested) }
             }

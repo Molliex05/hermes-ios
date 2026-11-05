@@ -55,6 +55,14 @@ class GroupNotifications(unittest.TestCase):
         service.scan_rooms(store, Broken([member(1, "noriven", "Bonjour"), settled(2)]), ["bad", "db"])
         self.assertEqual(len(store.sent), 1)
 
+    def test_an_idle_room_is_not_read_again(self):
+        class Idle(Rooms):
+            room = {**Rooms.room, "latest_seq": 2}
+            def read_events(self, *args, **kwargs): raise AssertionError("no read for an idle room")
+        store = Store(); store.cursors["ROOM-1"] = 2
+        service.scan_rooms(store, Idle([]), ["db"])
+        self.assertEqual(store.sent, [])
+
     def test_a_silent_round_says_nothing(self):
         store = Store(); store.cursors["ROOM-1"] = 0
         service.scan_rooms(store, Rooms([member(1, "noriven", "(pass)"), settled(2, "bounded")]), ["db"])

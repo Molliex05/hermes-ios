@@ -86,11 +86,14 @@ struct VoiceActivity {
 
 /// End of speech read from the words themselves, for when the level cannot show it: on the road the noise never falls to a
 /// silence, and a sentence of 5 s took 12 s to end. The live transcription streams words as they are said, so words that have
-/// stopped coming mean the person has stopped, and a long sound that gives no word at all was not someone speaking.
+/// stopped coming mean the person has stopped, and a long sound that gives no word at all is ended and left to the final transcription, which says whether anyone spoke.
 struct VoiceWordPace {
     enum Verdict: Equatable { case listening, finished, nothingSaid }
     /// Words arrive about a second after they are said: this leaves room for a pause in the middle of a sentence.
     static let pause = 1.8
+    /// Where the level can show a silence, it decides: the words only step in if it never does, and a network stall must not
+    /// cut someone who is still talking.
+    static let quietPause = 4.0
     /// The slowest first words measured on the road took 6.3 s.
     static let firstWordsLimit = 8.0
     private var text = ""
@@ -101,8 +104,8 @@ struct VoiceWordPace {
         text = words; lastWordsAt = time
     }
 
-    func verdict(at time: Double, elapsed: Double) -> Verdict {
-        if let lastWordsAt { return time - lastWordsAt >= Self.pause ? .finished : .listening }
+    func verdict(at time: Double, elapsed: Double, noisy: Bool) -> Verdict {
+        if let lastWordsAt { return time - lastWordsAt >= (noisy ? Self.pause : Self.quietPause) ? .finished : .listening }
         return elapsed >= Self.firstWordsLimit ? .nothingSaid : .listening
     }
 }
