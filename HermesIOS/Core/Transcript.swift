@@ -2,6 +2,15 @@ import Foundation
 
 /// A display projection only. Hermes owns messages, context, memory and execution.
 public struct Transcript: Sendable {
+    /// Messages written while the agent answers: Hermes holds them and runs them after the reply. They wait below it, in order.
+    public var queued: [ChatMessage] = []
+    /// The reply ended: the next waiting message takes its place in the conversation, unless a history refresh already brought it.
+    public mutating func drainQueued() {
+        guard !queued.isEmpty else { return }
+        let next = queued.removeFirst()
+        if !messages.suffix(8).contains(where: { $0.role == "user" && $0.text == next.text }) { messages.append(next) }
+    }
+
     public struct ToolStep: Identifiable, Equatable, Sendable {
         public enum State: Sendable { case running, completed, stopped }
         public var id: String
@@ -156,6 +165,7 @@ public struct Transcript: Sendable {
                 messages[index].streaming = false
             } else if !text.isEmpty { messages.append(.init(role: "assistant", text: text)) }
         case "message.complete":
+            defer { drainQueued() }
             let text = p["text"].string
             if let index = messages.lastIndex(where: { $0.streaming }) {
                 let interrupted = ["error", "interrupted", "cancelled"].contains(p["status"].string)

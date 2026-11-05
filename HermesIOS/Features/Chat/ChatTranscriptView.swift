@@ -45,6 +45,12 @@ struct ChatTranscriptView: View {
                     // lazy stack keep this row once the message settles into the history, and
                     // a completed turn recovered in one batch would stay at its first token.
                     if let live { MessageView(message: live, agent: agent).equatable().id("live:" + live.id).environment(\.cardsInteractive, true) }
+                    ForEach(transcript.queued) { message in
+                        VStack(alignment: .trailing, spacing: 6) {
+                            MessageView(message: ChatMessage(id: message.id, role: "user", text: message.text), agent: agent).equatable()
+                            Text(message.delivery == .sending ? "Envoi…" : "Passera après cette réponse").font(.caption2).foregroundStyle(.secondary)
+                        }.frame(maxWidth: .infinity, alignment: .trailing).accessibilityIdentifier("queued-message")
+                    }
                     if let activity = transcript.activity, transcript.running {
                         ActivityRow(
                             title: transcript.activityLabel ?? activity,

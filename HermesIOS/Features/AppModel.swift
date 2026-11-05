@@ -123,6 +123,10 @@ final class AppModel {
     var sending = false
     /// Changes when the chat should put the cursor in the composer (a notification opened the conversation).
     var composerFocusRequest = UUID()
+    /// A group to open, from a notification.
+    var roomRequest: String?
+    /// The group on screen: its notifications stay quiet, like a conversation's.
+    var openRoomID: String? { didSet { refreshPresence() } }
     var demo = false
     var hasBooted = false
     /// True until the saved connections are read: no onboarding flash on a cold start.
@@ -387,6 +391,7 @@ final class AppModel {
         if activeConnection?.id != connection.id { await activate(connection) }
         guard !Task.isCancelled, PushNotifications.shared.pendingTarget == target else { return }
         navigationRevision = UUID()
+        if target.opensRoom { roomRequest = target.sessionID; PushNotifications.shared.opened(target); return }
         guard target.opensConversation else { await openNotifiedAgent(target); return }
         let row: JSONValue = ["id": .string(target.sessionID), "title": "Conversation"]
         await openConversation(Conversation(row, profile: target.profile))
@@ -860,6 +865,34 @@ final class AppModel {
         catch {
             if (error as? RPCFailure)?.sessionOwnedElsewhere == true || error.localizedDescription == RPCFailure.ownershipMessage { notice = error.localizedDescription }
             else { chatError = error.localizedDescription }
+        }
+    }
+
+    /// A second message can go while the agent answers: plain text only, since files and commands need their own turn.
+    var canQueue: Bool {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return transcript.running && !text.isEmpty && attachments.isEmpty && !importingAttachments && !voiceActive && state == .connected && !opening && !sending
+            && !demo && SlashInput(text) == nil && !(selected?.runtimeID.isEmpty ?? true)
+    }
+
+    /// Hermes' native queue: the message runs after the reply, never as an interruption of it (`queued`, not `display.busy_input_mode`).
+    func sendQueued() async {
+        guard canQueue, let socket, let runtime = selected?.runtimeID else { return }
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines), key = draftKey
+        let message = ChatMessage(role: "user", text: text, delivery: .sending)
+        transcript.queued.append(message)
+        draft = ""; workspace.drafts[key] = ""
+        chatError = nil
+        do {
+            let result = try await socket.call("prompt.submit", VoiceLiveProtocol.prompt(runtime: runtime, text: text, context: nil, queued: true))
+            guard let index = transcript.queued.firstIndex(where: { $0.id == message.id }) else { return }
+            transcript.queued[index].delivery = .confirmed
+            // The reply ended just before this arrived: Hermes started it at once.
+            if result["status"].string != "queued" { transcript.drainQueued(); transcript.running = true }
+        } catch {
+            transcript.queued.removeAll { $0.id == message.id }
+            if draft.isEmpty, draftKey == key { draft = text }
+            chatError = error.localizedDescription
         }
     }
 
@@ -1434,7 +1467,10 @@ final class AppModel {
     /// Presence follows the conversation on screen, or the voice call (which also runs in the background).
     private func refreshPresence() {
         var target: PresenceBeacon.Target?
-        if !demo, let connection = activeConnection, let selected, http != nil, state == .connected,
+        if !demo, let connection = activeConnection, let room = openRoomID, http != nil, state == .connected,
+           PushNotifications.shared.enabled.contains(connection.id), foreground {
+            target = .init(connectionID: connection.id, profile: profile, sessionID: room)
+        } else if !demo, let connection = activeConnection, let selected, http != nil, state == .connected,
            PushNotifications.shared.enabled.contains(connection.id), voiceActive || (foreground && chatVisible) {
             target = .init(connectionID: connection.id, profile: selected.profile, sessionID: selected.storedID)
         }

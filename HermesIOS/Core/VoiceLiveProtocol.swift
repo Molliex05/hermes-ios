@@ -5,7 +5,7 @@ enum VoiceLiveProtocol {
     /// `voiceTurn` routes a spoken chained turn to Hermes' `auxiliary.voice_chat` model.
     /// GPT-Live delegations are not voice turns: the live model already owns the voice layer.
     /// `interrupted` tells the model its previous reply was cut off by the user (barge-in).
-    static func prompt(runtime: String, text: String, context: String?, voiceTurn: Bool = false, interrupted: Bool = false) -> JSONValue {
+    static func prompt(runtime: String, text: String, context: String?, voiceTurn: Bool = false, interrupted: Bool = false, queued: Bool = false) -> JSONValue {
         var body: [String: JSONValue] = ["session_id": .string(runtime), "text": .string(text)]
         if let context {
             body["surface"] = "voice-live"
@@ -14,6 +14,7 @@ enum VoiceLiveProtocol {
             body["voice_turn"] = true
         }
         if interrupted { body["interrupted"] = true }
+        if queued { body["queued"] = true }
         return .object(body)
     }
 

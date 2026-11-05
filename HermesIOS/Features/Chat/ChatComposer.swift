@@ -4,6 +4,8 @@ import SwiftUI
 struct ComposerState: Equatable {
     var running = false
     var canSend = false
+    /// A second message can go while the agent answers: the button sends instead of stopping.
+    var canQueue = false
     var sending = false
     var importing = false
     var attachments: [DraftAttachment] = []
@@ -17,7 +19,7 @@ struct ComposerState: Equatable {
     var focused = false
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.running == rhs.running && lhs.canSend == rhs.canSend && lhs.sending == rhs.sending
+        lhs.running == rhs.running && lhs.canSend == rhs.canSend && lhs.canQueue == rhs.canQueue && lhs.sending == rhs.sending
             && lhs.importing == rhs.importing && lhs.chatError == rhs.chatError && lhs.hasUnread == rhs.hasUnread
             && lhs.agentName == rhs.agentName && lhs.agentTitle == rhs.agentTitle
             && lhs.voiceDisabled == rhs.voiceDisabled && lhs.attachDisabled == rhs.attachDisabled && lhs.attachOpen == rhs.attachOpen && lhs.focused == rhs.focused
@@ -41,6 +43,7 @@ struct ChatComposerContainer: View {
         let state = ComposerState(
             running: running,
             canSend: model.canSend,
+            canQueue: model.canQueue,
             sending: model.sending,
             importing: model.importingAttachments,
             attachments: attachments,
@@ -172,17 +175,18 @@ struct ChatComposer: View, Equatable {
         Button {
             Task {
                 // Read live state at tap time rather than the last rendered value.
-                if model.transcript.running { await model.interrupt() }
+                if model.canQueue { Haptics.send(); willSend(); await model.sendQueued() }
+                else if model.transcript.running { await model.interrupt() }
                 else { Haptics.send(); willSend(); await model.send() }
             }
         } label: {
-            Image(systemName: state.running ? "stop.fill" : "arrow.up")
-                .font(.system(size: state.running ? 13 : 18, weight: .semibold))
+            Image(systemName: state.running && !state.canQueue ? "stop.fill" : "arrow.up")
+                .font(.system(size: state.running && !state.canQueue ? 13 : 18, weight: .semibold))
                 .foregroundStyle(.white).frame(width: 40, height: 40)
                 .background(state.canSend || state.running ? AppTheme.accent : Color.secondary.opacity(0.28), in: Circle())
                 .frame(width: 44, height: 44).contentShape(Rectangle())
         }.buttonStyle(.plain).disabled(!state.canSend && !state.running)
-            .accessibilityLabel(state.running ? "Arrêter la réponse" : "Envoyer")
+            .accessibilityLabel(state.running && !state.canQueue ? "Arrêter la réponse" : "Envoyer")
             .accessibilityIdentifier("send-message")
     }
 }

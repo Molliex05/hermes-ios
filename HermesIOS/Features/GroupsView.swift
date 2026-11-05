@@ -130,6 +130,8 @@ struct GroupsView: View {
     @State private var model: GroupModel?
     @State private var creating = false
     @State private var booting = true
+    /// The group a notification asked for.
+    @State private var requested: JSONValue?
     var body: some View {
         List {
             AppIntro("Plusieurs regards, une seule conversation. Hermes orchestre les agents sur votre serveur.")
@@ -162,8 +164,20 @@ struct GroupsView: View {
             .toolbar {
                 AppToolbarItem(placement: .primaryAction) { Button("Nouveau groupe", systemImage: "plus") { creating = true }.disabled(model?.supported != true) }
             }
-            .task { if model == nil { let m = GroupModel(app: app, connectionID: connectionID); model = m; await m.boot() }; booting = false }
+            .task { if model == nil { let m = GroupModel(app: app, connectionID: connectionID); model = m; await m.boot() }; booting = false; openRequested() }
+            .onChange(of: app.roomRequest) { _, _ in openRequested() }
+            .navigationDestination(isPresented: Binding(get: { requested != nil }, set: { if !$0 { requested = nil } })) {
+                if let model, let requested { GroupChatView(model: model, room: requested) }
+            }
             .sheet(isPresented: $creating) { if let model { GroupEditor(model: model) } }
+    }
+}
+
+private extension GroupsView {
+    func openRequested() {
+        guard !booting, let room = app.roomRequest else { return }
+        app.roomRequest = nil
+        requested = model?.data.rooms.first { $0["room_id"].string == room }
     }
 }
 
@@ -287,7 +301,8 @@ private struct GroupChatView: View {
                     do { try await Task.sleep(for: .seconds(2)) } catch { return }
                 }
             }
-            .onDisappear { Task { await model.save() } }
+            .onAppear { model.app.openRoomID = id }
+            .onDisappear { model.app.openRoomID = nil; Task { await model.save() } }
     }
     private var draft: String { model.data.drafts[id] ?? "" }
     private var members: [JSONValue] { currentRoom["members"].array }

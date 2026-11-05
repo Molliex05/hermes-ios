@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// What the chat presents over itself. Each is one sheet; anything deeper is pushed inside it.
 enum ChatSheet: String, Identifiable {
-    case menu, agents, history, voice
+    case menu, agents, history, voice, groups
     var id: String { rawValue }
 }
 
@@ -82,6 +82,9 @@ struct ChatView: View {
                     case .agents: QuickProfilePicker(model: model)
                     case .history: NavigationStack { SessionsView(model: model) }.presentationBackground(AppTheme.background).presentationDetents([.large])
                     case .voice: VoiceView(app: model, returnToChat: { sheet = nil }).presentationDetents([.large])
+                    case .groups:
+                        NavigationStack { if let connection = model.activeConnection { GroupsView(app: model, connectionID: connection.id) } }
+                            .presentationBackground(AppTheme.background).presentationDetents([.large])
                     }
                 }
                 .environment(\.returnToChat, ReturnToChat { sheet = nil })
@@ -148,6 +151,7 @@ struct ChatView: View {
                 if sheet != .voice { present(.voice) }
             }
             .onChange(of: sheet) { _, _ in updateVisibility() }
+            .onChange(of: model.roomRequest) { _, room in if room != nil, sheet != .groups { present(.groups) } }
             .onChange(of: webPage) { _, _ in updateVisibility() }
             .onChange(of: eventPage?.id) { _, _ in updateVisibility() }
             .onChange(of: bottomVisible) { _, _ in updateVisibility() }

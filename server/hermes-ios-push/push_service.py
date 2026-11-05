@@ -159,6 +159,8 @@ def thread_id(row) -> str:
 
 
 REPLY_CATEGORY = "hermes.reply"
+ROOM_KIND = "room"          # a group: `session` holds the room id, and the app opens the group
+ROOM_PAGE = 200
 
 
 def notification_payload(row):
@@ -174,7 +176,8 @@ def notification_payload(row):
     hermes = {"version": 1, "connection_id": row["connection"], "profile": row["profile"]}
     if row["session"]:
         hermes["session_id"] = row["session"]
-        aps["category"] = REPLY_CATEGORY        # the app registers it: a « Répondre » text action
+        if kind != ROOM_KIND:
+            aps["category"] = REPLY_CATEGORY    # the app registers it: a « Répondre » text action
     hermes.update({"event_id": row["event"], "kind": kind})
     if enc:
         aps["mutable-content"] = 1
@@ -603,17 +606,34 @@ class Store:
     def suppress_if_present(self, row) -> bool:
         """Called by the worker right before sending. Only automatic turn notifications for a real
         conversation are suppressed, and only by a live presence of the SAME installation as the target device."""
-        if row.get("kind", "turn") != "turn" or not row["session"]:
+        kind = row.get("kind", "turn")
+        if kind not in ("turn", ROOM_KIND) or not row["session"]:
             return False
         with self.connect() as db:
-            here = db.execute("SELECT 1 FROM presence WHERE installation=? AND connection=? AND profile=? "
-                              "AND session=? AND expires > ?",
-                              (row["installation"], row["connection"], row["profile"], row["session"], time.time())).fetchone()
+            if kind == ROOM_KIND:       # a group belongs to no single agent: being in the room is what counts
+                here = db.execute("SELECT 1 FROM presence WHERE installation=? AND connection=? AND session=? AND expires > ?",
+                                  (row["installation"], row["connection"], row["session"], time.time())).fetchone()
+            else:
+                here = db.execute("SELECT 1 FROM presence WHERE installation=? AND connection=? AND profile=? "
+                                  "AND session=? AND expires > ?",
+                                  (row["installation"], row["connection"], row["profile"], row["session"], time.time())).fetchone()
             if here:
                 db.execute("UPDATE outbox SET state='suppressed',reason='presence',enc=NULL "
                            "WHERE event=? AND installation=? AND connection=? AND state='pending'",
                            (row["event"], row["installation"], row["connection"]))
             return bool(here)
+
+    # -- groups: how far each room's log has been read
+
+    def room_cursor(self, room):
+        with self.connect() as db:
+            row = db.execute("SELECT value FROM meta WHERE key=?", (f"room:{room}",)).fetchone()
+        return int(row["value"]) if row else None
+
+    def set_room_cursor(self, room, seq):
+        with self.connect() as db:
+            db.execute("INSERT INTO meta(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                       (f"room:{room}", str(int(seq))))
 
     # -- ios_notify (CONTRACT §4, §7b)
 
@@ -720,6 +740,70 @@ def record_completion(*, session_id="", assistant_response="", platform="", turn
         content = None      # generic notification rather than none
     event = str(uuid.uuid5(uuid.NAMESPACE_URL, f"hermes-ios:{profile}:{session_id}:{turn_id}"))
     store.enqueue(event, profile, session_id, "turn", content)
+
+
+# ---------------------------------------------------------------- Groups
+#
+# Hermes keeps each group's durable log. One discussion can bring ten messages: it is told once, when the room has settled.
+
+def room_note(room, events):
+    """What a finished discussion's notification says, or None when nobody spoke."""
+    members = {member.get("member_id"): member for member in room.get("members") or []}
+    spoke = [event for event in events if event.get("kind") == "message.member"
+             and str(event["payload"].get("text") or "").strip() not in ("", "(pass)")]
+    if not spoke:
+        return None
+    names, last = [], members.get(spoke[-1]["payload"].get("member_id")) or {}
+    for event in spoke:
+        member = members.get(event["payload"].get("member_id")) or {}
+        name = member.get("display_name") or member.get("profile") or "Un agent"
+        if name not in names:
+            names.append(name)
+    agents = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " et " + names[-1]
+    return {"profile": last.get("profile") or next(iter(members.values()), {}).get("profile") or "",
+            "content": {"agent": agents, "conversation": room.get("name") or "Groupe",
+                        "preview": make_preview(spoke[-1]["payload"].get("text"))}}
+
+
+def scan_rooms(store, rooms=None):
+    """One worker pass over the groups' logs. A room seen for the first time starts from now: no old discussion comes back."""
+    if rooms is None:
+        from gateway import hosted_rooms as rooms
+    path = rooms.default_db_path()
+    for room in rooms.list_rooms(path):
+        room_id = room["room_id"]
+        seen = store.room_cursor(room_id)
+        page = rooms.read_events(path, room_id=room_id, since_seq=seen or 0, limit=ROOM_PAGE)
+        if seen is None:
+            store.set_room_cursor(room_id, page["latest_seq"])
+            continue
+        events = page["events"]
+        ends = [index for index, event in enumerate(events)
+                if event.get("kind") == "room.activity" and event["payload"].get("status") in ("settled", "bounded")]
+        if not ends:
+            if page.get("has_more"):
+                store.set_room_cursor(room_id, page["cursor"])
+            continue
+        done = events[:ends[-1] + 1]
+        note = room_note(room, done)
+        if note and note["profile"]:
+            event = str(uuid.uuid5(uuid.NAMESPACE_URL, f'hermes-ios:room:{room_id}:{done[-1]["seq"]}'))
+            store.enqueue(event, note["profile"], room_id, ROOM_KIND, note["content"])
+        store.set_room_cursor(room_id, done[-1]["seq"])
+
+
+def on_room_member_activity(*, room_id="", member_id="", kind="", task_id="", execution_generation=0, **kwargs):
+    """An agent of a group is waiting for an approval: the discussion will not settle until Maxime answers."""
+    if kind != "request.opened" or not room_id or not member_id:
+        return
+    try:
+        from hermes_constants import get_hermes_home
+        content = {"agent": agent_display_name(get_hermes_home(), member_id), "conversation": "Groupe",
+                   "preview": "Attend ton autorisation pour continuer."}
+        event = str(uuid.uuid5(uuid.NAMESPACE_URL, f"hermes-ios:room:{room_id}:{task_id}:{execution_generation}"))
+        Store().enqueue(event, member_id, room_id, ROOM_KIND, content)
+    except Exception as error:
+        log.warning("Group approval notification failed (%s)", type(error).__name__)
 
 
 # ---------------------------------------------------------------- Live Activity hooks (CONTRACT-LIVE §4)
