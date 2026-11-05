@@ -9,8 +9,8 @@ dépendent plus d'une réponse exactement `[SILENT]`, et une réponse « rien à
 |---|---|---|---|
 | `hermes-alertes.prompt.fr.txt` | noriven | script `hermes_alertes.py` toutes les 15 min (aucun coût tant que rien ne change) | alertes proactives du serveur |
 | `jarvis-tableau.prompt.fr.txt` | personnel | 5 passages par jour | met à jour le widget « À l'affiche » |
-| `jarvis-courriels.prompt.fr.txt` | personnel | script `jarvis_courriels.py` toutes les 5 min | tri des courriels, brouillons de réponse |
-| `hermes-courriels.prompt.fr.txt` | noriven | script `hermes_courriels.py` toutes les 5 min (aucun coût tant qu'aucun courriel n'arrive) | boîtes Polaris de Noriven : tri prudent, brouillons, widget, alerte si urgent |
+| `jarvis-courriels.prompt.fr.txt` | personnel | retirée le 2026-11-04 (voir plus bas) | tri des courriels, brouillons de réponse |
+| `hermes-courriels.prompt.fr.txt` | noriven | retirée le 2026-11-04 (voir plus bas) | boîtes Polaris de Noriven : tri prudent, brouillons, widget, alerte si urgent |
 
 ```bash
 # Alertes d'Hermès (script dans <profil>/scripts/, tâche créée en pause puis reprise)
@@ -54,3 +54,6 @@ dans les jeux d'outils des tâches (`hermes tools enable … --platform cron`).
   3 jours des courriels vus en boîte de réception : ranger ne réveille pas l'agent. Les « Vu » du widget (`noriven/widgets/a_classer/`)
   sont marqués lus puis archivés sans modèle. Le tableau accepte les ids `m1.…` de Noriven (`hermes-widgets` 0.7.1).
   `hermes -p noriven cron create --name "Courriels Noriven" --monitor-script hermes_courriels.py --deliver local --paused "every 5m" "$(cat hermes-courriels.prompt.fr.txt)"`
+
+- Retiré le 2026-11-04, à la demande de Maxime (trop lourd, alertes pour de vieux courriels) : « Courriels de Maxime » et « Courriels Noriven ». Copies dans
+  `<profil>/skill-backups/courriels-5min-20261104/jobs.json`. Sans ces tâches, plus rien ne vide `<profil>/widgets/a_classer/` : un « Vu » du widget n'archive plus le courriel.
