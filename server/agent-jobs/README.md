@@ -11,6 +11,7 @@ dépendent plus d'une réponse exactement `[SILENT]`, et une réponse « rien à
 | `jarvis-tableau.prompt.fr.txt` | personnel | 5 passages par jour | met à jour le widget « À l'affiche » |
 | `jarvis-courriels.prompt.fr.txt` | personnel | retirée le 2026-11-04 (voir plus bas) | tri des courriels, brouillons de réponse |
 | `hermes-courriels.prompt.fr.txt` | noriven | retirée le 2026-11-04 (voir plus bas) | boîtes Polaris de Noriven : tri prudent, brouillons, widget, alerte si urgent |
+| `hermes-matin.prompt.fr.txt` | noriven | chaque matin à 8 h 15, avec sa sortie précédente en contexte | point libre sur l'entreprise, en cartes, et courriels urgents ou à traiter |
 
 ```bash
 # Alertes d'Hermès (script dans <profil>/scripts/, tâche créée en pause puis reprise)
@@ -57,3 +58,5 @@ dans les jeux d'outils des tâches (`hermes tools enable … --platform cron`).
 
 - Retiré le 2026-11-04, à la demande de Maxime (trop lourd, alertes pour de vieux courriels) : « Courriels de Maxime » et « Courriels Noriven ». Copies dans
   `<profil>/skill-backups/courriels-5min-20261104/jobs.json`. Sans ces tâches, plus rien ne vide `<profil>/widgets/a_classer/` : un « Vu » du widget n'archive plus le courriel.
+- Déployé le 2026-11-04 : « Point du matin » (noriven, `4146b1236c72`), livré dans le Bot Chat. Il remplace la surveillance par un seul passage quotidien sur les courriels Noriven.
+  `hermes -p noriven cron create --name "Point du matin" --deliver bot-chat --continuity "15 8 * * *" "$(cat hermes-matin.prompt.fr.txt)"`
