@@ -264,6 +264,8 @@ final class AppModel {
     /// a server without the plugin (404) or without access is remembered until the next connection.
     /// The profile of the conversation on screen: the agent whose Gmail a draft card belongs to.
     var chatProfile: String { selected?.profile ?? profile }
+    /// The agent's canonical Bot Chat: the one conversation where Hermes lets it write to another agent (`message_agent`).
+    var onBotChat: Bool { selected.map { chat in !chat.storedID.isEmpty && profiles.first { $0.name == chat.profile }?.canonicalID == chat.storedID } ?? false }
 
     /// A draft as Gmail holds it, for the « Envoyer » sheet.
     func loadDraft(_ draftID: String, profile: String) async throws -> OutboxDraft {

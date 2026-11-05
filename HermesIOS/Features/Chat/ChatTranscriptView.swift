@@ -202,9 +202,17 @@ private struct MessageHistory: View, Equatable {
     let latestID: String?
     var body: some View {
         ForEach(messages) { message in
-            MessageView(message: message, agent: agent)
-                .equatable().id(message.id)
-                .environment(\.cardsInteractive, message.id == latestID)
+            if message.role == "user", let note = AgentNote(message.text) {
+                // Another agent wrote this, not the person: it reads as that agent's message.
+                MessageView(message: ChatMessage(id: message.id, role: "assistant", text: note.body), agent: note.name)
+                    .equatable().id(message.id)
+                    .environment(\.agentLook, AgentLooks.shared.look(for: note.handle))
+                    .environment(\.cardsInteractive, false)
+            } else {
+                MessageView(message: message, agent: agent)
+                    .equatable().id(message.id)
+                    .environment(\.cardsInteractive, message.id == latestID)
+            }
         }
     }
 }

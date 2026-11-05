@@ -27,7 +27,22 @@ private final class GroupModel {
             supported = capabilities["driver"].bool && capabilities["methods"].array.contains("groups.send")
             guard supported else { error = "Ce serveur n’expose pas encore les groupes natifs. Mettez Hermes à jour et relancez hermes serve."; return }
             try await refreshRooms()
+            await refreshStates()
         } catch { self.error = error.localizedDescription }
+    }
+    /// What the list shows: which rooms are waiting for an answer.
+    func refreshStates() async {
+        for room in data.rooms.map({ $0["room_id"].string }) { states[room] = try? await call("groups.state", ["room_id": .string(room)]) }
+    }
+    func waiting(_ room: String) -> Bool {
+        !(states[room]?["driver_status"]["pending_actions"].array ?? []).isEmpty
+            || (data.events[room]?.last { $0["kind"].string == "message.member" }?["payload"]["text"].string.contains("@user") ?? false)
+                && data.events[room]?.last?["kind"].string == "message.member"
+    }
+    func working(_ room: String) -> Bool { states[room]?["driver_status"]["working"].bool ?? false }
+    func preview(_ room: String) -> String? {
+        guard let event = data.events[room]?.last(where: { ["message.user", "message.member"].contains($0["kind"].string) }) else { return nil }
+        return ChatCard.plainText(event["payload"]["text"].string)
     }
     func call(_ method: String, _ params: JSONValue = [:]) async throws -> JSONValue {
         try await app.groupRequest(method, params: params, connectionID: connectionID)
@@ -46,7 +61,7 @@ private final class GroupModel {
     }
     func create(name: String, members: [AgentProfile], id: String) async throws {
         _ = try await call("groups.create", ["room_id": .string(id), "name": .string(name), "members": .array(members.map {
-            ["member_id": .string($0.name), "profile": .string($0.name), "handle": .string($0.name), "display_name": .string($0.title)]
+            ["member_id": .string($0.name), "profile": .string($0.name), "handle": .string(GroupMention.handle(title: $0.title, fallback: $0.name)), "display_name": .string($0.title)]
         })])
         try await refreshRooms()
     }
@@ -79,7 +94,8 @@ private final class GroupModel {
         await save()
         do {
             _ = try await call("groups.send", pending)
-            data.pending.removeValue(forKey: room); data.drafts[room] = ""
+            data.pending.removeValue(forKey: room)
+            if data.drafts[room] == text { data.drafts[room] = "" }
             await refresh(room)
         } catch { self.error = "Envoi en attente. Réessayer utilise le même identifiant et ne crée pas de doublon. \(error.localizedDescription)" }
         await save()
@@ -122,10 +138,17 @@ struct GroupsView: View {
                 ForEach(model.data.rooms, id: \.["room_id"].string) { room in
                     NavigationLink { GroupChatView(model: model, room: room) } label: {
                         HStack(spacing: 14) {
-                            Image(systemName: "person.2.bubble").foregroundStyle(AppTheme.accent)
+                            HStack(spacing: -10) {
+                                ForEach(room["members"].array.prefix(3), id: \.["member_id"].string) { AgentAvatar(name: $0["profile"].string, size: 30) }
+                            }
                             VStack(alignment: .leading, spacing: 5) {
-                                Text(room["name"].string)
-                                Text("\(room["members"].array.count) agents").font(.caption).foregroundStyle(.secondary)
+                                Text(room["name"].string).lineLimit(1)
+                                Text(model.preview(room["room_id"].string) ?? "\(room["members"].array.count) agents").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                            if model.waiting(room["room_id"].string) {
+                                Text("Attend ta réponse").font(.caption2.weight(.semibold)).foregroundStyle(AppTheme.accent)
+                                    .padding(.horizontal, 8).padding(.vertical, 4).background(AppTheme.accent.opacity(0.12), in: Capsule())
                             }
                         }.padding(.vertical, 9)
                     }
@@ -215,12 +238,17 @@ private struct GroupChatView: View {
                             HStack {
                                 Button("Refuser") { approve(action, choice: "deny") }.buttonStyle(AppBorderedButtonStyle())
                                 Spacer()
-                                Button("Autoriser une fois") { approve(action, choice: "once") }.buttonStyle(AppProminentButtonStyle())
+                                Button("Pour cette session") { approve(action, choice: "session") }.buttonStyle(AppBorderedButtonStyle())
+                                Button("Une fois") { approve(action, choice: "once") }.buttonStyle(AppProminentButtonStyle())
                             }
                         } else if action["kind"].string == "retry" {
                             Button("Réessayer cette tâche") { retry = action }
                         } else { Text("Cette demande nécessite une autre interface Hermes.").font(.caption).foregroundStyle(.secondary) }
                     }.hermesCard().disabled(model.busy)
+                }
+                if model.working(id) {
+                    Label("Les agents répondent…", systemImage: "ellipsis.bubble").font(.caption.weight(.medium)).foregroundStyle(AppTheme.accent)
+                        .accessibilityIdentifier("group-working")
                 }
                 if let error = model.error { Text(error).font(.caption).foregroundStyle(AppTheme.accent) }
             }.padding(.horizontal, 16).padding(.vertical, 20)
@@ -244,17 +272,12 @@ private struct GroupChatView: View {
             .appConfirm("Réessayer cette tâche ?", isPresented: Binding(get: { retry != nil }, set: { if !$0 { retry = nil } })) {
                 Button("Réessayer") { guard let action = retry else { return }; retry = nil; Task { _ = await model.action("groups.retry", room: id, params: ["task_id": action["task_id"]]) } }
             } message: { Text("Le résultat de l’exécution précédente est incertain. Une nouvelle tentative peut répéter ses actions.") }
-            .safeAreaInset(edge: .bottom) {
-                HStack {
-                    TextField("Une idée à partager…", text: Binding(get: { model.data.drafts[id] ?? "" }, set: { model.data.drafts[id] = $0 }), axis: .vertical).lineLimit(1...5)
-                    Button(model.data.pending[id] == nil ? "Envoyer" : "Réessayer") {
-                        Task { await model.send(id, text: model.data.drafts[id] ?? "") }
-                    }.disabled(model.busy || ((model.data.drafts[id] ?? "").isEmpty && model.data.pending[id] == nil))
-                }.padding(.horizontal, 16).padding(.vertical, 8)
-                    .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 22))
-                    .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(AppTheme.line))
-                    .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 8).background(AppTheme.background)
-            }
+            .safeAreaInset(edge: .bottom) { composer }
+            .environment(\.chatReply, ChatReplyAction { text in
+                guard !model.busy else { return false }
+                Task { await model.send(id, text: text) }
+                return true
+            })
             .task(id: phase) {
                 guard phase == .active else { await model.save(); return }
                 // Native hosted rooms expose cursor-based logs, not per-token WS notifications.
@@ -265,6 +288,56 @@ private struct GroupChatView: View {
                 }
             }
             .onDisappear { Task { await model.save() } }
+    }
+    private var draft: String { model.data.drafts[id] ?? "" }
+    private var members: [JSONValue] { currentRoom["members"].array }
+    /// Who the « @ » being typed can name: the room's agents, then everyone.
+    private var mentions: [(handle: String, title: String, profile: String?)] {
+        guard let query = GroupMention.query(in: draft)?.lowercased() else { return [] }
+        let agents = members.map { (handle: $0["handle"].string, title: $0["display_name"].string, profile: Optional($0["profile"].string)) }
+        return (agents + [(handle: "all", title: "Tout le monde", profile: nil)]).filter { query.isEmpty || $0.handle.lowercased().hasPrefix(query) }
+    }
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !mentions.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(mentions, id: \.handle) { mention in
+                            Button {
+                                Haptics.select(); model.data.drafts[id] = GroupMention.completed(draft, handle: mention.handle)
+                            } label: {
+                                HStack(spacing: 7) {
+                                    if let profile = mention.profile { AgentAvatar(name: profile, size: 24) } else { Image(systemName: "person.2.fill").font(.caption) }
+                                    Text(mention.title).font(.caption)
+                                }.padding(8).background(AppTheme.surface, in: Capsule())
+                            }.buttonStyle(.plain).accessibilityIdentifier("group-mention-\(mention.handle)")
+                        }
+                    }
+                }
+            }
+            HStack(alignment: .bottom, spacing: 6) {
+                TextField("Écris au groupe, ou @ pour appeler un agent", text: Binding(get: { draft }, set: { model.data.drafts[id] = $0 }), axis: .vertical)
+                    .lineLimit(1...5).padding(.leading, 14).padding(.vertical, 12)
+                sendButton
+            }
+            .padding(2).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 24))
+            .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(AppTheme.line))
+        }
+        .padding(.horizontal, 16).padding(.vertical, 8).background(AppTheme.background)
+    }
+    private var sendButton: some View {
+        let working = model.working(id), canSend = !draft.isEmpty || model.data.pending[id] != nil
+        return Button {
+            if working, !canSend { Task { await model.stop(id) } }
+            else { Haptics.send(); Task { await model.send(id, text: draft) } }
+        } label: {
+            Image(systemName: working && !canSend ? "stop.fill" : model.data.pending[id] == nil ? "arrow.up" : "arrow.clockwise")
+                .font(.system(size: working && !canSend ? 13 : 18, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 40, height: 40).background(canSend || working ? AppTheme.accent : Color.secondary.opacity(0.28), in: Circle())
+                .frame(width: 44, height: 44).contentShape(Rectangle())
+        }.buttonStyle(.plain).disabled(model.busy || (!canSend && !working))
+            .accessibilityLabel(working && !canSend ? "Arrêter les agents" : "Envoyer")
+            .accessibilityIdentifier("group-send")
     }
     private func approve(_ action: JSONValue, choice: String) {
         let requestID = action["approval"]["request_id"].isNull ? action["request_id"] : action["approval"]["request_id"]

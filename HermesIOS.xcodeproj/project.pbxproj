@@ -121,6 +121,7 @@
 		A126D118743D5F3FB318EC9F /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C4FC914201C38D1A165638D /* ChatView.swift */; };
 		A316AA200AD7147B4FD29A3D /* HermesIOSNotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0C228C9EF339468B8F713539 /* HermesIOSNotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A3345823FD5C3B757447855D /* web-page.pcm in Resources */ = {isa = PBXBuildFile; fileRef = 78839756CD7B8D5952BBFAD8 /* web-page.pcm */; };
+		A4100B958DC01C688D02ADBF /* GroupMention.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20505E1C09C0651480D93ECE /* GroupMention.swift */; };
 		A4491E508E5835BD5DFBC248 /* SpokenText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CD9871AE2E9F5376352C14E /* SpokenText.swift */; };
 		A65B1AFBDE1BEE9C71B20D2A /* MenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4140F253F6342BD71320743C /* MenuView.swift */; };
 		A66BE2BEE882B3407117391E /* BoardBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17AACE64A807F803F74D5A3C /* BoardBlockView.swift */; };
@@ -290,6 +291,7 @@
 		1C1CA4BD09AAD37D7D849AF6 /* AgentSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSettingsView.swift; sourceTree = "<group>"; };
 		1C508AA7C9E85121414A024E /* HermesIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesIOSApp.swift; sourceTree = "<group>"; };
 		1FEFFF5E8E53C4E477676BDD /* ConversationActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationActions.swift; sourceTree = "<group>"; };
+		20505E1C09C0651480D93ECE /* GroupMention.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupMention.swift; sourceTree = "<group>"; };
 		224CAC4570952840E57256D5 /* AgentConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConfigStore.swift; sourceTree = "<group>"; };
 		23406111A6D8CD5FE59A411C /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		26272BFF6993226D5281C095 /* WidgetBlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetBlock.swift; sourceTree = "<group>"; };
@@ -733,6 +735,7 @@
 				B083DF2BEBD828CF266749E2 /* DraftAttachment.swift */,
 				5AA9531D4948791BED70E2CD /* EmailCards.swift */,
 				EA403258EBDBCDA2BBA568D1 /* Endpoint.swift */,
+				20505E1C09C0651480D93ECE /* GroupMention.swift */,
 				C910078020A4AF8014712019 /* HistoryRequests.swift */,
 				03771C2DF46F958CA751A93C /* JSONValue.swift */,
 				A1197D5BDD7DEED40843B4D4 /* MailIDs.swift */,
@@ -1101,6 +1104,7 @@
 				462B74E2DB715622EC358CFF /* EmailCardViews.swift in Sources */,
 				D05BE56AEBCE63175CCD3B5D /* EmailCards.swift in Sources */,
 				59454233EF00BAB95B5995BC /* Endpoint.swift in Sources */,
+				A4100B958DC01C688D02ADBF /* GroupMention.swift in Sources */,
 				83C379CC804844BE37694A45 /* GroupsView.swift in Sources */,
 				23C8F8F7F37C15AED2812D64 /* Haptics.swift in Sources */,
 				7A86A29B3033EB4330917E7A /* HermesActivityAttributes.swift in Sources */,
