@@ -18,3 +18,14 @@ enum PhotoAttachment {
         return output as Data
     }
 }
+
+extension NSItemProvider {
+    /// The pasted or shared content of this type, as data.
+    @MainActor func data(for type: UTType) async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            _ = loadDataRepresentation(for: type) { data, error in
+                if let data { continuation.resume(returning: data) } else { continuation.resume(throwing: error ?? RPCFailure("Ce contenu n’a pas pu être collé.")) }
+            }
+        }
+    }
+}

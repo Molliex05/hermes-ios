@@ -31,7 +31,8 @@ public enum JSONValue: Codable, Sendable, Equatable {
     public var string: String { if case .string(let v) = self { v } else { "" } }
     public var bool: Bool { if case .bool(let v) = self { v } else { false } }
     public var double: Double { if case .number(let v) = self { v } else { 0 } }
-    public var int: Int { Int(double) }
+    /// 0 for a value that is not a number, or too large to be an `Int` (a hostile 1e300 must not crash a render).
+    public var int: Int { let v = double; return v.isFinite && abs(v) < 9e15 ? Int(v) : 0 }
     public var isNull: Bool { self == .null }
     /// Wire/HTTP decoding goes through JSONSerialization: one pass, no throwing type probes per value.
     public static func decode(_ data: Data) throws -> JSONValue {

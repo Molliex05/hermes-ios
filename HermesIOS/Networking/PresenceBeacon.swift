@@ -40,6 +40,20 @@ final class PresenceBeacon {
         }
     }
 
+    /// Leaving this server (another one is activated, or it is removed): the presence is withdrawn while its connection
+    /// still works, waiting 1.5 s at most. Otherwise the old server keeps silencing this conversation's alerts for a while.
+    func leave() async {
+        guard let old = target else { return }
+        loop?.cancel(); loop = nil
+        target = nil
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.send("DELETE", old) }
+            group.addTask { try? await Task.sleep(for: .milliseconds(1500)) }
+            await group.next()
+            group.cancelAll()
+        }
+    }
+
     private func body(_ t: Target, ttl: Bool) -> JSONValue {
         var fields: [String: JSONValue] = ["installation_id": .string(installationID()), "connection_id": .string(t.connectionID.uuidString),
                                            "profile": .string(t.profile), "session_id": .string(t.sessionID)]

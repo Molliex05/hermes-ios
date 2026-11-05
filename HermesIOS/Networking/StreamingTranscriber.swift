@@ -10,6 +10,8 @@ final class StreamingTranscriber {
     var onPartial: ((String) -> Void)?
     /// The profile has no live STT wire: don't try again during this conversation.
     private(set) var unavailable = false
+    /// Words can still arrive: nothing has failed so far, and silence from it means something.
+    var alive: Bool { if case .failure = result { false } else { true } }
     private var socket: URLSessionWebSocketTask?
     private var opening: Task<Void, Never>?
     private var reader: Task<Void, Never>?

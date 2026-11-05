@@ -433,6 +433,7 @@ class ToolOutbox(Fixture):
         self.assertNotIn('session_id', payload['hermes'])
         expected = push.hashlib.sha256(f'{self.connection}:noriven'.encode()).hexdigest()
         self.assertEqual(payload['aps']['thread-id'], expected)
+        self.assertNotIn('category', payload['aps'])                      # nothing to answer without a conversation
         self.assertEqual(payload['hermes']['kind'], 'tool')
         self.assertEqual(payload['aps']['alert'], {'title': 'Hermès', 'body': 'Nouveau message'})
 
@@ -442,6 +443,7 @@ class ToolOutbox(Fixture):
         self.assertEqual(payload['hermes']['session_id'], 'sess-9')
         expected = push.hashlib.sha256(f'{self.connection}:noriven:sess-9'.encode()).hexdigest()
         self.assertEqual(payload['aps']['thread-id'], expected)
+        self.assertEqual(payload['aps']['category'], 'hermes.reply')       # a conversation target offers the reply action
 
     def test_turn_dedupe_marker(self):
         self.call(turn_session='s1', turn='T1')
@@ -503,6 +505,12 @@ class Privacy(Fixture):
 
 
 class Text(unittest.TestCase):
+    def test_rich_cards_never_reach_a_notification(self):
+        text = 'Quatre maisons trouvées.\n\n```ui\n{"type":"carousel","items":[{"title":"A"}]}\n```\n\nBonne visite !'
+        self.assertEqual(push.strip_markdown(text), 'Quatre maisons trouvées. Bonne visite !')
+        self.assertEqual(push.strip_markdown('Code :\n```python\nprint(1)\n```'), 'Code : print(1)')
+        self.assertEqual(push.strip_markdown('Voilà.\n```UI\n{"type":"choices"}\n```'), 'Voilà.', "the fence language is case-insensitive")
+
     def test_markdown_is_stripped(self):
         md = '# Titre\n\nVoici **du gras**, de l\'*italique*, `du code` et [un lien](http://x.y/z).\n\n- point un\n- point deux\n\n> citation\n\n```python\nprint(1)\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n![alt](http://i/p.png) snake_case_name ~~barré~~'
         out = push.strip_markdown(md)

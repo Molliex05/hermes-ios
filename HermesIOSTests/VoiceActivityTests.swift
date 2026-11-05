@@ -78,4 +78,19 @@ final class VoiceActivityTests: XCTestCase {
         XCTAssertFalse(VoiceActivity.isStop("stop  merci", phrases: ["stop merci"]))
         XCTAssertFalse(VoiceActivity.isStop("!!!", phrases: [""]))
     }
+
+    func testWordsThatStopComingEndTheSentenceAndNoWordsMeanNobodySpoke() {
+        var pace = VoiceWordPace()
+        XCTAssertEqual(pace.verdict(at: 100, elapsed: 7.9, noisy: true), .listening, "the first words can take many seconds")
+        XCTAssertEqual(pace.verdict(at: 101, elapsed: 8, noisy: true), .nothingSaid)
+        pace.heard("Ajoute", at: 102)
+        pace.heard("Ajoute un quart", at: 103)
+        XCTAssertEqual(pace.verdict(at: 104.7, elapsed: 12, noisy: true), .listening, "a pause in the middle of a sentence")
+        pace.heard("Ajoute un quart", at: 104.7)
+        XCTAssertEqual(pace.verdict(at: 105, elapsed: 12, noisy: true), .finished, "the same text again is no new word")
+        XCTAssertEqual(pace.verdict(at: 105, elapsed: 12, noisy: false), .listening, "the level decides where it can")
+        XCTAssertEqual(pace.verdict(at: 107.1, elapsed: 14, noisy: false), .finished)
+        pace.heard("", at: 105)
+        XCTAssertEqual(pace.verdict(at: 105, elapsed: 12, noisy: true), .finished)
+    }
 }

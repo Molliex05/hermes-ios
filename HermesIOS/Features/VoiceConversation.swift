@@ -41,10 +41,20 @@ final class VoiceConversation {
     @ObservationIgnored private var standardModeAccepted = false
     // Utterance pipeline (standard voice).
     @ObservationIgnored private var onset = VoiceActivity(threshold: 200, silenceDuration: 0.8)
+    /// The quiet-moment level, measured twice: over the whole spectrum (tells a noisy place from a quiet one) and in the speech
+    /// band only (the reference for hearing a voice once the place is noisy, such as a car).
     @ObservationIgnored private var ambient = VoiceNoiseFloor()
+    @ObservationIgnored private var ambientBand = VoiceNoiseFloor()
+    @ObservationIgnored private var noisyLatched = false
+    /// The setting or the audio route says « car »; looked at about every two seconds, not on every audio frame.
+    @ObservationIgnored private var forcedNoisy = false
+    @ObservationIgnored private var forcedCheckedAt = -Double.infinity
     @ObservationIgnored private var barge: VoiceBargeIn?
     @ObservationIgnored private var capture: Utterance?
     @ObservationIgnored private var finished: [Utterance] = []
+    /// The transcription of a sound heard over the agent's turn, deciding whether it was someone speaking.
+    @ObservationIgnored private var bargeCheck: Task<Void, Never>?
+    @ObservationIgnored private var bargeRearmAt = -TimeInterval.infinity
     @ObservationIgnored private var turnActive = false
     @ObservationIgnored private var awaitingUser = false
     @ObservationIgnored private var bargeRequested = false
@@ -54,6 +64,19 @@ final class VoiceConversation {
     @ObservationIgnored private var reply = VoiceReplyText()
     @ObservationIgnored private let localSpeech = LocalSpeech()
     @ObservationIgnored private var replyOpen = false
+    /// Keeps cards and code out of what is spoken.
+    @ObservationIgnored private var spokenFilter = SpokenTextFilter()
+    /// A « Je regarde ça » was played in this reply: only then can it come back as an echo.
+    @ObservationIgnored private var fillerSpoken = false
+    /// What the call said this turn about the agent's work (`VoiceProgress`): never the same line twice, and part of what the
+    /// echo guard knows the speaker said.
+    @ObservationIgnored private var narrated: [String] = []
+    /// Tool steps already weighed for a progress line this turn (said, or covered by the agent's own words).
+    @ObservationIgnored private var weighedSteps: Set<String> = []
+    @ObservationIgnored private var lastNarrationAt = -Double.infinity
+    /// When the agent's own text last arrived: words it just said cover the tool it starts.
+    @ObservationIgnored private var lastDeltaAt = -Double.infinity
+    @ObservationIgnored private var leaseWarmup: Task<Void, Never>?
     @ObservationIgnored private var replyStatus: String?
     @ObservationIgnored private var liveDelegation: String?
     @ObservationIgnored private var liveCursor = VoiceLiveReplyCursor()
@@ -64,10 +87,16 @@ final class VoiceConversation {
     private static let waitingNotice = "Hermes attend votre réponse dans le chat. La conversation vocale reprendra ensuite."
     private static let busyNotice = "Hermes termine la réponse précédente…"
     private static let localVoiceNotice = "La voix du serveur est indisponible (quota). L’iPhone lit la réponse."
+    private static let cardOnlyNotice = "La réponse est dans le chat."
     /// Spoken once when the agent has been working in silence: after a tool starts, or after a slow start.
     private static let holdingLine = "Je regarde ça. "
     private static let holdingToolDelay: TimeInterval = 0.5
     private static let holdingSlowDelay: TimeInterval = 1.5
+    /// How long a sound over the agent's turn is listened to without any real word: partial words arrive about 2 s in. Past
+    /// this it was the road, whose rumble can otherwise pass for speech to the end of the reply.
+    private static let bargeListenLimit: TimeInterval = 4
+    /// After a sound that was not speech the detector rests: steady road noise would otherwise keep the voice turned down.
+    private static let bargeRearmDelay: TimeInterval = 3
 
     init(_ app: AppModel) {
         tools = NativeToolSession(app); sessionID = app.selected?.storedID
@@ -155,24 +184,25 @@ final class VoiceConversation {
     private func runStandard(_ preferences: VoicePreferences, attempt: UUID) async throws {
         isLive = false
         requiresStandardMode = false
-        allowsBargeIn = preferences.bargeIn
+        allowsBargeIn = preferences.bargeIn && VoiceInterruptionSetting.mode != .off
         liveSTT = preferences.liveTranscription
         onset = VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.endpointSilence)
-        ambient = VoiceNoiseFloor()
+        ambient = VoiceNoiseFloor(); ambientBand = VoiceNoiseFloor(); noisyLatched = false
         try await audio.prepare(); try validate(attempt)
         audio.setInputMuted(inputMuted)
         tools.app.speechSink = { [weak self] event in self?.receiveSpeech(event, attempt: attempt) }
         startMonitoring(attempt)
-        // Warm the server's TTS (and local STT) while the user starts speaking.
-        await acquireLeases(attempt)
+        // Warm the server's TTS (and local STT) while the user starts speaking: listening does not wait for it.
+        acquireLeases()
         try validate(attempt)
         // Reopening voice during an admitted turn follows that same turn.
         if tools.app.transcript.running,
            let message = tools.app.transcript.messages.last(where: { $0.role == "user" }) {
             heard = message.text
             turnActive = true; bargeRequested = false
-            barge = preferences.bargeIn ? VoiceBargeIn(preferences: preferences, noiseFloor: ambient.value) : nil
+            barge = makeBarge(preferences)
             speechStream.prepare(tools: tools)
+            tools.app.applyPendingStream()       // the fragments of the last 33 ms, or the voice would skip them
             openReply(seed: assistantText(after: message.id))
             try await respond(to: message.id, attempt: attempt)
         }
@@ -180,8 +210,13 @@ final class VoiceConversation {
         while true {
             try validate(attempt)
             let utterance = try await nextUtterance(attempt)
-            let words = try await transcribe(utterance, attempt: attempt)
-            if utterance.barge, !words.isEmpty, !utterance.spoken.isEmpty, await Self.isEcho(words, spoken: utterance.spoken + " " + VoiceFiller.phrases.joined(separator: " ")) {
+            var words = try await transcribe(utterance, attempt: attempt)
+            if VoiceHeard.isNoise(words) {
+                // A sound the recogniser turned into a stock word (« Yep ») or into nothing: no message.
+                if !words.isEmpty { VoiceDiag.log("noise transcript dropped chars=\(words.count)") }
+                words = ""
+            }
+            if utterance.barge, !words.isEmpty, !utterance.spoken.isEmpty, await Self.isEcho(words, spoken: utterance.spoken + (fillerSpoken ? " " + VoiceFiller.phrases.joined(separator: " ") : "")) {
                 // Hermes heard itself: no submit, and the next real turn isn't annotated.
                 interruptedTurn = false
                 if pending.isEmpty, capture == nil, finished.isEmpty { speechStream.stop() }
@@ -196,7 +231,7 @@ final class VoiceConversation {
             if VoiceActivity.isStop(pending, phrases: preferences.stopPhrases) { return }
             // From here on, speech interrupts (barge-in) instead of extending the request.
             turnActive = true; bargeRequested = false
-            barge = preferences.bargeIn ? VoiceBargeIn(preferences: preferences, noiseFloor: ambient.value) : nil
+            barge = makeBarge(preferences)
             let settled = try await settle(attempt)
             if bargeRequested { turnActive = false; continue }
             guard settled else {
@@ -239,6 +274,7 @@ final class VoiceConversation {
 
     /// Live transcript when the profile streams STT, else the compact 16 kHz recording.
     private func transcribe(_ utterance: Utterance, attempt: UUID) async throws -> String {
+        if let heard = utterance.heard { return heard }
         if capture == nil { phase = .transcribing }
         VoiceDiag.log("transcribe begin")
         let recording: Data
@@ -340,6 +376,7 @@ final class VoiceConversation {
             if let failure = audio.failure { throw RPCFailure(failure) }
             let transcript = tools.app.transcript
             let now = ProcessInfo.processInfo.systemUptime
+            if !isLive, !awaitingUser, narrateProgress(transcript, now: now) { holdingLine = true }
             if !holdingLine, VoiceMetrics.shared.holdingLineEnabled, !isLive, !awaitingUser, reply.display.isEmpty, !speechStream.hasAudio, !audio.playing {
                 if toolSince == nil, transcript.toolSteps.contains(where: { $0.state == .running }) { toolSince = now }
                 let toolWaited = toolSince.map { now - $0 >= Self.holdingToolDelay } ?? false
@@ -361,7 +398,7 @@ final class VoiceConversation {
             if transcript.running || tools.app.sending || awaitingUser { idleSince = nil }
             else if let since = idleSince, now - since >= 1.5 {
                 // Completed without a live `message.complete` (reconnect, replay).
-                speechStream.send(reply.finish(assistantText(after: message)))
+                speechStream.send(spokenFilter.feed(reply.finish(assistantText(after: message))) + spokenFilter.finish())
                 speechStream.finish(); answer = reply.display
                 break
             } else if idleSince == nil { idleSince = now }
@@ -376,6 +413,11 @@ final class VoiceConversation {
         let text = reply.display
         answer = text
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw VoiceTurnIssue("Hermes n’a pas renvoyé de réponse à lire.") }
+        let spoken = SpokenTextFilter.strip(text)
+        if spoken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {     // only a card or code: nothing to read aloud
+            speechStream.stop(); notice = Self.cardOnlyNotice
+            return
+        }
         while !speechStream.needsFallback && !speechStream.drained {
             try await Task.sleep(for: .milliseconds(50)); try validate(attempt)
             if speechStream.hasAudio { phase = .speaking }
@@ -394,23 +436,24 @@ final class VoiceConversation {
         VoiceMetrics.shared.note("ttsWhy", text: "unavailable=\(speechStream.unavailable) fallback=\(speechStream.fallback) failure=\(speechStream.failure ?? "-") audio=\(speechStream.hasAudio) ended=\(speechStream.ended)")
         speechStream.stop()
         let speech: String
-        do { speech = try await voiceAPI.speech(text) }
+        do { speech = try await voiceAPI.speech(spoken) }
         catch is CancellationError { throw CancellationError() }
         catch {
             try validate(attempt)
             VoiceMetrics.shared.note("ttsLocal", 1)
-            try await speakLocally(text, attempt: attempt)
+            try await speakLocally(spoken, attempt: attempt)
             VoiceMetrics.shared.mark(.playbackEnd)
             VoiceMetrics.shared.finish(profile: tools.profile)
             return
         }
         try validate(attempt)
         VoiceMetrics.shared.mark(.firstPCM)
-        try await audio.play(speech); try validate(attempt); phase = .speaking
+        try await playable { try await audio.play(speech) }
+        try validate(attempt); phase = .speaking
         VoiceMetrics.shared.mark(.playbackStart)
         while audio.playing {
             try await Task.sleep(for: .milliseconds(50)); try validate(attempt)
-            if let failure = audio.failure { throw RPCFailure(failure) }
+            if audio.failure != nil { throw VoiceTurnIssue("La lecture a été interrompue. La réponse reste dans le chat.") }
         }
         VoiceMetrics.shared.mark(.playbackEnd)
         VoiceMetrics.shared.finish(profile: tools.profile)
@@ -424,22 +467,63 @@ final class VoiceConversation {
         }
         try validate(attempt)
         let engine = audio.engine, id = UUID()
-        try engine.reservePlayback(id)
-        try await engine.preparePCM(sampleRate: rendered.sampleRate, id: id)
-        _ = try await engine.enqueuePCM(rendered.pcm, sampleRate: rendered.sampleRate, id: id)
-        try await engine.finishPCM(id: id)
+        try await playable {
+            try engine.reservePlayback(id)
+            try await engine.preparePCM(sampleRate: rendered.sampleRate, id: id)
+            // The engine takes at most 2 MiB per call (about 22 s at 48 kHz): a whole answer goes in blocks.
+            let pcm = rendered.pcm, block = 1 << 20
+            var offset = 0
+            while offset < pcm.count {
+                let end = min(offset + block, pcm.count)
+                _ = try await engine.enqueuePCM(pcm.subdata(in: offset..<end), sampleRate: rendered.sampleRate, id: id)
+                offset = end
+            }
+            try await engine.finishPCM(id: id)
+        }
         try validate(attempt); phase = .speaking
         while audio.playing {
             try await Task.sleep(for: .milliseconds(50)); try validate(attempt)
-            if let failure = audio.failure { throw RPCFailure(failure) }
+            if audio.failure != nil { throw VoiceTurnIssue("La lecture a été interrompue. La réponse reste dans le chat.") }
         }
+    }
+
+    /// An audio error while speaking costs this reply's voice, never the call: the text is in the chat, the next turn
+    /// listens again. Cancellation (a barge-in, the end of the call) passes through untouched.
+    private func playable(_ body: () async throws -> Void) async throws {
+        do { try await body() }
+        catch let error where error is CancellationError || error is VoiceTurnIssue { throw error }
+        catch { throw VoiceTurnIssue("La voix n’a pas pu lire cette réponse. Elle reste dans le chat.") }
     }
 
     /// « Je regarde ça » from the bundled recording, through the call's own audio engine (so echo cancellation
     /// knows it) and without waiting for speech synthesis. The reply's own speech replaces it when it arrives.
+    /// Says what the agent is doing when a tool with a known line starts and the call is quiet: « Je regarde ton agenda. »,
+    /// recorded in the agent's voice and played from the phone. A tool the agent has just announced in its own words (its
+    /// text arrived within 3 s) is not said again. True when the running tool is covered, so the generic filler stays quiet.
+    private func narrateProgress(_ transcript: Transcript, now: TimeInterval) -> Bool {
+        guard let step = transcript.toolSteps.last(where: { $0.state == .running }), let line = VoiceProgress.line(for: step) else { return false }
+        guard !weighedSteps.contains(step.id) else { return true }
+        if now - lastDeltaAt < 3 || narrated.contains(line.text) { weighedSteps.insert(step.id); return true }
+        // Only before the reply's own speech: it reserves the output once, and a clip after it would cut the rest of the reply.
+        guard !speechStream.holdsOutput else { weighedSteps.insert(step.id); return true }
+        guard !audio.playing, now - lastNarrationAt >= 2.5 else { return true }
+        weighedSteps.insert(step.id)
+        guard let url = Bundle.main.url(forResource: line.clip, withExtension: "pcm"), let data = try? Data(contentsOf: url) else { return true }
+        narrated.append(line.text); lastNarrationAt = now
+        VoiceMetrics.shared.note("progressLines", Double(narrated.count))
+        playClip(data)
+        return true
+    }
+
     private func playFiller() {
         guard let data = VoiceFiller.next() else { return }
+        fillerSpoken = true
         VoiceMetrics.shared.mark(.filler); VoiceMetrics.shared.note("holdingSpoken", 1)
+        playClip(data)
+    }
+
+    /// A line recorded in the agent's voice (24 kHz mono PCM in the bundle), played from the phone with no synthesis round trip.
+    private func playClip(_ data: Data) {
         let engine = audio.engine, id = UUID()
         Task {
             do {
@@ -452,9 +536,10 @@ final class VoiceConversation {
     }
 
     private func openReply(seed: String = "") {
-        reply = VoiceReplyText(seed: seed); replyStatus = nil; replyOpen = true
+        reply = VoiceReplyText(seed: seed); replyStatus = nil; replyOpen = true; spokenFilter = SpokenTextFilter(); fillerSpoken = false
+        narrated = []; weighedSteps = []; lastNarrationAt = -.infinity; lastDeltaAt = -.infinity
         answer = seed
-        if !isLive { speechStream.send(seed) }
+        if !isLive { speechStream.send(spokenFilter.feed(seed)) }
     }
 
     private func closeTurn() {
@@ -467,8 +552,9 @@ final class VoiceConversation {
         switch event {
         case .delta(_, let text):
             VoiceMetrics.shared.mark(.firstDelta)
+            if !text.isEmpty { lastDeltaAt = ProcessInfo.processInfo.systemUptime }
             let spoken = reply.append(text)
-            if isLive { emitLive(done: false) } else { if !spoken.isEmpty { VoiceMetrics.shared.mark(.firstTextToTTS) }; speechStream.send(spoken) }
+            if isLive { emitLive(done: false) } else { let said = spokenFilter.feed(spoken); if !said.isEmpty { VoiceMetrics.shared.mark(.firstTextToTTS) }; speechStream.send(said) }
             answer = reply.display
         case .complete(_, let text, let status):
             VoiceMetrics.shared.mark(.replyComplete)
@@ -477,7 +563,7 @@ final class VoiceConversation {
             let rest = reply.finish(status == "error" ? "" : text)
             if isLive { emitLive(done: true) }
             else {
-                if status != "error" { speechStream.send(rest) }
+                if status != "error" { speechStream.send(spokenFilter.feed(rest) + spokenFilter.finish()) }
                 speechStream.finish()
             }
             answer = reply.display
@@ -507,6 +593,25 @@ final class VoiceConversation {
         }
     }
 
+    /// A noisy place (a car) is recognised by its steady loud floor, or told by the route (CarPlay) or the setting. Once noisy it
+    /// stays so until the floor has clearly dropped, so it does not flap at a red light.
+    private var noisyPlace: Bool {
+        if forcedNoisy { return true }
+        let floor = ambient.value
+        if noisyLatched { if floor < VoiceNoiseFloor.noisyLevel * 0.7 { noisyLatched = false } }
+        else if floor >= VoiceNoiseFloor.noisyLevel { noisyLatched = true }
+        return noisyLatched
+    }
+    /// The floor in the domain used to detect a voice: the speech band in a noisy place, the whole signal otherwise.
+    private var detectionFloor: Double { noisyPlace ? ambientBand.value : ambient.value }
+    private func detection(_ frame: VoiceLevel) -> VoiceLevel {
+        noisyPlace ? VoiceLevel(time: frame.time, duration: frame.duration, rms: frame.band) : frame
+    }
+    private func makeBarge(_ preferences: VoicePreferences) -> VoiceBargeIn? {
+        guard preferences.bargeIn, VoiceInterruptionSetting.mode != .off else { return nil }
+        return VoiceBargeIn(preferences: preferences, noiseFloor: ambient.value, environment: .init(noisy: noisyPlace, bandFloor: ambientBand.value))
+    }
+
     /// One meter frame, with its own duration: endpoint while capturing, onset while
     /// idle (or still transcribing), barge-in during the agent's turn.
     @ObservationIgnored private var diagFrames = 0
@@ -514,8 +619,9 @@ final class VoiceConversation {
     @ObservationIgnored private var diagSince = ProcessInfo.processInfo.systemUptime
     private func process(_ frame: VoiceLevel, attempt: UUID) {
         diagFrames += 1; diagMax = max(diagMax, frame.rms)
+        if frame.time - forcedCheckedAt >= 2 || frame.time < forcedCheckedAt { forcedCheckedAt = frame.time; forcedNoisy = VoiceEnvironmentSetting.isForced }
         if frame.time - diagSince >= 1 || diagFrames == 1 {
-            VoiceDiag.log("frames=\(diagFrames) maxRMS=\(Int(diagMax)) phase=\(phase) capture=\(capture != nil) muted=\(inputMuted) awaiting=\(awaitingUser) turn=\(turnActive) state=\(tools.app.state) onsetSpeech=\(onset.hasSpeech) threshold=\(Int(preferences.threshold)) floor=\(Int(ambient.value))")
+            VoiceDiag.log("frames=\(diagFrames) maxRMS=\(Int(diagMax)) phase=\(phase) capture=\(capture != nil) muted=\(inputMuted) awaiting=\(awaitingUser) turn=\(turnActive) state=\(tools.app.state) onsetSpeech=\(onset.hasSpeech) threshold=\(Int(preferences.threshold)) floor=\(Int(ambient.value)) band=\(Int(ambientBand.value)) noisy=\(noisyPlace)")
             diagFrames = 0; diagMax = 0; diagSince = frame.time
         }
         if tools.app.state != .connected {
@@ -528,22 +634,27 @@ final class VoiceConversation {
         guard !inputMuted else { return }
         if let utterance = capture {
             utterance.elapsed += frame.duration
-            if utterance.activity.sample(frame) || utterance.elapsed >= preferences.maxRecordingSeconds { endUtterance() }
+            if utterance.tentative, utterance.elapsed >= Self.bargeListenLimit { dropCapture(); return }
+            if utterance.transcriber?.alive == true {
+                if utterance.pace.verdict(at: frame.time, elapsed: utterance.elapsed, noisy: noisyPlace) != .listening { endUtterance(); return }
+            }
+            if utterance.activity.sample(detection(frame)) || utterance.elapsed >= preferences.maxRecordingSeconds { endUtterance() }
             return
         }
         if !playing {
             // Learn only quiet input below the onset level; never speaker bleed.
             ambient.sample(rms: frame.rms, duration: frame.duration, multiplier: 2)
-            onset.adapt(noiseFloor: ambient.value)
+            ambientBand.sample(rms: frame.band, duration: frame.duration, multiplier: 2)
+            onset.adapt(noiseFloor: detectionFloor)
         }
         guard !awaitingUser else { return }
         if turnActive {
-            guard var detector = barge else { return }
+            guard var detector = barge, frame.time >= bargeRearmAt else { return }
             let tripped = detector.sample(frame, playing: playing)
             barge = detector
             if tripped { interruptForSpeech(attempt) }
         } else if phase != .ready {
-            _ = onset.sample(frame)
+            _ = onset.sample(detection(frame))
             if onset.hasSpeech { beginUtterance(barge: false, spoken: "", attempt: attempt) }
         }
     }
@@ -557,12 +668,14 @@ final class VoiceConversation {
             guard let self, self.generation == attempt else { return }
             if !text.isEmpty { VoiceMetrics.shared.mark(.sttPartial) }
             self.partial = text
+            self.capture?.pace.heard(text, at: ProcessInfo.processInfo.systemUptime)
+            self.weighPartial(text)
         }
         let utterance = Utterance(activity: VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.endpointSilence,
-                                                          confirmedSpeech: true, noiseFloor: ambient.value),
+                                                          confirmedSpeech: true, noiseFloor: detectionFloor),
                                   barge: barge, spoken: spoken, transcriber: transcriber)
         capture = utterance
-        onset = VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.endpointSilence, noiseFloor: ambient.value)
+        onset = VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.endpointSilence, noiseFloor: detectionFloor)
         partial = ""; phase = .listening
         let audio = audio, maxSeconds = preferences.maxRecordingSeconds
         utterance.recording = Task {
@@ -580,6 +693,7 @@ final class VoiceConversation {
         guard let utterance = capture else { return }
         capture = nil
         utterance.end()
+        if utterance.tentative { confirmBarge(utterance); return }
         VoiceMetrics.shared.mark(.endpoint, overwrite: true)
         finished.append(utterance)
         if !turnActive { phase = .transcribing }
@@ -592,18 +706,89 @@ final class VoiceConversation {
         capture = nil
         utterance.transcriber?.cancel(); utterance.recording?.cancel(); utterance.end()
         audio.cancelCapture()
+        if utterance.tentative { releaseDuck() }
     }
 
+    /// A sound over the agent's turn may be someone speaking, or the road (a bump, a blinker). The agent's voice dips and goes
+    /// on while the sound is recorded; only words the transcription confirms cut the turn off (`weighPartial`, `confirmBarge`).
+    /// Anything else brings the voice back up, and the request keeps running on the server.
     private func interruptForSpeech(_ attempt: UUID) {
         guard generation == attempt, capture == nil else { return }
         let speaking = phase == .speaking || audio.playing
-        let spoken = speaking ? reply.display : ""
-        let running = tools.app.transcript.running
-        bargeRequested = true; barge = nil
-        if running || speaking || replyOpen { interruptedTurn = true }
-        speechStream.stop(); audio.stopPlayback(); response?.cancel()
-        if running { interruption = Task { await self.sendInterrupt() } }
+        // What the speaker actually said: the reply without its cards and code, which are never read aloud (the raw text
+        // put a card's JSON in the comparison, and the echo of the last sentence went unrecognised).
+        let spoken = speaking ? ([SpokenTextFilter.strip(reply.display)] + narrated).joined(separator: " ") : ""
+        barge = nil
+        audio.duckPlayback(true)
         beginUtterance(barge: true, spoken: spoken, attempt: attempt)
+        capture?.tentative = true
+    }
+
+    /// What the agent's voice said so far this turn, for the echo guard.
+    private func echoText(_ utterance: Utterance) -> String {
+        utterance.spoken + (fillerSpoken ? " " + VoiceFiller.phrases.joined(separator: " ") : "")
+    }
+
+    /// Partial words of a sound over the agent: real ones stop it at once, and the capture goes on as the next request.
+    private func weighPartial(_ text: String) {
+        guard let utterance = capture, utterance.tentative, !utterance.weighing, VoiceHeard.confirmsInterruption(text) else { return }
+        utterance.weighing = true
+        let attempt = generation
+        Task { [weak self] in
+            guard let self else { return }
+            let echo = utterance.spoken.isEmpty ? false : await Self.isEcho(text, spoken: self.echoText(utterance))
+            utterance.weighing = false
+            guard self.generation == attempt, self.capture === utterance, utterance.tentative, !echo else { return }
+            VoiceDiag.log("barge confirmed by partial chars=\(text.count)")
+            utterance.tentative = false
+            self.stopTurn()
+        }
+    }
+
+    /// The sound heard over the agent ended: its words decide. Real words stop the agent and go as the next request; noise,
+    /// an invented « Yep » or the agent's own voice let it go on.
+    private func confirmBarge(_ utterance: Utterance) {
+        let attempt = generation
+        let echoText = echoText(utterance)
+        bargeCheck?.cancel()
+        bargeCheck = Task { [weak self] in
+            guard let self else { return }
+            let words = (try? await self.transcribe(utterance, attempt: attempt)) ?? ""
+            guard self.generation == attempt, !Task.isCancelled else { return }
+            var echo = false
+            if !words.isEmpty, !utterance.spoken.isEmpty { echo = await Self.isEcho(words, spoken: echoText) }
+            guard self.generation == attempt, !Task.isCancelled else { return }
+            if !echo, VoiceHeard.confirmsInterruption(words) {
+                VoiceDiag.log("barge confirmed chars=\(words.count)")
+                utterance.heard = words
+                self.stopTurn()
+                VoiceMetrics.shared.mark(.endpoint, overwrite: true)
+                self.finished.append(utterance)
+                self.speechStream.prepare(tools: self.tools)
+            } else {
+                VoiceDiag.log("barge dropped: \(echo ? "echo" : "noise") chars=\(words.count)")
+                self.releaseDuck()
+            }
+            self.bargeCheck = nil
+        }
+    }
+
+    /// Someone did speak: the agent stops and its request is interrupted.
+    private func stopTurn() {
+        let running = tools.app.transcript.running
+        bargeRequested = true
+        if running || audio.playing || replyOpen { interruptedTurn = true }
+        speechStream.stop(); audio.stopPlayback(); audio.duckPlayback(false); response?.cancel()
+        if running { interruption = Task { await self.sendInterrupt() } }
+    }
+
+    /// It was not someone speaking: the agent's voice comes back up, and a new sound can be weighed again.
+    private func releaseDuck() {
+        audio.duckPlayback(false); partial = ""
+        if phase == .listening || phase == .transcribing {
+            phase = !turnActive ? .listening : audio.playing || speechStream.hasAudio ? .speaking : .thinking
+        }
+        if turnActive { barge = makeBarge(preferences); bargeRearmAt = ProcessInfo.processInfo.systemUptime + Self.bargeRearmDelay }
     }
 
     private func sendInterrupt() async -> Bool {
@@ -677,7 +862,7 @@ final class VoiceConversation {
                 if !self.awaitingUser { self.phase = .speaking }
             }
         }
-        let history = VoiceLiveProtocol.history(tools.app.transcript.messages.map { ($0.role, $0.text) })
+        let history = VoiceLiveProtocol.history(tools.app.transcript.messages.map { ($0.role, SpokenTextFilter.strip($0.text)) })
         await VoiceAudioEngine.settleAudioWork()
         try validate(attempt)
         do {
@@ -761,7 +946,7 @@ final class VoiceConversation {
     /// (`drain`) instead of awaiting each append.
     private func emitLive(done: Bool) {
         guard let live else { return }
-        let delta = liveCursor.delta(reply.text, done: done)
+        let delta = liveCursor.delta(SpokenTextFilter.strip(reply.text), done: done)
         for chunk in VoiceLiveProtocol.chunks(delta) {
             if liveFirstResultAt == nil {
                 liveFirstResultAt = ProcessInfo.processInfo.systemUptime
@@ -862,19 +1047,25 @@ final class VoiceConversation {
               tools.profile == tools.app.profile, sessionID == tools.app.selected?.storedID else { throw CancellationError() }
         guard tools.app.state == .connected else { throw RPCFailure("La connexion à Hermès a été interrompue. Retrouvez la réponse dans le chat, puis reprenez la voix.") }
     }
-    private func acquireLeases(_ attempt: UUID) async {
-        for path in ["/api/audio/tts-lease", "/api/audio/stt-lease"] {
-            let id = "ios-" + UUID().uuidString
-            leases.append((path, id))
-            _ = try? await tools.request(path, method: "POST", body: ["lease": .string(id), "active": true])
-            if generation != attempt { return }
+    private func acquireLeases() {
+        let fresh = ["/api/audio/tts-lease", "/api/audio/stt-lease"].map { ($0, "ios-" + UUID().uuidString) }
+        leases.append(contentsOf: fresh)
+        let tools = tools
+        leaseWarmup = Task {
+            await withTaskGroup(of: Void.self) { group in
+                for (path, id) in fresh {
+                    group.addTask { _ = try? await tools.request(path, method: "POST", body: ["lease": .string(id), "active": true]) }
+                }
+            }
         }
     }
     private func releaseLeases() {
         let held = leases; leases = []
-        let tools = tools
+        let tools = tools, warmup = leaseWarmup
+        leaseWarmup = nil
         for lease in held {
-            Task { _ = try? await tools.request(lease.path, method: "POST", body: ["lease": .string(lease.id), "active": false]) }
+            // After the warm-up has landed: a late « active » must never overwrite this « inactive ».
+            Task { await warmup?.value; _ = try? await tools.request(lease.path, method: "POST", body: ["lease": .string(lease.id), "active": false]) }
         }
     }
     private func stopLocalAudio() {
@@ -883,6 +1074,7 @@ final class VoiceConversation {
         stopTimer?.cancel(); stopTimer = nil
         monitor?.cancel(); monitor = nil; response?.cancel(); response = nil
         interruption?.cancel(); interruption = nil
+        bargeCheck?.cancel(); bargeCheck = nil
         dropCapture()
         for utterance in finished { utterance.transcriber?.cancel(); utterance.recording?.cancel(); utterance.end() }
         finished.removeAll()
@@ -903,8 +1095,8 @@ final class VoiceConversation {
         } else {
             if inputMuted { dropCapture() }
             audio.setInputMuted(inputMuted)
-            onset = VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.endpointSilence, noiseFloor: ambient.value)
-            if barge != nil { barge = VoiceBargeIn(preferences: preferences, noiseFloor: ambient.value) }
+            onset = VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.endpointSilence, noiseFloor: detectionFloor)
+            if barge != nil { barge = makeBarge(preferences) }
         }
         if inputMuted { level = 0 }
     }
@@ -920,6 +1112,13 @@ private final class Utterance {
     var activity: VoiceActivity
     var elapsed = 0.0
     let barge: Bool
+    /// Heard over the agent's turn and not yet confirmed as speech: its end goes to `confirmBarge`, not to the request loop.
+    var tentative = false
+    /// A partial is being compared with what the agent said.
+    var weighing = false
+    var pace = VoiceWordPace()
+    /// Words already transcribed while confirming a barge-in: the request loop does not transcribe them again.
+    var heard: String?
     /// Reply text playing when a barge-in started (echo guard).
     let spoken: String
     let transcriber: StreamingTranscriber?

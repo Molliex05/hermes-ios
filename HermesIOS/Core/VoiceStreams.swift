@@ -7,10 +7,14 @@ struct VoiceLevel: Sendable, Equatable {
     let duration: Double
     /// Signed 16-bit RMS scale (0...32767), the unit of Hermes' `silence_threshold`.
     let rms: Double
+    /// The same scale, measured only in the speech band (see `VoiceBandFilter`): engine and road rumble barely register.
+    let band: Double
 
-    init(time: Double, duration: Double, rms: Double) {
+    init(time: Double, duration: Double, rms: Double, band: Double? = nil) {
         self.time = time; self.duration = duration
-        self.rms = rms.isFinite ? min(32767, max(0, rms)) : 0
+        let level = rms.isFinite ? min(32767, max(0, rms)) : 0
+        self.rms = level
+        self.band = band.map { $0.isFinite ? min(32767, max(0, $0)) : 0 } ?? level
     }
 }
 

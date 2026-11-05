@@ -39,6 +39,7 @@ struct ConnectionsView: View {
             Section {
                 Button { guide = true } label: { Label("Guide Tailscale & Hermes", systemImage: "book") }
             }
+            if !model.demo { ApprovalKeySection() }
             if model.demo {
                 Section { Button("Quitter l’aperçu") { model.demo = false; model.selected = nil; model.profiles = []; model.transcript = Transcript() } }
             }

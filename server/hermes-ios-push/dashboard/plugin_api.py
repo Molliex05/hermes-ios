@@ -45,7 +45,8 @@ async def worker():
                         config, sender = settings, service.APNs(settings, client)
                     # Alerts, Live Activity events and widget refreshes are independent: one failing kind must not
                     # starve the others (the supervisor would otherwise retry the whole pass from the start).
-                    for name, step in (("alerts", lambda: service.deliver_pending(store, sender)),
+                    for name, step in (("rooms", lambda: asyncio.to_thread(service.scan_rooms, store)),
+                                       ("alerts", lambda: service.deliver_pending(store, sender)),
                                        ("live", lambda: service.deliver_live(store, sender)),
                                        ("widgets", lambda: service.deliver_widgets(store, sender, service.widgets_refresh_minutes(settings)))):
                         try:

@@ -18,6 +18,7 @@ struct HermesIOSApp: App {
                 .tint(AppTheme.accent).toggleStyle(AppToggleStyle())
                 .task {
                     await model.boot()
+                    model.collectShares()
                     await VoiceBench.autorun(model)
                     await push.configure(model.connections)
                     #if DEBUG
@@ -34,7 +35,7 @@ struct HermesIOSApp: App {
                 }
                 .onChange(of: phase) { _, value in
                     // A temporary inactive phase must not tear down the chat socket.
-                    if value == .active { Task { await model.setForeground(true); await push.configure(model.connections); await model.refreshWidgets() } }
+                    if value == .active { model.collectShares(); Task { await model.setForeground(true); await push.configure(model.connections); await model.refreshWidgets() } }
                     else if value == .inactive { model.appBecameInactive() }
                     else if value == .background { Task { await model.setForeground(false) } }
                 }

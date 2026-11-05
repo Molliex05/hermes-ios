@@ -1,14 +1,22 @@
 name: CI
 on:
+  # Once per change: on the pull request while it is open, and on main once merged (not twice for every push).
   push:
+    branches: [main]
   pull_request:
 permissions:
   contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   core-and-build:
-    runs-on: macos-15
+    # The app uses the iOS 26 SDK (glass effects): an older Xcode cannot build it.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
+      - name: Toolchain
+        run: xcodebuild -version && swift --version
       - name: Core protocol tests
         run: swift test
       - name: Build native iOS app

@@ -27,6 +27,10 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 	<key>HermesSharedKeychainGroup</key>
 	<string>$(AppIdentifierPrefix)org.hermesios.shared</string>
 	<key>NSAppTransportSecurity</key>
@@ -34,8 +38,17 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>fr</string>
+		<string>en</string>
+	</array>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Quand une carte de votre agent montre un rendez-vous, Hermès iOS retrouve l’événement dans vos calendriers pour l’ouvrir. Rien n’est modifié ni envoyé.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Prenez une photo à envoyer à votre agent Hermes dans la conversation.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Confirmez avec Face ID avant qu’un courriel préparé par votre agent parte de votre Gmail.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Hermès iOS se connecte à votre agent Hermes sur votre réseau privé ou Tailscale.</string>
 	<key>NSMicrophoneUsageDescription</key>

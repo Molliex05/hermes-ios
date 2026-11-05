@@ -76,6 +76,32 @@ def _wait(seconds: int) -> str:
     return f"{seconds // 60 + 1} min" if seconds < 3600 else f"{seconds // 3600 + 1} h"
 
 
+def _cron_target(home, session_id: str) -> tuple[str, str]:
+    """Where the tap on a scheduled task's alert leads. A task delivered to the Bot Chat (`bot-chat…`) writes its
+    result there: the tap opens that chat (no session). Any other task (`local`…) leaves its result only in its own
+    run, so the tap opens that run, as « Voir le résultat » does in the app. ("", "") when the run is unknown."""
+    match = re.fullmatch(r"cron_([0-9a-f]+)_\d{8}_\d{6}", session_id or "")
+    if not match:
+        return "", ""
+    try:
+        from cron.jobs import get_job
+        job = get_job(match.group(1)) or {}
+        if str(job.get("deliver") or "").startswith("bot-chat"):
+            return "", ""
+        from hermes_state import SessionDB
+        db = SessionDB(home / "state.db", read_only=True)
+        try:
+            found = db.get_session(session_id)
+        finally:
+            db.close()
+    except Exception:
+        return "", ""
+    if not found or found.get("source") != "cron":
+        return "", ""
+    name = job.get("name")
+    return session_id, name if isinstance(name, str) else (found.get("title") or "")
+
+
 def handle(args, session_id="", task_id="", **kwargs) -> str:
     try:
         return _handle(args if isinstance(args, dict) else {}, session_id or "")
@@ -104,10 +130,11 @@ def _handle(args: dict, session_id: str) -> str:
     if not profile:
         return _error("Profil Hermes non identifié : notification impossible.")
 
-    # Cron runs are not conversations the phone can open; their bot-chat delivery notifies by itself.
     cron = platform == "cron" or _env("HERMES_CRON_SESSION").strip().lower() in {"1", "true", "yes"}
     session, title = "", ""
-    if _truthy(args.get("open_conversation", False)) and session_id and not cron:
+    if cron:
+        session, title = _cron_target(home, session_id)
+    elif _truthy(args.get("open_conversation", False)) and session_id:
         try:
             from hermes_state import SessionDB
             db = SessionDB(home / "state.db", read_only=True)

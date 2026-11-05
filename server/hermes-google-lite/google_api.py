@@ -38,10 +38,11 @@ _ALLOWED = (
     ("POST", re.compile(r"^/gmail/v1/users/me/messages/batchModify$")),
     ("GET", re.compile(r"^/calendar/v3/users/me/calendarList$")),
     ("GET", re.compile(r"^/calendar/v3/calendars/[A-Za-z0-9._%-]{1,200}/events$")),   # read any calendar
-    ("POST", re.compile(r"^/calendar/v3/calendars/primary/events$")),                 # write: the main calendar only
-    ("GET", re.compile(r"^/calendar/v3/calendars/primary/events/[A-Za-z0-9_-]{1,100}$")),
-    ("PATCH", re.compile(r"^/calendar/v3/calendars/primary/events/[A-Za-z0-9_-]{1,100}$")),
-    ("DELETE", re.compile(r"^/calendar/v3/calendars/primary/events/[A-Za-z0-9_-]{1,100}$")),
+    # Writes go to any calendar by id; `_writable_calendar_id` only ever picks calendars Maxime owns or can edit.
+    ("POST", re.compile(r"^/calendar/v3/calendars/[A-Za-z0-9._%-]{1,200}/events$")),
+    ("GET", re.compile(r"^/calendar/v3/calendars/[A-Za-z0-9._%-]{1,200}/events/[A-Za-z0-9_-]{1,100}$")),
+    ("PATCH", re.compile(r"^/calendar/v3/calendars/[A-Za-z0-9._%-]{1,200}/events/[A-Za-z0-9_-]{1,100}$")),
+    ("DELETE", re.compile(r"^/calendar/v3/calendars/[A-Za-z0-9._%-]{1,200}/events/[A-Za-z0-9_-]{1,100}$")),
 )
 
 
@@ -178,6 +179,11 @@ def gmail_read(message_id: str, max_chars: int = 8000) -> Dict[str, Any]:
 
 
 _EMAIL = re.compile(r"^[^@\s<>,;\"']+@[^@\s<>,;\"']+\.[^@\s<>,;\"']+$")
+# Control, invisible and bidi-override characters: what the iPhone shows before Maxime sends must be what leaves, so a
+# draft carrying them is refused (same rule as Noriven's drafts).
+_UNSAFE = r"\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff"
+UNSAFE_BODY = re.compile(f"[{_UNSAFE}]")
+UNSAFE_SUBJECT = re.compile(f"[{_UNSAFE}\t\r\n]|=\\?")
 
 
 def _addresses(value: str, label: str) -> list:
@@ -186,20 +192,27 @@ def _addresses(value: str, label: str) -> list:
         if not raw.strip():
             continue
         address = parseaddr(raw)[1]
-        if not _EMAIL.match(address) or "\n" in raw or "\r" in raw:
+        if not _EMAIL.match(address) or "\n" in raw or "\r" in raw or UNSAFE_BODY.search(raw):
             raise GoogleError(f"Adresse invalide dans `{label}`.")
         found.append(address)
     return found
 
 
-def gmail_draft(to: str, subject: str, body: str, cc: str = "", reply_to_message: str = "") -> Dict[str, Any]:
+MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES = 5, 20 * 1024 * 1024        # Gmail refuses a message over 25 MB once encoded
+
+
+def gmail_draft(to: str, subject: str, body: str, cc: str = "", reply_to_message: str = "",
+                files: Optional[list] = None) -> Dict[str, Any]:
+    """`files`: (name, bytes, mime type) already read by the caller from the files Maxime himself sent."""
     recipients, copies = _addresses(to, "a"), _addresses(cc, "cc")
     if not recipients:
         raise GoogleError("Au moins un destinataire est requis.")
-    if re.search(r"[\r\n]", subject or ""):
-        raise GoogleError("L'objet ne peut pas contenir de saut de ligne.")
+    if UNSAFE_SUBJECT.search(subject or ""):
+        raise GoogleError("L'objet tient sur une ligne, sans caractère invisible ni « =? ».")
     if not (body or "").strip():
         raise GoogleError("Le corps du message est vide.")
+    if UNSAFE_BODY.search(body):
+        raise GoogleError("Le texte contient des caractères invisibles ou de contrôle : réécris-le sans eux.")
     mail = EmailMessage()
     mail["To"] = ", ".join(recipients)
     if copies:
@@ -218,9 +231,16 @@ def gmail_draft(to: str, subject: str, body: str, cc: str = "", reply_to_message
             mail["References"] = (refs + " " + mid).strip()
         message["threadId"] = original.get("threadId")
     mail.set_content(body)
+    files = list(files or [])
+    if len(files) > MAX_ATTACHMENTS or sum(len(data) for _, data, _ in files) > MAX_ATTACHMENT_BYTES:
+        raise GoogleError(f"Au plus {MAX_ATTACHMENTS} pièces jointes, 20 Mo en tout.")
+    for name, data, mime in files:
+        main, _, sub = (mime if "/" in mime else "application/octet-stream").partition("/")
+        mail.add_attachment(data, maintype=main, subtype=sub, filename=name)
     message["raw"] = base64.urlsafe_b64encode(mail.as_bytes()).decode("ascii")
     draft = request("POST", f"{GMAIL}/drafts", json={"message": message})
-    return {"id_brouillon": draft.get("id"), "conversation": (draft.get("message") or {}).get("threadId")}
+    return {"id_brouillon": draft.get("id"), "id_message": (draft.get("message") or {}).get("id"),
+            "conversation": (draft.get("message") or {}).get("threadId"), "pieces_jointes": [name for name, _, _ in files]}
 
 
 # ---- Triage: folders (Gmail labels), archive, mark read (never trash, delete or send) ----------------------
@@ -335,6 +355,7 @@ def calendar_timezone() -> str:
 
 _calendars: Dict[str, Any] = {"at": 0.0, "items": []}
 MAX_CALENDARS = 8
+WRITABLE_ROLES = ("owner", "writer")
 _NOISE = ("#holiday@group.v.calendar.google.com", "addressbook#contacts@group.v.calendar.google.com")
 
 
@@ -361,6 +382,25 @@ def _pick_calendars(wanted: str) -> list:
     return (shown or every)[:MAX_CALENDARS]
 
 
+def _writable_calendar_id(name: str = "") -> str:
+    """`primary` by default; else the id of the calendar called `name`, if Maxime owns it or can edit it."""
+    needle = (name or "").strip().lower()
+    if not needle:
+        return "primary"
+    every = calendar_calendars()
+    matches = [c for c in every if needle in c["nom"].lower()]
+    exact = [c for c in matches if c["nom"].lower() == needle]
+    chosen = exact or matches
+    if not chosen:
+        raise GoogleError(f"Aucun agenda ne correspond à « {name} ». Utilise agenda_calendriers pour voir la liste.")
+    writable = [c for c in chosen if c["role"] in WRITABLE_ROLES]
+    if not writable:
+        raise GoogleError(f"L'agenda « {chosen[0]['nom']} » est en lecture seule : Maxime n'y a pas le droit d'écrire.")
+    if len(writable) > 1:
+        raise GoogleError("Plusieurs agendas correspondent : " + ", ".join(c["nom"] for c in writable) + ". Précise le nom.")
+    return writable[0]["id"]
+
+
 def calendar_list(time_min: str, time_max: str, query: str, limit: int, calendar: str = "") -> list:
     """Events across the shown calendars (or the one named), merged by start time."""
     params = {"timeMin": time_min, "timeMax": time_max, "singleEvents": "true", "orderBy": "startTime",
@@ -375,43 +415,49 @@ def calendar_list(time_min: str, time_max: str, query: str, limit: int, calendar
                         "debut": start.get("dateTime") or start.get("date"), "fin": end.get("dateTime") or end.get("date"),
                         "lieu": e.get("location") or "", "description": str(e.get("description") or "")[:300],
                         "participants": len(e.get("attendees") or []), "statut": e.get("status"), "lien": e.get("htmlLink"),
-                        "modifiable": bool(cal["principal"])})
+                        "modifiable": cal["role"] in WRITABLE_ROLES})
     out.sort(key=lambda e: str(e["debut"] or ""))
     return out[:max(1, min(limit, 50))]
 
 
-def calendar_create(summary: str, start: Dict[str, str], end: Dict[str, str], description: str = "", location: str = "") -> Dict[str, Any]:
+def _events_url(calendar_id: str) -> str:
+    return f"{CALENDAR}/calendars/{quote(calendar_id, safe='')}/events"
+
+
+def calendar_create(summary: str, start: Dict[str, str], end: Dict[str, str], description: str = "", location: str = "",
+                    calendar: str = "") -> Dict[str, Any]:
     body: Dict[str, Any] = {"summary": summary, "start": start, "end": end}
     if description:
         body["description"] = description
     if location:
         body["location"] = location
-    created = request("POST", f"{CALENDAR}/calendars/primary/events", params={"sendUpdates": "none"}, json=body)
+    created = request("POST", _events_url(_writable_calendar_id(calendar)), params={"sendUpdates": "none"}, json=body)
     return {"id": created.get("id"), "lien": created.get("htmlLink"), "debut": (created.get("start") or {}).get("dateTime") or (created.get("start") or {}).get("date")}
 
 
-def _event_url(event_id: str) -> str:
+def _event_url(event_id: str, calendar_id: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", event_id or ""):
         raise GoogleError("Identifiant d'événement invalide.")
-    return f"{CALENDAR}/calendars/primary/events/{event_id}"
+    return f"{_events_url(calendar_id)}/{event_id}"
 
 
-def calendar_get(event_id: str) -> Dict[str, Any]:
-    """An event of the MAIN calendar (events of other calendars are read-only and answer 404 here)."""
-    return request("GET", _event_url(event_id))
+def calendar_get(event_id: str, calendar: str = "") -> Dict[str, Any]:
+    """An event of a calendar Maxime can edit (the main one by default)."""
+    return request("GET", _event_url(event_id, _writable_calendar_id(calendar)))
 
 
-def calendar_update(event_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
-    updated = request("PATCH", _event_url(event_id), params={"sendUpdates": "none"}, json=patch)
+def calendar_update(event_id: str, patch: Dict[str, Any], calendar: str = "") -> Dict[str, Any]:
+    updated = request("PATCH", _event_url(event_id, _writable_calendar_id(calendar)), params={"sendUpdates": "none"}, json=patch)
     return {"id": updated.get("id"), "titre": updated.get("summary"), "lien": updated.get("htmlLink"),
             "debut": (updated.get("start") or {}).get("dateTime") or (updated.get("start") or {}).get("date"),
             "fin": (updated.get("end") or {}).get("dateTime") or (updated.get("end") or {}).get("date")}
 
 
-def calendar_delete(event_id: str) -> Dict[str, Any]:
-    """Deletes an event of the main calendar without notifying anyone; Google keeps it in the calendar bin for 30 days."""
-    event = calendar_get(event_id)
-    request("DELETE", _event_url(event_id), params={"sendUpdates": "none"})
+def calendar_delete(event_id: str, calendar: str = "") -> Dict[str, Any]:
+    """Deletes an event without notifying anyone; Google keeps it in the calendar bin for 30 days."""
+    calendar_id = _writable_calendar_id(calendar)
+    event = request("GET", _event_url(event_id, calendar_id))
+    request("DELETE", _event_url(event_id, calendar_id), params={"sendUpdates": "none"})
     start = event.get("start") or {}
     return {"id": event_id, "titre": event.get("summary") or "(sans titre)", "debut": start.get("dateTime") or start.get("date"),
             "participants": len(event.get("attendees") or [])}

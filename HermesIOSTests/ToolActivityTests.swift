@@ -124,4 +124,46 @@ final class ToolActivityTests: XCTestCase {
         XCTAssertTrue(transcript.running)
         XCTAssertTrue(transcript.messages.isEmpty)
     }
+
+    func testToolsCarryTheirContextDurationAndAFriendlyName() {
+        var transcript = Transcript()
+        transcript.apply(event(1, "message.start"))
+        transcript.apply(event(2, "tool.start", payload: ["tool_id": "a", "name": "web_search", "context": "maisons à vendre\nSaint-Constant"]))
+        transcript.apply(event(3, "tool.start", payload: ["tool_id": "b", "name": "mcp__noriven__ops_get_host"]))
+        transcript.apply(event(4, "tool.complete", payload: ["tool_id": "a", "name": "web_search", "duration_s": .number(1.25), "summary": "Did 3 searches in 1.2s"]))
+        let search = transcript.toolSteps[0], host = transcript.toolSteps[1]
+        XCTAssertEqual(search.context, "maisons à vendre Saint-Constant", "one line")
+        XCTAssertEqual(search.duration, 1.25); XCTAssertEqual(search.title, "Recherche web"); XCTAssertEqual(search.symbol, "magnifyingglass")
+        XCTAssertNil(host.duration); XCTAssertNotNil(host.startedAt)
+        XCTAssertEqual(host.baseName, "ops_get_host"); XCTAssertEqual(host.server, "noriven")
+        XCTAssertEqual(host.title, "État du serveur"); XCTAssertEqual(host.symbol, "server.rack")
+        XCTAssertEqual(Transcript.ToolStep(id: "c", name: "mcp__noryv__noryv_get_nutrition", state: .running).title, "Nutrition")
+        XCTAssertEqual(Transcript.ToolStep(id: "d", name: "custom_thing", state: .running).title, "Custom thing")
+        let dashed = Transcript.ToolStep(id: "e", name: "mcp__google_lite__gmail_chercher", state: .running)
+        XCTAssertEqual(dashed.baseName, "gmail_chercher"); XCTAssertEqual(dashed.server, "google_lite")
+        XCTAssertEqual(dashed.title, "Recherche de courriels")
+    }
+
+    func testTheActivityNamesAToolBeforeItsStepExists() {
+        var transcript = Transcript()
+        transcript.apply(event(1, "message.start"))
+        for (index, (name, label)) in [("terminal", "Commande…"), ("meteo", "Météo…"), ("web_search", "Recherche web…")].enumerated() {
+            transcript.apply(event(index + 2, "tool.generating", payload: ["name": .string(name)]))
+            XCTAssertEqual(transcript.activityLabel, label)
+        }
+        transcript.apply(event(9, "status.update", payload: ["text": "Compression du contexte…"]))
+        XCTAssertEqual(transcript.activityLabel, "Compression du contexte…", "a sentence stays as it is")
+    }
+
+    func testAReconnectionKeepsWhenARunningToolStarted() {
+        var transcript = Transcript()
+        transcript.apply(event(1, "message.start"))
+        transcript.apply(event(2, "tool.start", id: "long"))
+        let started = Date().addingTimeInterval(-55)
+        transcript.toolSteps[0].startedAt = started
+        transcript.recover(runningSnapshot, events: [event(1, "message.start"), event(2, "tool.start", id: "long")], latestSequence: 2)
+
+        XCTAssertEqual(transcript.toolSteps.map(\.id), ["long"])
+        XCTAssertEqual(transcript.toolSteps.first?.startedAt, started, "the clock goes on from the real start")
+    }
 }
