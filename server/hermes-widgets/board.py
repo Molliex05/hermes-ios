@@ -130,7 +130,7 @@ def _key(text: Any) -> str:
 
 
 def seen_dir(home: Path) -> Path:
-    """Where « Vu » leaves the emails to archive, one file per tap; the email watcher archives them and deletes the file."""
+    """Where « Vu » leaves the emails to archive, one file per tap; `seen.py` archives them and deletes the file."""
     return Path(home) / "widgets" / "a_classer"
 
 

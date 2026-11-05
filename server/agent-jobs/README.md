@@ -57,6 +57,6 @@ dans les jeux d'outils des tâches (`hermes tools enable … --platform cron`).
   `hermes -p noriven cron create --name "Courriels Noriven" --monitor-script hermes_courriels.py --deliver local --paused "every 5m" "$(cat hermes-courriels.prompt.fr.txt)"`
 
 - Retiré le 2026-11-04, à la demande de Maxime (trop lourd, alertes pour de vieux courriels) : « Courriels de Maxime » et « Courriels Noriven ». Copies dans
-  `<profil>/skill-backups/courriels-5min-20261104/jobs.json`. Sans ces tâches, plus rien ne vide `<profil>/widgets/a_classer/` : un « Vu » du widget n'archive plus le courriel.
+  `<profil>/skill-backups/courriels-5min-20261104/jobs.json`. Depuis `hermes-widgets` 0.9.1, un « Vu » archive directement ses courriels (`seen.py`) sans ces tâches ; ce qui échoue attend le prochain « Vu ».
 - Déployé le 2026-11-04 : « Point du matin » (noriven, `4146b1236c72`), livré dans le Bot Chat. Il remplace la surveillance par un seul passage quotidien sur les courriels Noriven.
   `hermes -p noriven cron create --name "Point du matin" --deliver bot-chat --continuity "15 8 * * *" "$(cat hermes-matin.prompt.fr.txt)"`

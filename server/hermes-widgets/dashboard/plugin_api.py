@@ -1,4 +1,4 @@
-"""Mounted by Hermes under its existing dashboard authentication boundary. Read-only, except « Vu » (`/board/seen`) and the
+"""Mounted by Hermes under its existing dashboard authentication boundary. Read-only, except « Vu » (`/board/seen`, which also archives its emails) and the
 app's sending of a Gmail draft Maxime has read (`/drafts/…/send`, see `outbox.py`)."""
 import importlib.util
 import logging
@@ -37,6 +37,10 @@ _noriven_spec = importlib.util.spec_from_file_location("hermes_widgets_noriven_o
 noriven_outbox = importlib.util.module_from_spec(_noriven_spec)
 sys.modules[_noriven_spec.name] = noriven_outbox
 _noriven_spec.loader.exec_module(noriven_outbox)
+_seen_spec = importlib.util.spec_from_file_location("hermes_widgets_seen", Path(__file__).resolve().parent.parent / "seen.py")
+seen_module = importlib.util.module_from_spec(_seen_spec)
+sys.modules[_seen_spec.name] = seen_module
+_seen_spec.loader.exec_module(seen_module)
 log = logging.getLogger("hermes_widgets")
 
 router = APIRouter()
@@ -147,13 +151,18 @@ def message_read(profile: str, message_id: str):
 def board_seen(payload: dict = Body(...)):
     """« Vu » on the widget: these lines leave the agent's board, and the emails they were about are queued for the agent's
     email watcher to archive. Only an existing profile; only texts are taken from the phone, the email ids come from the
-    board the agent wrote."""
+    board the agent wrote. A plain `def`: archiving calls the mailbox, FastAPI runs it in a thread."""
     profile = str((payload or {}).get("profile") or "")
     root = Path(os.environ.get("HERMES_PROFILES_DIR", "/opt/data/profiles"))
     if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", profile) or not (root / profile).is_dir():
         raise HTTPException(404, "Profil inconnu.")
     try:
-        return {"ok": True, **board_module.mark_seen(root / profile, payload.get("lines"), payload.get("focus"))}
+        result = board_module.mark_seen(root / profile, payload.get("lines"), payload.get("focus"))
     except Exception as error:      # never forward the arguments
         log.warning("Widget seen mark failed (%s)", type(error).__name__)
         raise HTTPException(500, "Le tableau n'a pas pu être mis à jour.") from None
+    try:
+        result["archives"] = seen_module.archive(root, profile, agenda_module)
+    except Exception as error:      # the line left the board all the same; the emails wait for the next « Vu »
+        log.warning("Seen emails not archived (%s)", type(error).__name__)
+    return {"ok": True, **result}
