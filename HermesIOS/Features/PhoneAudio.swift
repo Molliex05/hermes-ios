@@ -145,8 +145,8 @@ final class PhoneAudio {
         engine.stopPlayback()
     }
 
-    /// Holds the agent's voice where it is while a sound is weighed, or lets it go on (see `VoiceAudioEngine.holdPlayback`).
-    func holdPlayback(_ hold: Bool) { engine.holdPlayback(hold) }
+    /// Turns the agent's voice down while a sound is weighed, or back up (see `VoiceAudioEngine.duckPlayback`).
+    func duckPlayback(_ duck: Bool) { engine.duckPlayback(duck) }
 
     func cleanup() {
         generation = UUID(); playbackGeneration = UUID(); inputMuted = false

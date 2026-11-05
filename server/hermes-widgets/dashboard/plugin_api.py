@@ -130,6 +130,19 @@ def draft_send(profile: str, draft_id: str, payload: dict = Body(...)):
         raise HTTPException(502, "L'envoi a échoué ; vérifie dans Gmail avant de réessayer.") from None
 
 
+@router.get("/messages/{profile}/{message_id}")
+def message_read(profile: str, message_id: str):
+    """A received Gmail message's whole text, for Maxime to read in its card."""
+    root = _google_profile(profile)
+    try:
+        return outbox_module.read_message(agenda_module._google(root, profile), message_id)
+    except outbox_module.OutboxError as error:
+        raise HTTPException(error.status, str(error)) from None
+    except Exception as error:
+        log.warning("Message read failed (%s)", type(error).__name__)
+        raise HTTPException(502, "Le courriel n'a pas pu être lu.") from None
+
+
 @router.post("/board/seen")
 def board_seen(payload: dict = Body(...)):
     """« Vu » on the widget: these lines leave the agent's board, and the emails they were about are queued for the agent's

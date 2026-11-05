@@ -84,6 +84,25 @@ public struct OutboxDraft: Equatable, Sendable {
     }
 }
 
+/// A received Gmail message's whole text, read by the server for its card. Someone else's words: shown as plain text, and
+/// never sent back to the agent.
+public struct MailBody: Equatable, Sendable {
+    public let text: String
+    /// Longer than what the server sends: the rest is in Gmail.
+    public let truncated: Bool
+
+    public init?(_ json: JSONValue, messageID: String) {
+        guard json["id"].string == messageID else { return nil }
+        text = json["texte"].string.trimmingCharacters(in: .whitespacesAndNewlines)
+        truncated = json["tronque"].bool
+    }
+
+    public static func path(profile: String, messageID: String) -> String? {
+        guard profile.wholeMatch(of: /[a-z0-9][a-z0-9_-]{0,63}/) != nil, MailID.validMessage(messageID), !MailID.isNoriven(messageID) else { return nil }
+        return "/api/plugins/hermes-widgets/messages/\(profile)/\(messageID)"
+    }
+}
+
 /// The drafts already sent from this iPhone, so a card says « Envoyé » when the conversation is opened again.
 public enum SentDrafts {
     private static let key = "sentDrafts.v1"

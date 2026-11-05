@@ -46,8 +46,9 @@ final class VoiceAudioEngine: @unchecked Sendable {
     private var inputTapInstalled = false
     private var outputTapInstalled = false
     private var recoveries: [TimeInterval] = []
-    /// The agent's voice is held where it was (a sound that may be someone speaking): queued audio waits, nothing restarts it.
-    private var held = false
+    private static let duckedVolume: Float = 0.25
+    /// The agent's voice is turned down while a sound that may be someone speaking is weighed (`duckPlayback`).
+    private var ducked = false
 
     var snapshot: Snapshot { state.snapshot() }
 
@@ -222,14 +223,12 @@ final class VoiceAudioEngine: @unchecked Sendable {
         }
     }
 
-    /// Holds the agent's voice where it is, or lets it go on from there. The audio already queued, and what still arrives,
-    /// waits meanwhile: a noise mistaken for speech costs a short pause, not the reply.
-    func holdPlayback(_ hold: Bool) {
+    /// Turns the agent's voice down, or back up. It keeps playing: a noise mistaken for speech costs a dip in volume, never a
+    /// hole in the reply (the road can pass for speech for many seconds).
+    func duckPlayback(_ duck: Bool) {
         Self.queue.async { [self] in
-            guard held != hold else { return }
-            held = hold
-            guard playbackID != nil, let player else { return }
-            if hold { player.pause() } else if engine?.isRunning == true { player.play() }
+            ducked = duck
+            player?.volume = duck ? Self.duckedVolume : 1
         }
     }
 
@@ -352,7 +351,7 @@ final class VoiceAudioEngine: @unchecked Sendable {
                     }
                     engine.prepare()
                     try engine.start()
-                    if resumePlayback, !held { player?.play() }
+                    if resumePlayback { player?.volume = ducked ? Self.duckedVolume : 1; player?.play() }
                     VoiceDiag.log("recovered in place running=\(engine.isRunning)")
                     return
                 } catch { VoiceDiag.log("in-place recovery failed: \(error)") }
@@ -362,7 +361,7 @@ final class VoiceAudioEngine: @unchecked Sendable {
         teardownGraphOnQueue()
         do {
             try prepareOnQueue(generation: generation)
-            if resumePlayback, !held { player?.play() }
+            if resumePlayback { player?.volume = ducked ? Self.duckedVolume : 1; player?.play() }
             VoiceDiag.log("recovered by rebuild")
         } catch {
             VoiceDiag.log("rebuild failed: \(error)")
@@ -409,7 +408,7 @@ final class VoiceAudioEngine: @unchecked Sendable {
     }
 
     private func stopOutputOnQueue() {
-        player?.stop(); held = false
+        player?.stop(); ducked = false; player?.volume = 1
         converter = nil; pcmCarry = nil; playbackID = nil
         audioFile = nil
         if let url = audioFileURL { try? FileManager.default.removeItem(at: url) }
@@ -466,7 +465,7 @@ final class VoiceAudioEngine: @unchecked Sendable {
                     // Never stop the player from its render callback (Apple documents a deadlock).
                     Self.queue.async { [weak self] in self?.state.removeQueued(duration, id: id) }
                 }
-                if player?.isPlaying != true, !held { player?.play() }
+                if player?.isPlaying != true { player?.play() }
                 scheduled = true
             }
             if status == .inputRanDry || status == .endOfStream { return scheduled }

@@ -267,6 +267,7 @@ struct EmailMessageCard: View {
                 .background(AppTheme.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(AppTheme.line))
             }
+            if email.gmailURL != nil { EmailBodyReader(messageID: email.messageID) }
             if email.hasAttachments {
                 FlowLayout(spacing: 6) {
                     ForEach(email.attachments) { file in
@@ -307,6 +308,64 @@ struct EmailMessageCard: View {
         case .sheet: "tablecells"
         case .document: "doc.text"
         case .other: "paperclip"
+        }
+    }
+}
+
+/// The message whole, on request, scrolling inside its card. Someone else's words: plain text, with nothing to tap.
+private struct EmailBodyReader: View {
+    let messageID: String
+    @Environment(\.draftOutbox) private var outbox
+    @State private var mail: MailBody?
+    @State private var open = false
+    @State private var loading = false
+    @State private var failure: String?
+    @State private var textHeight: CGFloat = 0
+    private static let tallest: CGFloat = 380
+
+    var body: some View {
+        if outbox != nil {
+            VStack(alignment: .leading, spacing: 8) {
+                Button(action: toggle) {
+                    HStack(spacing: 6) {
+                        Label(open ? "Masquer le courriel" : "Lire le courriel", systemImage: "doc.plaintext")
+                        Spacer(minLength: 0)
+                        if loading { ProgressView().controlSize(.small) }
+                        else { Image(systemName: "chevron.down").rotationEffect(.degrees(open ? 180 : 0)) }
+                    }
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(AppTheme.accent)
+                    .padding(.vertical, 6).contentShape(Rectangle())
+                }.buttonStyle(.plain).disabled(loading)
+                if let failure { Text(failure).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                if open, let mail {
+                    ScrollView {
+                        Text(verbatim: mail.text).font(.subheadline).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(12)
+                            .onGeometryChange(for: CGFloat.self, of: \.size.height) { textHeight = $0 }
+                    }
+                    .frame(height: min(max(textHeight, 60), Self.tallest))
+                    .scrollBounceBehavior(.basedOnSize)
+                    .background(AppTheme.background.opacity(0.55), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(AppTheme.line))
+                    .accessibilityIdentifier("email-body")
+                    if mail.truncated { Text("La suite est dans Gmail.").font(.caption).foregroundStyle(.secondary) }
+                }
+            }
+        }
+    }
+
+    private func toggle() {
+        Haptics.select()
+        if mail != nil { withAnimation(.snappy(duration: 0.25)) { open.toggle() }; return }
+        guard let outbox else { return }
+        loading = true; failure = nil
+        Task {
+            defer { loading = false }
+            do {
+                let read = try await outbox.read(messageID)
+                guard !read.text.isEmpty else { failure = "Ce courriel n’a pas de texte à afficher."; return }
+                withAnimation(.snappy(duration: 0.25)) { mail = read; open = true }
+            } catch { failure = error.localizedDescription }
         }
     }
 }

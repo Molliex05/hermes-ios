@@ -54,6 +54,7 @@ final class VoiceConversation {
     @ObservationIgnored private var finished: [Utterance] = []
     /// The transcription of a sound heard over the agent's turn, deciding whether it was someone speaking.
     @ObservationIgnored private var bargeCheck: Task<Void, Never>?
+    @ObservationIgnored private var bargeRearmAt = -TimeInterval.infinity
     @ObservationIgnored private var turnActive = false
     @ObservationIgnored private var awaitingUser = false
     @ObservationIgnored private var bargeRequested = false
@@ -91,6 +92,11 @@ final class VoiceConversation {
     private static let holdingLine = "Je regarde ça. "
     private static let holdingToolDelay: TimeInterval = 0.5
     private static let holdingSlowDelay: TimeInterval = 1.5
+    /// How long a sound over the agent's turn is listened to without any real word: partial words arrive about 2 s in. Past
+    /// this it was the road, whose rumble can otherwise pass for speech to the end of the reply.
+    private static let bargeListenLimit: TimeInterval = 4
+    /// After a sound that was not speech the detector rests: steady road noise would otherwise keep the voice turned down.
+    private static let bargeRearmDelay: TimeInterval = 3
 
     init(_ app: AppModel) {
         tools = NativeToolSession(app); sessionID = app.selected?.storedID
@@ -628,6 +634,7 @@ final class VoiceConversation {
         guard !inputMuted else { return }
         if let utterance = capture {
             utterance.elapsed += frame.duration
+            if utterance.tentative, utterance.elapsed >= Self.bargeListenLimit { dropCapture(); return }
             if utterance.activity.sample(detection(frame)) || utterance.elapsed >= preferences.maxRecordingSeconds { endUtterance() }
             return
         }
@@ -639,7 +646,7 @@ final class VoiceConversation {
         }
         guard !awaitingUser else { return }
         if turnActive {
-            guard var detector = barge else { return }
+            guard var detector = barge, frame.time >= bargeRearmAt else { return }
             let tripped = detector.sample(frame, playing: playing)
             barge = detector
             if tripped { interruptForSpeech(attempt) }
@@ -658,6 +665,7 @@ final class VoiceConversation {
             guard let self, self.generation == attempt else { return }
             if !text.isEmpty { VoiceMetrics.shared.mark(.sttPartial) }
             self.partial = text
+            self.weighPartial(text)
         }
         let utterance = Utterance(activity: VoiceActivity(threshold: preferences.threshold, silenceDuration: preferences.endpointSilence,
                                                           confirmedSpeech: true, noiseFloor: detectionFloor),
@@ -694,12 +702,12 @@ final class VoiceConversation {
         capture = nil
         utterance.transcriber?.cancel(); utterance.recording?.cancel(); utterance.end()
         audio.cancelCapture()
-        if utterance.tentative { releaseHold() }
+        if utterance.tentative { releaseDuck() }
     }
 
-    /// A sound over the agent's turn may be someone speaking, or the road (a bump, a blinker). The agent's voice holds where
-    /// it is and the sound is recorded; only words the transcription confirms cut the turn off (`commitBarge`). Anything
-    /// else lets the voice go on from where it stopped, and the request keeps running on the server.
+    /// A sound over the agent's turn may be someone speaking, or the road (a bump, a blinker). The agent's voice dips and goes
+    /// on while the sound is recorded; only words the transcription confirms cut the turn off (`weighPartial`, `confirmBarge`).
+    /// Anything else brings the voice back up, and the request keeps running on the server.
     private func interruptForSpeech(_ attempt: UUID) {
         guard generation == attempt, capture == nil else { return }
         let speaking = phase == .speaking || audio.playing
@@ -707,16 +715,37 @@ final class VoiceConversation {
         // put a card's JSON in the comparison, and the echo of the last sentence went unrecognised).
         let spoken = speaking ? ([SpokenTextFilter.strip(reply.display)] + narrated).joined(separator: " ") : ""
         barge = nil
-        audio.holdPlayback(true)
+        audio.duckPlayback(true)
         beginUtterance(barge: true, spoken: spoken, attempt: attempt)
         capture?.tentative = true
+    }
+
+    /// What the agent's voice said so far this turn, for the echo guard.
+    private func echoText(_ utterance: Utterance) -> String {
+        utterance.spoken + (fillerSpoken ? " " + VoiceFiller.phrases.joined(separator: " ") : "")
+    }
+
+    /// Partial words of a sound over the agent: real ones stop it at once, and the capture goes on as the next request.
+    private func weighPartial(_ text: String) {
+        guard let utterance = capture, utterance.tentative, !utterance.weighing, VoiceHeard.confirmsInterruption(text) else { return }
+        utterance.weighing = true
+        let attempt = generation
+        Task { [weak self] in
+            guard let self else { return }
+            let echo = utterance.spoken.isEmpty ? false : await Self.isEcho(text, spoken: self.echoText(utterance))
+            utterance.weighing = false
+            guard self.generation == attempt, self.capture === utterance, utterance.tentative, !echo else { return }
+            VoiceDiag.log("barge confirmed by partial chars=\(text.count)")
+            utterance.tentative = false
+            self.stopTurn()
+        }
     }
 
     /// The sound heard over the agent ended: its words decide. Real words stop the agent and go as the next request; noise,
     /// an invented « Yep » or the agent's own voice let it go on.
     private func confirmBarge(_ utterance: Utterance) {
         let attempt = generation
-        let echoText = utterance.spoken + (fillerSpoken ? " " + VoiceFiller.phrases.joined(separator: " ") : "")
+        let echoText = echoText(utterance)
         bargeCheck?.cancel()
         bargeCheck = Task { [weak self] in
             guard let self else { return }
@@ -728,32 +757,32 @@ final class VoiceConversation {
             if !echo, VoiceHeard.confirmsInterruption(words) {
                 VoiceDiag.log("barge confirmed chars=\(words.count)")
                 utterance.heard = words
-                self.commitBarge(utterance)
+                self.stopTurn()
+                VoiceMetrics.shared.mark(.endpoint, overwrite: true)
+                self.finished.append(utterance)
+                self.speechStream.prepare(tools: self.tools)
             } else {
                 VoiceDiag.log("barge dropped: \(echo ? "echo" : "noise") chars=\(words.count)")
-                self.releaseHold()
+                self.releaseDuck()
             }
             self.bargeCheck = nil
         }
     }
 
-    /// Someone did speak: the agent stops, its request is interrupted, and the words already transcribed go next.
-    private func commitBarge(_ utterance: Utterance) {
+    /// Someone did speak: the agent stops and its request is interrupted.
+    private func stopTurn() {
         let running = tools.app.transcript.running
         bargeRequested = true
         if running || audio.playing || replyOpen { interruptedTurn = true }
-        speechStream.stop(); audio.stopPlayback(); audio.holdPlayback(false); response?.cancel()
+        speechStream.stop(); audio.stopPlayback(); audio.duckPlayback(false); response?.cancel()
         if running { interruption = Task { await self.sendInterrupt() } }
-        VoiceMetrics.shared.mark(.endpoint, overwrite: true)
-        finished.append(utterance)
-        speechStream.prepare(tools: tools)
     }
 
-    /// It was not someone speaking: the agent's voice goes on, and a new sound can be weighed again.
-    private func releaseHold() {
-        audio.holdPlayback(false); partial = ""
+    /// It was not someone speaking: the agent's voice comes back up, and a new sound can be weighed again.
+    private func releaseDuck() {
+        audio.duckPlayback(false); partial = ""
         if phase == .listening || phase == .transcribing { phase = audio.playing || speechStream.hasAudio ? .speaking : .thinking }
-        if turnActive { barge = makeBarge(preferences) }
+        if turnActive { barge = makeBarge(preferences); bargeRearmAt = ProcessInfo.processInfo.systemUptime + Self.bargeRearmDelay }
     }
 
     private func sendInterrupt() async -> Bool {
@@ -1079,6 +1108,8 @@ private final class Utterance {
     let barge: Bool
     /// Heard over the agent's turn and not yet confirmed as speech: its end goes to `confirmBarge`, not to the request loop.
     var tentative = false
+    /// A partial is being compared with what the agent said.
+    var weighing = false
     /// Words already transcribed while confirming a barge-in: the request loop does not transcribe them again.
     var heard: String?
     /// Reply text playing when a barge-in started (echo guard).

@@ -55,7 +55,8 @@ struct ChatView: View {
             .environment(\.chatReply, ChatReplyAction { text in reply(text) })
             .environment(\.draftOutbox, model.demo ? nil : DraftOutbox(
                 load: { [profile = model.chatProfile] id in try await model.loadDraft(id, profile: profile) },
-                send: { [profile = model.chatProfile] draft in try await model.sendDraft(draft, profile: profile) }))
+                send: { [profile = model.chatProfile] draft in try await model.sendDraft(draft, profile: profile) },
+                read: { [profile = model.chatProfile] id in try await model.loadMailBody(id, profile: profile) }))
             .environment(\.calendarEvent, CalendarEventAction { request in showEvent(request) })
             .sheet(item: $webPage) { page in SafariView(url: page.url).ignoresSafeArea() }
             .sheet(item: $eventPage) { page in EventPageView(event: page.event) { eventPage = nil }.ignoresSafeArea() }

@@ -35,6 +35,17 @@ class Outbox(unittest.TestCase):
     def setUp(self):
         outbox._sent.clear(); self.gmail = Gmail(); self.home = Path(tempfile.mkdtemp())
 
+    def test_a_received_message_reads_whole_and_returns_only_its_text(self):
+        asked = []
+        class Google:
+            def gmail_read(self, message_id, max_chars):
+                asked.append((message_id, max_chars))
+                return {"id": message_id, "de": "x@y.ca", "texte": "Bonjour", "tronque": False}
+        self.assertEqual(outbox.read_message(Google(), "18f2a9c0d1e2"), {"id": "18f2a9c0d1e2", "texte": "Bonjour", "tronque": False})
+        self.assertEqual(asked, [("18f2a9c0d1e2", outbox.MESSAGE_LIMIT)])
+        with self.assertRaises(outbox.OutboxError) as refused: outbox.read_message(Google(), "../x")
+        self.assertEqual(refused.exception.status, 404)
+
     def test_the_draft_is_read_as_gmail_holds_it(self):
         view = outbox.read(google, "r123", http=self.gmail)
         self.assertEqual((view["to"], view["subject"], view["message_id"]), ("julie@example.com", "Facture", "m9"))

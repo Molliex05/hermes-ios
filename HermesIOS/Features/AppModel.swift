@@ -272,6 +272,13 @@ final class AppModel {
         return draft
     }
 
+    /// A received email's whole text as Gmail holds it, for its card.
+    func loadMailBody(_ messageID: String, profile: String) async throws -> MailBody {
+        guard let http, let path = MailBody.path(profile: profile, messageID: messageID) else { throw RPCFailure("Ce courriel ne peut pas être ouvert ici.") }
+        guard let body = MailBody(try await http.request(path), messageID: messageID) else { throw RPCFailure("Le courriel reçu est illisible.") }
+        return body
+    }
+
     /// Sends a draft Maxime has just read (and confirmed with Face ID): the server refuses it if it changed since. A Noriven
     /// draft carries an approval signed by this iPhone's Secure Enclave key, which asks for Face ID itself.
     func sendDraft(_ draft: OutboxDraft, profile: String) async throws {

@@ -15,6 +15,16 @@ final class MailIDTests: XCTestCase {
         XCTAssertNil(OutboxDraft.path(profile: "noriven", draftID: noriven + "/../x"))
     }
 
+    func testOnlyAGmailMessageOfThatIdReadsAsAWholeBody() {
+        XCTAssertEqual(MailBody.path(profile: "personnel", messageID: "18f2a9c0d1e2"), "/api/plugins/hermes-widgets/messages/personnel/18f2a9c0d1e2")
+        XCTAssertNil(MailBody.path(profile: "personnel", messageID: noriven), "a Noriven message has no Gmail body")
+        XCTAssertNil(MailBody.path(profile: "personnel", messageID: "../admin"))
+        XCTAssertNil(MailBody.path(profile: "../x", messageID: "18f2a9c0d1e2"))
+        let read = MailBody(.object(["id": .string("18f2a9c0d1e2"), "texte": .string("  Bonjour\n"), "tronque": .bool(true)]), messageID: "18f2a9c0d1e2")
+        XCTAssertEqual(read?.text, "Bonjour"); XCTAssertEqual(read?.truncated, true)
+        XCTAssertNil(MailBody(.object(["id": .string("autre123"), "texte": .string("x")]), messageID: "18f2a9c0d1e2"))
+    }
+
     func testTheSignedTextIsTheContractsExactBytes() {
         let text = String(decoding: SendApproval.message(draftID: noriven, fingerprint: "f0", signedAt: 1793578632, nonce: "AAAA"), as: UTF8.self)
         XCTAssertEqual(text, "noriven-email-send-v1\n\(noriven)\nf0\n1793578632\nAAAA")

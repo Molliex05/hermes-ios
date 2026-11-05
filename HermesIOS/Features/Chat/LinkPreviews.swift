@@ -8,10 +8,12 @@ struct ChatReplyAction {
     let send: @MainActor (String) -> Bool
 }
 
-/// Reads and sends a Gmail draft of the conversation's agent (see `OutboxDraft`). Set by the chat.
+/// Reads and sends a Gmail draft of the conversation's agent (see `OutboxDraft`), and reads a received message whole
+/// (`MailBody`). Set by the chat.
 struct DraftOutbox {
     let load: @MainActor (String) async throws -> OutboxDraft
     let send: @MainActor (OutboxDraft) async throws -> Void
+    let read: @MainActor (String) async throws -> MailBody
 }
 
 extension EnvironmentValues {

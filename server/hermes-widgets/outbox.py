@@ -19,8 +19,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me"
-TIMEOUT, SENDS_PER_HOUR, BODY_LIMIT = 30, 20, 20_000
+TIMEOUT, SENDS_PER_HOUR, BODY_LIMIT, MESSAGE_LIMIT = 30, 20, 20_000, 30_000
 _DRAFT_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+_MESSAGE_ID = re.compile(r"[A-Za-z0-9_-]{6,64}")
 _sent: deque = deque()
 _lock = threading.Lock()
 
@@ -31,6 +32,15 @@ class OutboxError(RuntimeError):
     def __init__(self, message: str, status: int = 400):
         super().__init__(message)
         self.status = status
+
+
+def read_message(google, message_id: str) -> Dict[str, Any]:
+    """A received message's whole text, for its card in the app. It goes to Maxime's screen only: no agent sees this answer,
+    and reading it here marks nothing as read."""
+    if not _MESSAGE_ID.fullmatch(message_id or ""):
+        raise OutboxError("Identifiant de message invalide.", 404)
+    message = google.gmail_read(message_id, MESSAGE_LIMIT)
+    return {"id": message.get("id"), "texte": message.get("texte") or "", "tronque": bool(message.get("tronque"))}
 
 
 def _http(method: str, url: str, **kwargs):          # the network seam (tests replace it)
