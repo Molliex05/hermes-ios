@@ -41,4 +41,16 @@ final class VoiceCardsTests: XCTestCase {
         XCTAssertEqual(glance.title.count, 70); XCTAssertEqual(glance.value.count, 14)
         XCTAssertEqual(glance.lines, ["un deux", "trois"])
     }
+
+    func testRichCardsKeepTheirRowsForTheExpandedIsland() throws {
+        let forecast = "Voici.\n\n```ui\n{\"type\":\"weather\",\"place\":\"Montréal\",\"now\":{\"temp\":3,\"condition\":\"Pluie\"},\"days\":[{\"label\":\"Lun\",\"condition\":\"Neige\",\"high\":2,\"low\":-4},{\"label\":\"Mar\",\"condition\":\"Soleil\",\"high\":5,\"low\":-1},{\"label\":\"Mer\",\"high\":6,\"low\":0},{\"label\":\"Jeu\",\"high\":7,\"low\":1}]}\n```"
+        let weather = try XCTUnwrap(VoiceCards.glance(in: [ChatMessage(id: "w", role: "assistant", text: forecast)], before: []))
+        XCTAssertEqual(weather.rows.count, 3, "three days at most")
+        XCTAssertEqual(weather.rows.first?.label, "Lun"); XCTAssertEqual(weather.rows.first?.value, "2° / -4°"); XCTAssertEqual(weather.rows.first?.symbol, "snowflake")
+        let goals = "Bien.\n\n```ui\n{\"type\":\"progress\",\"title\":\"Semaine\",\"items\":[{\"label\":\"Pas\",\"value\":5000,\"goal\":10000,\"unit\":\"pas\"}]}\n```"
+        let progress = try XCTUnwrap(VoiceCards.glance(in: [ChatMessage(id: "p", role: "assistant", text: goals)], before: []))
+        XCTAssertEqual(progress.rows.first?.progress, 0.5)
+        let old = try JSONDecoder().decode(CardGlance.self, from: Data(#"{"symbol":"calendar","title":"Dentiste","value":"","lines":[]}"#.utf8))
+        XCTAssertEqual(old.rows, [], "a glance saved before rows existed still reads")
+    }
 }

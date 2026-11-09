@@ -43,20 +43,31 @@ extension CardGlance {
         switch card {
         case .weather(let weather):
             let today = weather.days.first.map { joined($0.high.map { "Max \(degrees($0))" } ?? "", $0.low.map { "Min \(degrees($0))" } ?? "") } ?? ""
+            let days = weather.days.prefix(3).map {
+                Row(symbol: Self.weatherSymbol($0.condition), label: $0.label, detail: $0.condition,
+                    value: [degrees($0.high), degrees($0.low)].filter { !$0.isEmpty }.joined(separator: " / "))
+            }
             self.init(symbol: Self.weatherSymbol(weather.condition), title: weather.place.isEmpty ? "Météo" : weather.place,
-                      value: degrees(weather.temperature), lines: [weather.condition, today])
+                      value: degrees(weather.temperature), lines: [weather.condition, today], rows: days)
         case .event(let event):
-            self.init(symbol: "calendar", title: event.title, lines: [joined(event.start, event.end), event.location])
+            let when = Self.when(event.start, end: event.end)
+            self.init(symbol: "calendar", title: event.title, lines: [when, event.location],
+                      rows: [Row(symbol: "clock", label: when), Row(symbol: "mappin.and.ellipse", label: event.location)])
         case .agenda(let title, let slots):
             self.init(symbol: "calendar", title: title.isEmpty ? "Agenda" : title, value: "\(slots.count)",
-                      lines: slots.prefix(2).map { joined($0.start, $0.title) })
+                      lines: slots.prefix(2).map { joined(Self.when($0.start), $0.title) },
+                      rows: slots.prefix(3).map { Row(label: Self.when($0.start), detail: $0.title, value: $0.location) })
         case .email(let message):
             self.init(symbol: "envelope.fill", title: message.email.subject, value: message.due,
                       lines: [message.email.sender.label, message.points.first ?? message.email.summary])
         case .emails(let inbox):
             self.init(symbol: "tray.full.fill", title: inbox.title.isEmpty ? "Courriels" : inbox.title,
                       value: inbox.unread > 0 ? "\(inbox.unread) non lus" : "\(inbox.items.count)",
-                      lines: inbox.items.prefix(2).map { "\($0.sender.label) — \($0.subject)" })
+                      lines: inbox.items.prefix(2).map { "\($0.sender.label) — \($0.subject)" },
+                      rows: inbox.items.prefix(3).map {
+                          Row(symbol: $0.unread ? "circle.fill" : "", label: $0.sender.label, detail: $0.subject,
+                              value: $0.date.map { Self.when($0) } ?? "")
+                      })
         case .triage(let triage):
             self.init(symbol: "tray.and.arrow.down.fill", title: triage.title.isEmpty ? "Tri des courriels" : triage.title,
                       value: "\(triage.pendingCount)", lines: ["\(triage.archived) archivés · \(triage.drafts) brouillons",
@@ -65,17 +76,25 @@ extension CardGlance {
             self.init(symbol: "square.and.pencil", title: draft.subject.isEmpty ? "Brouillon" : draft.subject, lines: ["À \(draft.to)"])
         case .metrics(let title, let metrics):
             self.init(symbol: "chart.bar.fill", title: title.isEmpty ? (metrics.first?.label ?? "Chiffres") : title, value: metrics.first?.value ?? "",
-                      lines: metrics.dropFirst(title.isEmpty ? 1 : 0).prefix(2).map { joined($0.label, $0.value, $0.delta) })
+                      lines: metrics.dropFirst(title.isEmpty ? 1 : 0).prefix(2).map { joined($0.label, $0.value, $0.delta) },
+                      rows: metrics.prefix(3).map {
+                          let arrow = switch $0.trend { case .up: "arrow.up.right"; case .down: "arrow.down.right"; case .flat: "arrow.right" }
+                          return Row(symbol: arrow, label: $0.label, detail: $0.delta, value: $0.value)
+                      })
         case .chart(let chart):
             self.init(symbol: "chart.xyaxis.line", title: chart.title, value: chart.value, lines: [chart.delta])
         case .progress(let title, let goals):
             let first = goals.first
             self.init(symbol: "target", title: title.isEmpty ? (first?.label ?? "Objectifs") : title,
                       value: first.map { "\(Int(($0.progress * 100).rounded())) %" } ?? "",
-                      lines: goals.prefix(2).map { "\($0.label) : \(Self.number($0.value)) / \(Self.number($0.goal)) \($0.unit)" })
+                      lines: goals.prefix(2).map { "\($0.label) : \(Self.number($0.value)) / \(Self.number($0.goal)) \($0.unit)" },
+                      rows: goals.prefix(3).map {
+                          Row(label: $0.label, value: "\(Self.number($0.value)) / \(Self.number($0.goal)) \($0.unit)", progress: $0.progress)
+                      })
         case .list(let title, let rows, let total):
             self.init(symbol: "list.bullet", title: title.isEmpty ? "Liste" : title, value: total?.value ?? "",
-                      lines: rows.prefix(2).map { joined($0.title, $0.value) })
+                      lines: rows.prefix(2).map { joined($0.title, $0.value) },
+                      rows: rows.prefix(3).map { Row(label: $0.title, detail: $0.subtitle, value: $0.value) })
         case .places(let title, let places):
             self.init(symbol: "mappin.and.ellipse", title: title.isEmpty ? "Lieux" : title, value: "\(places.count)",
                       lines: places.prefix(2).map { joined($0.name, $0.address) })
@@ -107,6 +126,21 @@ extension CardGlance {
             guard let question = choices.questions.first else { return nil }
             self.init(symbol: "questionmark.bubble.fill", title: question.prompt, lines: [question.options.map(\.label).joined(separator: " · ")])
         }
+    }
+
+    /// An agent's ISO time made short: « 14:00 » today, « mar. 14:00 » another day, « mar. 3 nov. » for a whole day.
+    /// Anything that is not a date is kept as written.
+    static func when(_ raw: String, end: String = "") -> String {
+        guard let start = ChatCard.date(raw) else { return raw }
+        if raw.trimmingCharacters(in: .whitespaces).count <= 10 { return start.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)) }
+        let first = when(start)
+        guard let finish = ChatCard.date(end) else { return first }
+        return "\(first) – \(finish.formatted(.dateTime.hour().minute()))"
+    }
+
+    static func when(_ moment: Date) -> String {
+        Calendar.current.isDateInToday(moment) ? moment.formatted(.dateTime.hour().minute())
+            : moment.formatted(.dateTime.weekday(.abbreviated).hour().minute())
     }
 
     static func number(_ value: Double) -> String {

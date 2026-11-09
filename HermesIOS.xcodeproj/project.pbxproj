@@ -81,6 +81,7 @@
 		67C754CC229DCAB172A48748 /* ConfigFieldRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3356B2AA5CDED860A54BD12A /* ConfigFieldRow.swift */; };
 		67D1D9310384B74414E2E884 /* HermesActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13A78B874AD786825A250979 /* HermesActivityAttributes.swift */; };
 		6A3788C166B7A5CC629D5E55 /* meteo.pcm in Resources */ = {isa = PBXBuildFile; fileRef = 94CCB57C58A616443B059B1F /* meteo.pcm */; };
+		6A706756A3EE542682461586 /* silence.caf in Resources */ = {isa = PBXBuildFile; fileRef = 74BDA4053E961AA2048852DC /* silence.caf */; };
 		6BFB8C889762F2E5B4F1571F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3CF3A3E8B03FC0663B7C6FA0 /* Assets.xcassets */; };
 		6E1D84376F9131F849773102 /* instant.pcm in Resources */ = {isa = PBXBuildFile; fileRef = 59BEB0EAB17FDB28F14A85B2 /* instant.pcm */; };
 		700843DD9C1E626F4BB9B00B /* agenda-retrait.pcm in Resources */ = {isa = PBXBuildFile; fileRef = 020B6DC6EE2A9AD7E2C34AE4 /* agenda-retrait.pcm */; };
@@ -354,6 +355,7 @@
 		706A505BDF096F69BC167BD7 /* CallControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallControl.swift; sourceTree = "<group>"; };
 		70C3D4CBCE21007427CF5346 /* NotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
 		7494750F87AE1DE4FCD29840 /* AppChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppChrome.swift; sourceTree = "<group>"; };
+		74BDA4053E961AA2048852DC /* silence.caf */ = {isa = PBXFileReference; path = silence.caf; sourceTree = "<group>"; };
 		7501177E33D3A582977DBC58 /* DraftCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraftCard.swift; sourceTree = "<group>"; };
 		753087B8E41F0A5AED4D3DC0 /* VoiceSamples.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSamples.swift; sourceTree = "<group>"; };
 		76ACDEB64D082DA4095A0544 /* AgentToolsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentToolsView.swift; sourceTree = "<group>"; };
@@ -520,6 +522,7 @@
 				A92721E3B8FD1D9F885C7B18 /* Bench */,
 				A0AB38DDBC191C492BE4A86A /* Filler */,
 				CB58F3A959B38427332C803F /* Progress */,
+				97D84AC3E51C8472D85163B1 /* Sounds */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -629,6 +632,14 @@
 				94007CB33EECD7455229853A /* VoiceLiveTransportTests.swift */,
 			);
 			path = HermesIOSVoiceTests;
+			sourceTree = "<group>";
+		};
+		97D84AC3E51C8472D85163B1 /* Sounds */ = {
+			isa = PBXGroup;
+			children = (
+				74BDA4053E961AA2048852DC /* silence.caf */,
+			);
+			path = Sounds;
 			sourceTree = "<group>";
 		};
 		A0AB38DDBC191C492BE4A86A /* Filler */ = {
@@ -1015,6 +1026,7 @@
 				7CAFFBE7DD445AEA64B552BF /* pluie.wav in Resources */,
 				FA9963B3E31141C677FB8027 /* regarde.pcm in Resources */,
 				AD68B66A2C390D8BFACA6842 /* serveur.wav in Resources */,
+				6A706756A3EE542682461586 /* silence.caf in Resources */,
 				37CFBBB3D7D38EB3436802A3 /* verifie.pcm in Resources */,
 				8610E270BF29B6493850123C /* web-cherche.pcm in Resources */,
 				A3345823FD5C3B757447855D /* web-page.pcm in Resources */,

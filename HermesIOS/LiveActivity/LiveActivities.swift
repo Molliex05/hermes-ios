@@ -24,6 +24,8 @@ final class LiveActivities {
     /// A call card goes stale (« Appel interrompu ») this long after the app last confirmed it: if the app is force-quit
     /// nothing else can tell the system the call is over.
     private static let callStale: TimeInterval = 110
+    /// Bundled with the app (Resources/Sounds): 0.3 s of silence.
+    private static let silentAlert = "silence.caf"
 
     private var enabled: Bool { ActivityAuthorizationInfo().areActivitiesEnabled }
 
@@ -63,9 +65,14 @@ final class LiveActivities {
         guard let call else { return }
         let state = HermesActivityAttributes.ContentState.call(title: title, phase: phase, muted: muted, startedAt: callStart, glance: glance)
         guard state != callState else { return }
+        // A new card opens the Dynamic Island for a few seconds (and lights the Lock Screen). iOS only does that with an
+        // alert, which always has a sound: a silent one, so the call's audio and microphone are left alone.
+        let alert: AlertConfiguration? = if let glance, glance != callState?.glance {
+            AlertConfiguration(title: "\(glance.title)", body: "\(glance.lines.first ?? glance.value)", sound: .named(Self.silentAlert))
+        } else { nil }
         callState = state
         let box = ActivityBox(activity: call)
-        Task.detached { await box.activity.update(.init(state: state, staleDate: .now.addingTimeInterval(Self.callStale))) }
+        Task.detached { await box.activity.update(.init(state: state, staleDate: .now.addingTimeInterval(Self.callStale)), alertConfiguration: alert) }
     }
 
     func endCall() {

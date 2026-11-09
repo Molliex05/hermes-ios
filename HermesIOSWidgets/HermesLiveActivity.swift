@@ -14,8 +14,13 @@ struct HermesLiveActivity: Widget {
                 .widgetURL(URL(string: context.attributes.kind == "call" ? "hermesios://voice" : "hermesios://open"))
         } dynamicIsland: { context in
             DynamicIsland {
-                DynamicIslandExpandedRegion(.leading) { ActivityOrb(state: context.state, profile: context.attributes.profile, size: 44).padding(.leading, 4) }
-                DynamicIslandExpandedRegion(.trailing) { ActivityClock(state: context.state).padding(.trailing, 6) }
+                DynamicIslandExpandedRegion(.leading) {
+                    ActivityOrb(state: context.state, profile: context.attributes.profile, size: ActivityStyle.detailed(context) == nil ? 44 : 34).padding(.leading, 4)
+                }
+                DynamicIslandExpandedRegion(.trailing) {
+                    if ActivityStyle.detailed(context) != nil { CallIconButtons(muted: context.state.muted).padding(.trailing, 4) }
+                    else { ActivityClock(state: context.state).padding(.trailing, 6) }
+                }
                 DynamicIslandExpandedRegion(.center) {
                     VStack(spacing: 1) {
                         Text(context.state.title).font(.headline).lineLimit(1)
@@ -23,10 +28,14 @@ struct HermesLiveActivity: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(spacing: 6) {
-                        if let glance = context.state.glance, !context.isStale { GlanceCard(glance: glance) }
-                        ActivityButtons(kind: context.attributes.kind, state: context.state, stale: context.isStale, compact: context.state.glance != nil)
-                    }.padding(.top, 4)
+                    if let detailed = ActivityStyle.detailed(context) {
+                        GlanceDetail(glance: detailed).padding(.top, 2)
+                    } else {
+                        VStack(spacing: 6) {
+                            if let glance = context.state.glance, !context.isStale { GlanceCard(glance: glance) }
+                            ActivityButtons(kind: context.attributes.kind, state: context.state, stale: context.isStale, compact: context.state.glance != nil)
+                        }.padding(.top, 4)
+                    }
                 }
             } compactLeading: {
                 ActivityOrb(state: context.state, profile: context.attributes.profile, size: 22)
@@ -58,6 +67,13 @@ private enum ActivityStyle {
         case "thinking", "working": return .thinking
         default: return .idle
         }
+    }
+
+    /// A call's card with rows of its own (forecast, appointments, emails, figures): drawn in full, the call's buttons
+    /// shrinking to two round icons beside the title so everything fits the 160 points iOS allows.
+    static func detailed(_ context: ActivityViewContext<HermesActivityAttributes>) -> CardGlance? {
+        guard context.attributes.kind == "call", !context.isStale, let glance = context.state.glance, !glance.rows.isEmpty else { return nil }
+        return glance
     }
 
     static func detailColor(_ state: HermesActivityAttributes.ContentState) -> Color {
@@ -142,6 +158,25 @@ private struct LockScreenActivity: View {
     private var glance: CardGlance? { context.isStale ? nil : context.state.glance }
 
     var body: some View {
+        if let detailed = ActivityStyle.detailed(context) { detailedBody(detailed) } else { standardBody }
+    }
+
+    /// A card in full: the call folds into one line (agent, state, mute and hang up) above it.
+    private func detailedBody(_ detailed: CardGlance) -> some View {
+        VStack(spacing: 7) {
+            HStack(spacing: 10) {
+                ActivityOrb(state: context.state, profile: context.attributes.profile, size: 28)
+                (Text(context.state.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white)
+                 + Text("  ·  \(context.state.detail)").font(.subheadline).foregroundStyle(ActivityStyle.detailColor(context.state)))
+                    .lineLimit(1)
+                Spacer(minLength: 6)
+                CallIconButtons(muted: context.state.muted)
+            }
+            GlanceDetail(glance: detailed)
+        }.padding(.horizontal, 14).padding(.vertical, 10)
+    }
+
+    private var standardBody: some View {
         VStack(spacing: glance == nil ? 12 : 8) {
             HStack(spacing: 12) {
                 ActivityOrb(state: context.state, profile: context.attributes.profile, size: glance == nil ? 50 : 36)
@@ -178,5 +213,69 @@ private struct GlanceCard: View {
         .padding(.horizontal, 10).padding(.vertical, 7)
         .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Mute and hang up as two round icons, when a full card takes the room of the large buttons.
+private struct CallIconButtons: View {
+    let muted: Bool
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(intent: ToggleMuteIntent()) {
+                Image(systemName: muted ? "mic.fill" : "mic.slash.fill").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: 30, height: 30).background(.white.opacity(0.16), in: Circle())
+            }.buttonStyle(.plain).accessibilityLabel(muted ? "Activer le micro" : "Couper le micro")
+            Button(intent: EndCallIntent()) {
+                Image(systemName: "phone.down.fill").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: 30, height: 30).background(Color(red: 0.86, green: 0.24, blue: 0.20), in: Circle())
+            }.buttonStyle(.plain).accessibilityLabel("Raccrocher")
+        }
+    }
+}
+
+/// The card as the chat would show it, in what a Live Activity allows: its header, then up to three rows (the days of a
+/// forecast, appointments, emails, figures with their trend, objectives with their bar).
+private struct GlanceDetail: View {
+    let glance: CardGlance
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Image(systemName: glance.symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(ActivityStyle.accent)
+                    .frame(width: 24, height: 24).background(ActivityStyle.accent.opacity(0.16), in: Circle())
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(glance.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
+                    if let line = glance.lines.first { Text(line).font(.caption2).foregroundStyle(.white.opacity(0.65)).lineLimit(1) }
+                }
+                Spacer(minLength: 4)
+                if !glance.value.isEmpty {
+                    Text(glance.value).font(.title3.weight(.semibold).monospacedDigit()).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
+                }
+            }
+            ForEach(Array(glance.rows.enumerated()), id: \.offset) { _, row in GlanceRow(row: row) }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct GlanceRow: View {
+    let row: CardGlance.Row
+    var body: some View {
+        VStack(spacing: 2) {
+            HStack(spacing: 7) {
+                if !row.symbol.isEmpty {
+                    Image(systemName: row.symbol).font(.system(size: row.symbol == "circle.fill" ? 6 : 11, weight: .semibold))
+                        .foregroundStyle(row.symbol == "circle.fill" ? ActivityStyle.accent : .white.opacity(0.8)).frame(width: 16)
+                }
+                Text(row.label).font(.caption.weight(.semibold)).foregroundStyle(.white).lineLimit(1).layoutPriority(1)
+                if !row.detail.isEmpty { Text(row.detail).font(.caption).foregroundStyle(.white.opacity(0.6)).lineLimit(1) }
+                Spacer(minLength: 4)
+                if !row.value.isEmpty { Text(row.value).font(.caption.weight(.medium).monospacedDigit()).foregroundStyle(.white.opacity(0.85)).lineLimit(1) }
+            }
+            if let progress = row.progress {
+                ProgressView(value: progress).tint(ActivityStyle.accent).scaleEffect(x: 1, y: 0.7, anchor: .center)
+            }
+        }
     }
 }
