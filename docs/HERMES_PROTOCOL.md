@@ -1,6 +1,6 @@
 # Hermes protocol research
 
-Research date: **2026-09-12**, re-audited **2026-10-13** against Hermes **0.21.7**, commit [`71d34bad1045610252eda02ee79549436896e784`](https://github.com/NousResearch/hermes-agent/tree/71d34bad1045610252eda02ee79549436896e784) (the deployed version). The original research used [`b7b35a8`](https://github.com/NousResearch/hermes-agent/tree/b7b35a84b7fbe1aa2e223a6ce726a2471300d0a4) (0.21.2).
+Research date: **2026-09-12**, re-audited **2026-10-13** against Hermes **0.21.7** (the server moved to **0.22.7** on 2026-11-04: no parameter of a method the app uses was removed, only optional ones added), commit [`71d34bad1045610252eda02ee79549436896e784`](https://github.com/NousResearch/hermes-agent/tree/71d34bad1045610252eda02ee79549436896e784) (the deployed version). The original research used [`b7b35a8`](https://github.com/NousResearch/hermes-agent/tree/b7b35a84b7fbe1aa2e223a6ce726a2471300d0a4) (0.21.2).
 
 Since 0.21, the wire is declared in Python (`tui_gateway/contracts/`): every method has typed `Params`/`Result` models with **unknown keys rejected** (`4000`), every server→client request and every event has a typed payload. The re-audit compared every call, event and request the app uses against that catalog.
 

@@ -99,16 +99,22 @@ final class AppModel {
             if oldValue && !voiceActive && !foreground && !sending { suspendConnection() }
             refreshPresence()
             if voiceActive != oldValue { voiceActive ? startCallActivity() : LiveActivities.shared.endCall() }
+            if !voiceActive { backgroundCall = nil }
         }
     }
     var importingAttachments = false
     @ObservationIgnored private var imageCleanup: [String: [String]] = [:]
+    /// Changes when a conversation is opened from outside the chat (a notification, a routine's result): the chat closes
+    /// every page over it, the way the user would, without being rebuilt.
     var navigationRevision = UUID()
     var notice: String?
     var chatError: String?
     var toast: String?
     private var conversationActivity = ConversationActivity()
+    /// The conversation is on screen (no sheet or page over it): its alerts stay silent, wherever it is scrolled.
     @ObservationIgnored private var chatVisible = true
+    /// Its last message is in view: only then does it count as read.
+    @ObservationIgnored private var chatAtBottom = true
     private var ownershipConflictContext: String?
     var canContinueInNewChat: Bool { notice == RPCFailure.ownershipMessage && ownershipConflictContext == attachmentContext && !sending && !voiceActive }
     var commandOutput: String?
@@ -116,6 +122,12 @@ final class AppModel {
     var botMode = true
     var opening = false
     var sending = false
+    /// Changes when the chat should put the cursor in the composer (a notification opened the conversation).
+    var composerFocusRequest = UUID()
+    /// A group to open, from a notification.
+    var roomRequest: String?
+    /// The group on screen: its notifications stay quiet, like a conversation's.
+    var openRoomID: String? { didSet { refreshPresence() } }
     var demo = false
     var hasBooted = false
     /// True until the saved connections are read: no onboarding flash on a cold start.
@@ -124,6 +136,12 @@ final class AppModel {
     var hasBotProtocol = false
     var draftKey: String { selected.map { key($0.profile, $0.storedID) } ?? "draft-\(profile)" }
     var agent: AgentProfile? { profiles.first { $0.name == (selected?.profile ?? profile) } }
+    /// See `ChatStage`. `hydratedSelection` is not observed, but the transcript and the connection state change with it.
+    var chatStage: ChatStage {
+        let hasContent = !transcript.messages.isEmpty || transcript.approval != nil || transcript.clarification != nil || transcript.credential != nil
+        return ChatStage.of(hasContent: hasContent, hasSelection: selected != nil, opening: opening,
+                            awaitingServer: !demo && state != .connected && hydratedSelection != selectionGeneration)
+    }
     var canSend: Bool { (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty) && !importingAttachments && !voiceActive && (state == .connected || demo) && !opening && !sending && !transcript.running && (selected == nil || !(selected?.runtimeID.isEmpty ?? true) || demo) }
 
     /// Push channel for spoken replies, fed straight from the socket (before UI batching).
@@ -143,6 +161,9 @@ final class AppModel {
     @ObservationIgnored private var dirtyChats = Set<String>()
     @ObservationIgnored private var chatFingerprints: [String: Int] = [:]
     @ObservationIgnored private var saveAgain = false
+    @ObservationIgnored private var widgetRefreshing = false
+    @ObservationIgnored private var pendingSaveDelay: Duration?
+    @ObservationIgnored private var saveToken = UUID()
     @ObservationIgnored private var heldOverflow = false
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
     @ObservationIgnored private var pathSignature: String?
@@ -169,6 +190,9 @@ final class AppModel {
     @ObservationIgnored private var streamEvents: [JSONValue] = []
     @ObservationIgnored private var selectionGeneration = UUID()
     @ObservationIgnored private var hydratedSelection: UUID?
+    /// The latest conversation asked for. Reading its cache takes a moment: an earlier tap that finishes reading later must
+    /// not replace the one asked for after it (nor a new conversation opened meanwhile).
+    @ObservationIgnored private var openRequest = UUID()
     @ObservationIgnored private var connectionGeneration = UUID()
     @ObservationIgnored private var foreground = true
     @ObservationIgnored private lazy var presence = PresenceBeacon(client: { [weak self] in self?.http },
@@ -215,32 +239,130 @@ final class AppModel {
 
     /// Set by `hermesios://voice` (widget); the chat opens the voice sheet, also after a cold launch.
     var pendingVoiceLaunch = false
+
+    /// A call started with the app closed (Lock Screen widget or control, Action button, Siri), after Face ID. It runs
+    /// without the voice screen, shown by its Live Activity; opening the app brings the voice screen onto it.
+    @ObservationIgnored private(set) var backgroundCall: VoiceConversation?
+
+    /// Answers once the call runs (its Live Activity requested), or with the reason it could not start.
+    func startBackgroundCall(profile name: String?) async -> String? {
+        if voiceActive { return nil }
+        if !hasBooted { foreground = false }
+        callStarting = true
+        defer { callStarting = false }
+        await boot()
+        guard await waitUntilCallable() else { return "L’agent n’est pas joignable. Ouvrez l’app pour vérifier la connexion." }
+        if let name, name != profile {
+            guard profiles.contains(where: { $0.name == name }) else { return "L’agent « \(name) » est introuvable." }
+            await changeProfile(name)
+            guard profile == name else { return "L’agent n’a pas pu être choisi. Réessayez." }
+        }
+        guard !voiceActive else { return nil }
+        let call = VoiceConversation(self)
+        backgroundCall = call
+        call.watchSystemAudio()
+        call.start()
+        return voiceActive ? nil : "L’appel n’a pas pu démarrer. Ouvrez l’app."
+    }
+
+    /// The voice screen adopts the call already running in the background, if any.
+    func takeBackgroundCall() -> VoiceConversation? { voiceActive ? backgroundCall : nil }
+
+    private func waitUntilCallable() async -> Bool {
+        for _ in 0..<40 {
+            if notificationRoutingReady, connections.isEmpty, !demo { return false }
+            if notificationRoutingReady, state == .connected, !opening { return true }
+            if state != .connected, !opening { startReconnect() }
+            do { try await Task.sleep(for: .milliseconds(250)) } catch { return false }
+        }
+        return false
+    }
+    /// Requests from outside the app (widgets, Siri and Shortcuts, the share sheet), done one at a time (see LaunchRequests).
+    var launchQueue: [LaunchRequest] = []
+    @ObservationIgnored var launching = false
+    /// Share-sheet items already queued (they stay in the inbox until handled, so they must not be queued twice).
+    @ObservationIgnored var queuedShareIDs = Set<String>()
     @ObservationIgnored private var widgetRefreshedAt = Date.distantPast
     @ObservationIgnored private var widgetUnavailable = false
 
-    /// `hermesios://voice` opens a call; any other widget link just opens the app.
+    /// `hermesios://voice` opens a call, `open?profile=` the agent's chat, `ask?profile=&text=` fills its composer with a
+    /// sentence (a link never sends by itself); any other widget link just opens the app.
     func handle(url: URL) {
         guard url.scheme == "hermesios" else { return }
-        if url.host == "voice" { pendingVoiceLaunch = true }
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        func value(_ name: String) -> String? { query.first { $0.name == name }?.value.flatMap { $0.isEmpty ? nil : $0 } }
+        switch url.host {
+        case "voice":
+            if let profile = value("profile") { enqueue(LaunchRequest(profile: profile, kind: .voice)) } else { pendingVoiceLaunch = true }
+        case "open":
+            if let profile = value("profile") { enqueue(LaunchRequest(profile: profile, kind: .open)) }
+        case "ask":
+            if let text = value("text") { enqueue(LaunchRequest(profile: value("profile"), kind: .ask(text: String(text.prefix(1_000)), send: false))) }
+        default:
+            break
+        }
     }
 
     /// Saves the Noriven snapshot for the widgets and asks WidgetKit to redraw. Best effort and quiet:
     /// a server without the plugin (404) or without access is remembered until the next connection.
+    /// The profile of the conversation on screen: the agent whose Gmail a draft card belongs to.
+    var chatProfile: String { selected?.profile ?? profile }
+    /// The agent's canonical Bot Chat: the one conversation where Hermes lets it write to another agent (`message_agent`).
+    var onBotChat: Bool { selected.map { chat in !chat.storedID.isEmpty && profiles.first { $0.name == chat.profile }?.canonicalID == chat.storedID } ?? false }
+
+    /// A draft as Gmail holds it, for the « Envoyer » sheet.
+    func loadDraft(_ draftID: String, profile: String) async throws -> OutboxDraft {
+        guard let http, let path = OutboxDraft.path(profile: profile, draftID: draftID) else { throw RPCFailure("Ce brouillon ne peut pas être ouvert ici.") }
+        guard let draft = OutboxDraft(try await http.request(path)), draft.draftID == draftID else { throw RPCFailure("Le brouillon reçu est illisible.") }
+        return draft
+    }
+
+    /// A received email's whole text as Gmail holds it, for its card.
+    func loadMailBody(_ messageID: String, profile: String) async throws -> MailBody {
+        guard let http, let path = MailBody.path(profile: profile, messageID: messageID) else { throw RPCFailure("Ce courriel ne peut pas être ouvert ici.") }
+        guard let body = MailBody(try await http.request(path), messageID: messageID) else { throw RPCFailure("Le courriel reçu est illisible.") }
+        return body
+    }
+
+    /// Sends a draft Maxime has just read (and confirmed with Face ID): the server refuses it if it changed since. A Noriven
+    /// draft carries an approval signed by this iPhone's Secure Enclave key, which asks for Face ID itself.
+    func sendDraft(_ draft: OutboxDraft, profile: String) async throws {
+        guard let http, let path = OutboxDraft.path(profile: profile, draftID: draft.draftID) else { throw RPCFailure("Ce brouillon ne peut pas être envoyé d’ici.") }
+        var body: [String: JSONValue] = ["fingerprint": .string(draft.fingerprint)]
+        if draft.needsDeviceApproval {
+            body["approval"] = try ApprovalKey.approve(draftID: draft.draftID, fingerprint: draft.fingerprint, reason: "Envoyer ce courriel depuis \(draft.mailbox.isEmpty ? "Noriven" : draft.mailbox)")
+        }
+        _ = try await http.request(path + "/send", method: "POST", body: .object(body))
+        SentDrafts.add(draft.draftID)
+    }
+
     func refreshWidgets(retryUnavailable: Bool = false) async {
         if retryUnavailable { widgetUnavailable = false }      // a new connection retries a plugin installed meanwhile
-        guard !demo, !widgetUnavailable, let http, Date.now.timeIntervalSince(widgetRefreshedAt) > 15 * 60 else { return }
-        widgetRefreshedAt = .now
-        if await WidgetRefresh.run(using: http) == .unavailable { widgetUnavailable = true }
+        // A « Vu » tapped on the widget is sent as soon as the app comes back, whatever the quarter of an hour.
+        guard !demo, !widgetUnavailable, !widgetRefreshing, let http, Date.now.timeIntervalSince(widgetRefreshedAt) > 15 * 60 || WidgetRefresh.hasSeenToSend else { return }
+        // Coming back to the app asks twice (connected, then active): one refresh at a time, or each « Vu » goes twice.
+        widgetRefreshing = true
+        defer { widgetRefreshing = false }
+        // The wait starts only once the boards are saved: a network blip does not block the next try for a quarter of an hour.
+        switch await WidgetRefresh.run(using: http) {
+        case .saved: widgetRefreshedAt = .now
+        case .unavailable: widgetUnavailable = true
+        case .failed: break
+        }
     }
 
     /// The connection is wanted while the app is visible or a voice call is running.
-    private var connectionWanted: Bool { foreground || voiceActive }
+    private var connectionWanted: Bool { foreground || voiceActive || callStarting }
+    /// A background call is being set up: the connection it needs comes up before the call itself.
+    @ObservationIgnored private var callStarting = false
 
     func boot() async {
         guard !hasBooted else { return }
         hasBooted = true
         defer { notificationRoutingReady = true; booting = false }
         PushNotifications.shared.suppressesPresentation = { [weak self] envelope in self?.suppressesBanner(for: envelope) ?? false }
+        WidgetRefresh.removeOldFinanceSnapshot()
+        LaunchBridge.shared.attach { [weak self] request in self?.enqueue(request) }
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--demo") { loadDemo(); return }
         #endif
@@ -249,7 +371,7 @@ final class AppModel {
         ActivityActions.handler = { [weak self] action in
             switch action {
             case .toggleMute: VoiceCallRemote.current?.toggleMicrophone()
-            case .endCall: VoiceCallRemote.current?.pause()
+            case .endCall: VoiceCallRemote.current?.endCall()
             case .stopReply: Task { [weak self] in await self?.interrupt() }
             }
         }
@@ -310,9 +432,49 @@ final class AppModel {
         if activeConnection?.id != connection.id { await activate(connection) }
         guard !Task.isCancelled, PushNotifications.shared.pendingTarget == target else { return }
         navigationRevision = UUID()
+        if target.opensRoom { roomRequest = target.sessionID; PushNotifications.shared.opened(target); return }
+        guard target.opensConversation else { await openNotifiedAgent(target); return }
         let row: JSONValue = ["id": .string(target.sessionID), "title": "Conversation"]
         await openConversation(Conversation(row, profile: target.profile))
-        if !Task.isCancelled { PushNotifications.shared.opened(target) }
+        guard !Task.isCancelled else { return }
+        if let reply = PushNotifications.shared.takeReply(for: target) { await sendNotificationReply(reply, target: target) }
+        else { composerFocusRequest = UUID() }         // ready to write: the keyboard opens on the conversation
+        PushNotifications.shared.opened(target)
+    }
+
+    /// An alert from a scheduled task names no conversation, only its agent: the app opens that agent's own chat (its Bot
+    /// Chat), never whatever was on screen. A reply typed on the alert waits in the composer, it is not sent by itself.
+    private func openNotifiedAgent(_ target: NotificationTarget) async {
+        // Cold start: the agents arrive with the connection, and another opening may still be under way.
+        for _ in 0..<30 where !profiles.contains(where: { $0.name == target.profile }) || opening {
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+        }
+        guard !Task.isCancelled else { return }
+        if let agent = profiles.first(where: { $0.name == target.profile }) { await openBot(agent) }
+        else { await changeProfile(target.profile) }
+        guard !Task.isCancelled else { return }
+        if let reply = PushNotifications.shared.takeReply(for: target) { draft = draft.isEmpty ? reply : draft + "\n" + reply }
+        composerFocusRequest = UUID()
+        PushNotifications.shared.opened(target)
+    }
+
+    /// The text typed on a notification's « Répondre » field goes to the conversation it came from, once that
+    /// conversation is open and idle. If it cannot be sent (agent still answering, connection down) it is left in the
+    /// composer, never lost and never sent to another conversation.
+    private func sendNotificationReply(_ text: String, target: NotificationTarget) async {
+        let previous = draft
+        for _ in 0..<40 {
+            if selected?.storedID == target.sessionID, state == .connected, !opening, !sending, !transcript.running { break }
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+        }
+        // Sent on its own, like a card's quick reply: the draft and the files waiting in the composer stay where they are.
+        if selected?.storedID == target.sessionID, canSendQuickReply {
+            await sendQuickReply(text)
+        } else {
+            draft = previous.isEmpty ? text : previous + "\n" + text
+            notice = "Votre réponse est prête dans le champ : touchez Envoyer."
+            composerFocusRequest = UUID()
+        }
     }
 
     func addConnection(_ connection: SavedConnection, username: String, password: String, token: String) async throws {
@@ -344,14 +506,16 @@ final class AppModel {
 
     func activate(_ connection: SavedConnection) async {
         saveTask?.cancel(); saveTask = nil
+        await presence.leave()
         await persistNow()
         reconnectTask?.cancel(); reconnectTask = nil
         refreshTask?.cancel(); streamTask?.cancel()
         socket?.close(); http?.invalidate()
         toolCache = [:]; dirtyChats = []; chatFingerprints = [:]
-        connectionGeneration = UUID(); selectionGeneration = UUID()
+        connectionGeneration = UUID(); selectionGeneration = UUID(); openRequest = UUID()
         let generation = connectionGeneration
         activeConnection = connection; demo = false; state = .connecting; routines = []
+        widgetRefreshedAt = .distantPast                      // another server: its boards, not the previous one's
         let ordered = [connection] + connections.filter { $0.id != connection.id }
         if ordered != connections { connections = ordered; try? await cache.save(connections, key: "connections") }
         guard generation == connectionGeneration else { return }
@@ -442,6 +606,9 @@ final class AppModel {
                     catch { return }
                 }
             }
+            // Left without connecting because the app went to the background meanwhile: free the slot, or coming back
+            // would find a finished task in it and never reconnect again.
+            if let self, !Task.isCancelled, generation == self.connectionGeneration, self.state != .connected { self.reconnectTask = nil }
         }
     }
 
@@ -463,6 +630,8 @@ final class AppModel {
             if state != .connected, !sending { startReconnect() }
             suspendTask?.cancel(); suspendTask = nil
             LiveActivities.shared.endReply(quiet: true)
+            LiveActivities.shared.clearFinishedReplies()
+            if backgroundCall != nil, voiceActive { pendingVoiceLaunch = true }
         } else {
             let lease = BackgroundLease(name: "Save Hermès conversation")
             defer { lease.end() }
@@ -508,6 +677,9 @@ final class AppModel {
         guard generation == connectionGeneration, self.socket === socket else { return }
         guard case .array = result["profiles"] else { throw RPCFailure("Hermes a renvoyé une liste de profils invalide.") }
         profiles = result["profiles"].array.map(AgentProfile.init)
+        SharedProfiles.write(profiles.filter { $0.hidden != true }.map { SharedProfile(name: $0.name, title: $0.title) })
+        AgentShortcuts.updateAppShortcutParameters()          // Siri learns the agents' names
+        AgentAvatars.publish(profiles.map(\.name))            // each agent's picture for its notifications
         let canonical = result["profiles"].array.compactMap { row -> Conversation? in
             let session = row["canonical_session"]
             guard !session["id"].string.isEmpty else { return nil }
@@ -542,7 +714,7 @@ final class AppModel {
     func changeProfile(_ name: String) async {
         guard !sending, !voiceActive, name != profile else { return }
         saveCurrent()
-        selectionGeneration = UUID(); buffering = false; held = ReplayBuffer(); opening = false
+        selectionGeneration = UUID(); openRequest = UUID(); buffering = false; held = ReplayBuffer(); opening = false
         selected = nil; transcript = Transcript(); profile = name
         chatError = nil; conversationActivity.visit(profile: name)
         draft = workspace.drafts[draftKey] ?? ""
@@ -553,8 +725,9 @@ final class AppModel {
         guard !sending, !voiceActive else { return }
         if demo { openDemoBot(bot); return }
         guard !opening, let socket else { return }
+        let request = UUID(); openRequest = request
         let cached = await loadChat(bot.canonicalID.map { key(bot.name, $0) })
-        guard !opening, !sending, !voiceActive else { return }
+        guard request == openRequest, !opening, !sending, !voiceActive else { return }
         saveCurrent()
         opening = true
         let generation = UUID(); selectionGeneration = generation
@@ -594,12 +767,14 @@ final class AppModel {
 
     func openConversation(_ conversation: Conversation, title: String? = nil) async {
         guard !sending, !voiceActive else { return }
+        let request = UUID(); openRequest = request
         let cached = demo ? workspace.chats[key(conversation.profile, conversation.id)] : await loadChat(key(conversation.profile, conversation.id))
-        guard !sending, !voiceActive else { return }
+        guard request == openRequest, !sending, !voiceActive else { return }
         saveCurrent()
         let generation = UUID(); selectionGeneration = generation
         selected = cached ?? ChatSnapshot(storedID: conversation.id, profile: conversation.profile, title: title ?? conversation.title)
-        if let title { selected?.title = title }
+        // The server's title wins over the one kept on the phone: a conversation renamed elsewhere shows its new name.
+        if let title { selected?.title = title } else if conversation.title != "Nouvelle conversation" { selected?.title = conversation.title }
         profile = conversation.profile
         chatError = nil; conversationActivity.visit(profile: conversation.profile)
         transcript = Transcript(messages: selected?.messages ?? [], lastSequence: selected?.lastSequence ?? 0)
@@ -663,7 +838,7 @@ final class AppModel {
 
     func newChat() {
         guard !sending, !voiceActive else { return }
-        saveCurrent(); selectionGeneration = UUID(); opening = false; buffering = false; held = ReplayBuffer()
+        saveCurrent(); selectionGeneration = UUID(); openRequest = UUID(); opening = false; buffering = false; held = ReplayBuffer()
         selected = nil; transcript = Transcript(); draft = workspace.drafts[draftKey] ?? ""
         chatError = nil
     }
@@ -700,6 +875,21 @@ final class AppModel {
         scheduleSave()
     }
 
+    /// A copy of a pending attachment under its own name, for its thumbnail and Quick Look (they read the extension). In
+    /// the iPhone's temporary folder; the system clears it.
+    func attachmentFileURL(_ item: DraftAttachment) async -> URL? {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("attachment-previews/\(item.id.uuidString)", isDirectory: true)
+        let safe = item.name.replacingOccurrences(of: "/", with: "-").trimmingCharacters(in: .whitespaces)
+        let target = folder.appendingPathComponent(safe.isEmpty ? "fichier" : safe)
+        if FileManager.default.fileExists(atPath: target.path) { return target }
+        guard let data = try? await cache.attachment(item.id) else { return nil }
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try data.write(to: target, options: .atomic)
+            return target
+        } catch { return nil }
+    }
+
     var attachmentContext: String { "\(activeConnection?.id.uuidString ?? "demo")|\(draftKey)" }
 
     func removeAttachment(_ item: DraftAttachment) {
@@ -712,8 +902,61 @@ final class AppModel {
     func send() async {
         guard canSend else { return }
         chatError = nil
-        if demo { await demoReply(); return }
+        if demo { let text = draft; draft = ""; await demoReply(text); return }
         do { _ = try await submit(draft.trimmingCharacters(in: .whitespacesAndNewlines), consumeDraft: true) }
+        catch is CancellationError { }
+        catch {
+            if (error as? RPCFailure)?.sessionOwnedElsewhere == true || error.localizedDescription == RPCFailure.ownershipMessage { notice = error.localizedDescription }
+            else { chatError = error.localizedDescription }
+        }
+    }
+
+    /// A second message can go while the agent answers: plain text only, since files and commands need their own turn.
+    var canQueue: Bool {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        return transcript.running && !text.isEmpty && attachments.isEmpty && !importingAttachments && !voiceActive && state == .connected && !opening && !sending
+            && !demo && SlashInput(text) == nil && !(selected?.runtimeID.isEmpty ?? true)
+    }
+
+    /// Hermes' native queue: the message runs after the reply, never as an interruption of it (`queued`, not `display.busy_input_mode`).
+    func sendQueued() async {
+        guard canQueue, let socket, let runtime = selected?.runtimeID else { return }
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines), key = draftKey
+        let message = ChatMessage(role: "user", text: text, delivery: .sending)
+        transcript.queued.append(message)
+        draft = ""; workspace.drafts[key] = ""
+        chatError = nil
+        do {
+            let result = try await socket.call("prompt.submit", VoiceLiveProtocol.prompt(runtime: runtime, text: text, context: nil, queued: true))
+            guard let index = transcript.queued.firstIndex(where: { $0.id == message.id }) else {
+                // The reply ended before this answer: the message has already taken its place in the conversation.
+                if let settled = transcript.messages.firstIndex(where: { $0.id == message.id }) { transcript.messages[settled].delivery = .confirmed }
+                return
+            }
+            transcript.queued[index].delivery = .confirmed
+            // The reply ended just before this arrived: Hermes started it at once.
+            if result["status"].string != "queued" { transcript.drainQueued(); transcript.running = true }
+        } catch {
+            transcript.queued.removeAll { $0.id == message.id }
+            if draft.isEmpty, draftKey == key { draft = text }
+            chatError = error.localizedDescription
+        }
+    }
+
+    /// Whether a card's quick reply can go now: Hermès connected and free, no voice call.
+    var canSendQuickReply: Bool {
+        !importingAttachments && !voiceActive && (state == .connected || demo) && !opening && !sending && !transcript.running
+            && (selected == nil || !(selected?.runtimeID.isEmpty ?? true) || demo)
+    }
+
+    /// A quick reply from a card, sent as its own message: the typed draft and its attachments stay where they are, and
+    /// the text is never read as a slash command.
+    func sendQuickReply(_ text: String) async {
+        let reply = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !reply.isEmpty, canSendQuickReply else { return }
+        chatError = nil
+        if demo { await demoReply(reply); return }
+        do { _ = try await submit(reply, consumeDraft: false) }
         catch is CancellationError { }
         catch {
             if (error as? RPCFailure)?.sessionOwnedElsewhere == true || error.localizedDescription == RPCFailure.ownershipMessage { notice = error.localizedDescription }
@@ -813,12 +1056,26 @@ final class AppModel {
                     try validate()
                     guard result["attached"].bool, !result["path"].string.isEmpty else { throw RPCFailure("Hermes n’a pas accepté le fichier.") }
                     item.remotePath = result["path"].string; item.remoteReference = result["ref_text"].string; item.runtimeID = runtime
+                    if item.isPDF {
+                        // Hermes cannot read a PDF: its text goes along as a text file, or its first pages as images for a scan.
+                        item.extraReferences = []; item.extraImagePaths = []
+                        let pdfName = item.name
+                        for companion in await Task.detached(priority: .userInitiated) { PDFReading.companions(of: data, name: pdfName) }.value {
+                            try validate()
+                            let url = "data:\(companion.mimeType);base64,\(companion.data.base64EncodedString())"
+                            let staged = try await socket.call("file.attach", ["session_id": .string(runtime), "name": .string(companion.name), "data_url": .string(url)], timeout: 90)
+                            try validate()
+                            guard staged["attached"].bool, !staged["path"].string.isEmpty else { continue }
+                            if companion.isImage { item.extraImagePaths?.append(staged["path"].string) } else if !staged["ref_text"].string.isEmpty { item.extraReferences?.append(staged["ref_text"].string) }
+                        }
+                    }
                     if let index = attachmentDrafts[draftKey]?.firstIndex(where: { $0.id == item.id }) { attachmentDrafts[draftKey]?[index] = item }
                     scheduleSave()
                 }
                 if item.isImage { imagePaths.append(item.remotePath!) }
                 else if let ref = item.remoteReference, !ref.isEmpty { refs.append(ref) }
                 else { throw RPCFailure("Hermes n’a pas renvoyé de référence pour ce fichier.") }
+                refs += item.extraReferences ?? []; imagePaths += item.extraImagePaths ?? []
             }
             for path in imagePaths {
                 imageCleanup[runtime, default: []].append(path)
@@ -850,11 +1107,15 @@ final class AppModel {
             try validate()
             if let i = transcript.messages.firstIndex(where: { $0.id == optimistic.id }) { transcript.messages[i].delivery = .confirmed }
         } catch {
-            guard generation == selectionGeneration, connection == connectionGeneration, self.socket === socket else { throw CancellationError() }
+            // The files leave the composer for good unless they are given back to it below (refused, not delivered).
+            func discardSentFiles() async { if consumeDraft { for item in pending { await cache.removeAttachment(item.id) } } }
+            guard generation == selectionGeneration, connection == connectionGeneration, self.socket === socket else {
+                await discardSentFiles(); throw CancellationError()
+            }
             // A history refresh may already have confirmed this turn while its RPC
             // acknowledgement was delayed. Never downgrade that authoritative receipt.
             let delivery = transcript.submissionFailed(id: optimistic.id, error: error)
-            if delivery == .confirmed { await persistNow(); return optimistic.id }
+            if delivery == .confirmed { await discardSentFiles(); await persistNow(); return optimistic.id }
             if let refusal = error as? RPCFailure, refusal.sessionOwnedElsewhere {
                 // Hermes rejects ownership before admitting or persisting this prompt.
                 // Keep the draft, not a duplicate failed bubble in the transcript.
@@ -874,6 +1135,7 @@ final class AppModel {
             }
             // Keep the last known execution state. Resume will resolve receipt and
             // running status from Hermes; never resubmit a prompt with an unknown outcome.
+            await discardSentFiles()
             await persistNow()
             if self.socket === socket {
                 suspendConnection()
@@ -932,6 +1194,7 @@ final class AppModel {
     }
 
     @discardableResult func answerClarification(_ text: String, request: JSONValue, qid: String? = nil) async -> Bool {
+        if demo { return true }                     // the preview has no server to lock answers with
         guard let socket else { return false }
         let generation = selectionGeneration
         do {
@@ -1037,7 +1300,12 @@ final class AppModel {
         guard generation == connectionGeneration else { throw CancellationError() }
         if profile == name { await changeProfile("default") }
         workspace.chats = workspace.chats.filter { $0.value.profile != name }
-        for chatKey in workspace.chatIndex.keys where chatKey.hasPrefix(name + ":") { workspace.chatIndex[chatKey] = nil }
+        let removed = workspace.chatIndex.keys.filter { $0.hasPrefix(name + ":") }
+        for chatKey in removed { workspace.chatIndex[chatKey] = nil; dirtyChats.remove(chatKey); chatFingerprints[chatKey] = nil }
+        // Their files too: persistNow only deletes the chats it prunes itself.
+        if let connection = activeConnection?.id.uuidString {
+            for chatKey in removed { try? await cache.remove(LocalCache.chatKey(connection: connection, chat: chatKey)) }
+        }
         conversationActivity.remove(profile: name)
         botConversations[name] = nil
         historyIndex.update([], profile: name)
@@ -1120,6 +1388,13 @@ final class AppModel {
             reattachSelected(); return
         }
         guard let runtime = selected?.runtimeID, event["session_id"].string == runtime else { return }
+        // Hermes names the conversation (a short title from its title model): the header and the list follow at once.
+        if type == "session.title" {
+            if let title = ConversationTitle.clean(event["payload"]["title"].string), title != selected?.title {
+                selected?.title = title; scheduleSave(); scheduleListRefresh()
+            }
+            return
+        }
         if let speechSink {
             switch type {
             case "message.delta" where !event["payload"]["text"].string.isEmpty:
@@ -1177,6 +1452,9 @@ final class AppModel {
         } catch { /* The streamed final answer remains visible; retry on the next attach. */ }
     }
 
+    /// The voice reads the reply from the transcript: fragments still batched (the last 33 ms) are applied first.
+    func applyPendingStream() { flushStream() }
+
     private func flushStream() {
         streamTask?.cancel(); streamTask = nil
         let events = streamEvents; streamEvents.removeAll(keepingCapacity: true)
@@ -1215,8 +1493,8 @@ final class AppModel {
         scheduleSave()
     }
 
-    func setChatVisible(_ visible: Bool) {
-        chatVisible = visible
+    func setChatVisible(_ visible: Bool, atBottom: Bool = true) {
+        chatVisible = visible; chatAtBottom = atBottom
         refreshPresence()
         if visible { markCurrentConversationRead(); clearDeliveredForSelected() }
     }
@@ -1236,7 +1514,10 @@ final class AppModel {
     /// Presence follows the conversation on screen, or the voice call (which also runs in the background).
     private func refreshPresence() {
         var target: PresenceBeacon.Target?
-        if !demo, let connection = activeConnection, let selected, http != nil, state == .connected,
+        if !demo, let connection = activeConnection, let room = openRoomID, http != nil, state == .connected,
+           PushNotifications.shared.enabled.contains(connection.id), foreground {
+            target = .init(connectionID: connection.id, profile: profile, sessionID: room)
+        } else if !demo, let connection = activeConnection, let selected, http != nil, state == .connected,
            PushNotifications.shared.enabled.contains(connection.id), voiceActive || (foreground && chatVisible) {
             target = .init(connectionID: connection.id, profile: selected.profile, sessionID: selected.storedID)
         }
@@ -1244,7 +1525,7 @@ final class AppModel {
     }
 
     private func markCurrentConversationRead() {
-        guard foreground, chatVisible, !opening, let selected,
+        guard foreground, chatVisible, chatAtBottom, !opening, let selected,
               demo || (hydratedSelection == selectionGeneration && !selected.runtimeID.isEmpty && state == .connected) else { return }
         conversationActivity.markRead(profile: selected.profile, id: selected.storedID)
         scheduleSave()
@@ -1296,17 +1577,28 @@ final class AppModel {
     /// recoverable from the server (`events.since`), and rewriting the chat file every second drains the battery.
     private func scheduleSave(delay: Duration = .milliseconds(700)) {
         guard !demo else { return }
-        // A change made while a write is in flight gets its own save once that write finishes.
-        if saveTask != nil { saveAgain = true; return }
-        let generation = connectionGeneration
+        // A change made while a write is in flight gets its own save once that write finishes, at the pace it asked for
+        // (8 s while a reply streams, not the default).
+        if saveTask != nil { saveAgain = true; pendingSaveDelay = min(pendingSaveDelay ?? delay, delay); return }
+        let generation = connectionGeneration, token = UUID()
+        saveToken = token
         saveTask = Task { [weak self] in
             do { try await Task.sleep(for: delay) } catch { return }
-            guard let self, generation == self.connectionGeneration, !Task.isCancelled else { return }
+            guard let self else { return }
+            // Only this save frees its slot: one left over from another server must not keep it forever.
+            guard generation == self.connectionGeneration, !Task.isCancelled else {
+                if self.saveToken == token { self.saveTask = nil }
+                return
+            }
             self.saveAgain = false
             await self.persistNow()
+            if self.saveToken == token { self.saveTask = nil }
             guard generation == self.connectionGeneration else { return }
-            self.saveTask = nil
-            if self.saveAgain { self.saveAgain = false; self.scheduleSave() }
+            if self.saveAgain {
+                let next = self.pendingSaveDelay ?? .milliseconds(700)
+                self.saveAgain = false; self.pendingSaveDelay = nil
+                self.scheduleSave(delay: next)
+            }
         }
     }
 
@@ -1345,20 +1637,36 @@ final class AppModel {
             }
         }
         if activeConnection?.id == connection.id {
+            await presence.leave()
             saveTask?.cancel(); saveTask = nil; reconnectTask?.cancel(); reconnectTask = nil
             socket?.close(); http?.invalidate(); http = nil; socket = nil
-            connectionGeneration = UUID(); selectionGeneration = UUID()
+            connectionGeneration = UUID(); selectionGeneration = UUID(); openRequest = UUID()
             activeConnection = nil; selected = nil; profiles = []; sessions = []; draft = ""
             transcript = Transcript(); workspace = CachedWorkspace(); historyIndex = ConversationIndex(); attachmentDrafts = [:]; state = .offline
             conversationActivity = ConversationActivity(); botConversations = [:]; chatError = nil; toast = nil
         }
         Keychain.delete(connection.id.uuidString)
         NotificationKeyStore.remove(for: connection.id)
+        // What the widgets, Siri and the share sheet knew of this server goes with it.
+        AgentBoardStore.clear(); BoardDismissals.clear(); SharedProfiles.write([]); widgetRefreshedAt = .distantPast
+        if connections.count <= 1 { ShareInbox.remove(ids: Set(ShareInbox.read().map(\.id))) }
+        WidgetCenter.shared.reloadAllTimelines()
         connections.removeAll { $0.id == connection.id }
         await cache.removeChats(connection: connection.id.uuidString)
         do { try await cache.remove(connection.id.uuidString); try await cache.remove(connection.id.uuidString + "-groups"); try await cache.save(connections, key: "connections") }
         catch { notice = error.localizedDescription }
     }
+
+    #if DEBUG
+    /// A run of about 8 km around Saint-Constant, as `[lat,lon]` pairs for the demo route card.
+    private static var demoLoop: String {
+        (0..<48).map { step -> String in
+            let angle = Double(step) / 47 * 2 * .pi
+            return String(format: "[%.5f,%.5f]", 45.3706 + 0.0105 * sin(angle) + 0.0012 * sin(angle * 3),
+                          -73.5653 + 0.016 * (1 - cos(angle)) + 0.0015 * sin(angle * 2))
+        }.joined(separator: ",")
+    }
+    #endif
 
     func loadDemo() {
         demo = true; state = .connected; hasBotProtocol = true
@@ -1372,6 +1680,238 @@ final class AppModel {
             .init(role: "user", text: "J’aimerais une journée un peu plus légère."),
             .init(role: "assistant", text: "On fait de la place.\n\nChoisis **une seule chose** qui rendrait ta journée satisfaisante. Le reste peut attendre.\n\nQu’est-ce qui compte le plus pour toi aujourd’hui ?")
         ]
+        #if DEBUG
+        // Every kind of rich card, to look at them (and for the UI tests).
+        if ProcessInfo.processInfo.arguments.contains("--demo-calendar") { Task { await CalendarLink.seedDemoEvent() } }
+        // The agent at work: tools done and running (`--demo-tools`).
+        if ProcessInfo.processInfo.arguments.contains("--demo-tools") {
+            transcript.messages.append(.init(role: "user", text: "Trouve-moi des maisons à Saint-Constant et vérifie mon agenda de jeudi."))
+            transcript.running = true
+            transcript.activity = "mcp__noriven__ops_get_host"
+            transcript.toolSteps = [
+                .init(id: "t1", name: "web_search", state: .completed, context: "maisons à vendre Saint-Constant moins de 500 000 $", duration: 1.8),
+                .init(id: "t2", name: "web_extract", state: .completed, context: "centris.ca/fr/maison~a-vendre~saint-constant", duration: 3.4),
+                .init(id: "t3", name: "agenda_lister", state: .completed, context: "jeudi 29 octobre · tous les agendas", duration: 0.6),
+                .init(id: "t4", name: "mcp__noriven__ops_get_host", state: .running, startedAt: Date().addingTimeInterval(-2))
+            ]
+        }
+        // The agent asks a few questions, one at a time (`choices` with `questions`).
+        if ProcessInfo.processInfo.arguments.contains("--demo-questions") {
+            let fence = "```"
+            transcript.messages = [
+                .init(role: "user", text: "Aide-moi à chercher une maison."),
+                .init(role: "assistant", text: """
+                Avec plaisir. Trois questions pour bien cibler :
+
+                \(fence)ui
+                {"type":"choices","questions":[
+                {"prompt":"Quel budget maximum ?","options":[{"label":"450 000 $","detail":"Maisons à rafraîchir, terrains plus petits","icon":"dollarsign.circle"},{"label":"500 000 $","detail":"Le gros de l’offre à Saint-Constant","icon":"house"},{"label":"550 000 $","detail":"Plus récent, garage double","icon":"sparkles"}]},
+                {"prompt":"Quels secteurs ?","multiple":true,"options":["Saint-Constant","Delson","Candiac","La Prairie"]},
+                {"prompt":"Le plus important ?","options":[{"label":"Un grand terrain","icon":"leaf"},{"label":"Un garage","icon":"car"},{"label":"Près de l’autoroute 30","icon":"road.lanes"}]}]}
+                \(fence)
+                """)
+            ]
+        }
+        // Hermes' own clarification request (its `clarify` tool), several questions.
+        if ProcessInfo.processInfo.arguments.contains("--demo-clarify") {
+            transcript.clarification = .object([
+                "rpc_id": "demo", "request_id": "demo-clarify",
+                "questions": .array([
+                    .object(["qid": "q1", "question": "Pour le souper de vendredi, je réserve où ?", "choices": .array(["Chez Julie", "Au restaurant", "On reste à la maison"])]),
+                    .object(["qid": "q2", "question": "Pour combien de personnes ?", "choices": .array(["2", "4", "6"])])
+                ])
+            ])
+        }
+        if ProcessInfo.processInfo.arguments.contains("--demo-cards") {
+            let fence = "```"
+            transcript.messages = [
+                .init(role: "user", text: "Trouve-moi des maisons à Saint-Constant sous 500 000 $"),
+                .init(role: "assistant", text: """
+                J’ai trouvé quatre maisons qui collent à ton budget. La deuxième a le plus grand terrain.
+
+                \(fence)ui
+                {"type":"carousel","title":"Maisons à vendre · Saint-Constant","items":[
+                {"title":"Cottage rénové, 3 chambres","subtitle":"Rue des Érables · garage double","price":"479 000 $","image":"https://picsum.photos/seed/maison-erables/600/400","url":"https://www.apple.com","badges":["3 ch.","2 sdb","Garage"]},
+                {"title":"Plain-pied avec grand terrain","subtitle":"Montée Saint-Régis · 9 800 pi²","price":"449 900 $","image":"https://picsum.photos/seed/maison-terrain/600/400","url":"https://www.apple.com","badges":["3 ch.","1 sdb"]},
+                {"title":"Jumelé récent","subtitle":"Secteur Le Petit-Village","price":"499 000 $","image":"https://picsum.photos/seed/maison-jumele/600/400","url":"https://www.apple.com","badges":["4 ch.","2 sdb"],"rating":4.6},
+                {"title":"Bungalow à rafraîchir","subtitle":"Près de la gare · idéal premier achat","price":"399 000 $","image":"https://picsum.photos/seed/maison-bungalow/600/400","url":"https://www.apple.com","badges":["2 ch.","1 sdb"]}]}
+                \(fence)
+
+                \(fence)ui
+                {"type":"choices","options":["Planifie des visites","Seulement avec garage","Élargis à Candiac"]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Un bon barbier près de chez moi ?"),
+                .init(role: "assistant", text: """
+                Trois barbiers bien notés à moins de 10 minutes :
+
+                \(fence)ui
+                {"type":"places","title":"Barbiers près de Saint-Constant","items":[
+                {"name":"Barbier du Village","address":"Rue Saint-Pierre, Saint-Constant","lat":45.3706,"lon":-73.5653,"note":"Sans rendez-vous le samedi","phone":"450 555 0101"},
+                {"name":"Studio Coupe Delson","address":"Boulevard Georges-Gagné, Delson","lat":45.3727,"lon":-73.5466,"note":"Ouvert jusqu’à 20 h"},
+                {"name":"La Lame Candiac","address":"Chemin Saint-François-Xavier, Candiac","lat":45.3836,"lon":-73.5199,"note":"Réservation en ligne"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Il fera quoi cette semaine ?"),
+                .init(role: "assistant", text: """
+                Frais et assez ensoleillé, avec de la pluie jeudi.
+
+                \(fence)ui
+                {"type":"weather","place":"Saint-Constant","now":{"temp":7,"condition":"Partiellement nuageux","feels":4},"days":[
+                {"day":"Mer","high":9,"low":2,"condition":"Soleil"},{"day":"Jeu","high":8,"low":4,"condition":"Pluie"},
+                {"day":"Ven","high":11,"low":3,"condition":"Nuageux"},{"day":"Sam","high":13,"low":5,"condition":"Ensoleillé"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Où en est Noriven ce mois-ci ?"),
+                .init(role: "assistant", text: """
+                Un bon mois : le revenu monte et les dépenses restent stables.
+
+                \(fence)ui
+                {"type":"metrics","title":"Noriven · octobre","items":[{"label":"Revenu","value":"12 400 $","delta":"+8 %"},{"label":"Dépenses","value":"4 150 $","delta":"+1 %","trend":"flat"},{"label":"Profit","value":"8 250 $","delta":"+12 %"},{"label":"MRR","value":"3 900 $","delta":"-2 %"}]}
+                \(fence)
+                """),
+                .init(role: "assistant", text: """
+                Résumé du jour : quart de jour jusqu’à 15 h, barbier à 17 h, ciel gris et 7°. Hier, protéines un peu basses.
+
+                \(fence)ui
+                {"type":"brief","greeting":"Bonjour Maxime","date":"Jeudi 29 octobre","weather":{"temp":7,"condition":"Nuageux","high":9,"low":2},
+                "sections":[{"kind":"agenda","title":"Aujourd’hui","items":[{"time":"06:45","text":"Quart de jour","detail":"jusqu’à 15 h"},{"time":"17:00","text":"Barbier du Village"},{"time":"18:30","text":"Souper chez Julie"}]},
+                {"kind":"training","items":[{"text":"Pull · dos et biceps","detail":"45 min"}]},
+                {"kind":"nutrition","text":"Hier : 2 150 kcal sur 2 400 et 128 g de protéines sur 160. Vise un dîner riche en protéines."},
+                {"kind":"email","items":[{"text":"Facture AWS d’octobre","detail":"84,20 $","reply":"Montre-moi la facture AWS"},{"text":"2 courriels classés dans Infolettres"}]},
+                {"kind":"news","items":[{"titre":"Pont Mercier, Jacques-Cartier : nos ponts arrivent-ils en fin de vie?","source":"Le Reflet","url":"https://www.lereflet.qc.ca/","il_y_a":"il y a 4 h"},
+                {"titre":"iPhone Duo could capture nearly 30% of foldable market in 2027","source":"9to5Mac","url":"https://9to5mac.com/","image":"https://picsum.photos/seed/iphone-duo/300/300","il_y_a":"il y a 45 min"}]}],
+                "focus":"Une seule chose : 20 minutes de mobilité après le quart."}
+                \(fence)
+                """),
+                .init(role: "user", text: "Quoi de neuf dans les nouvelles ?"),
+                .init(role: "assistant", text: """
+                Trois titres ce soir, dont un près de chez toi.
+
+                \(fence)ui
+                {"type":"news","title":"À la une","items":[
+                {"titre":"Pont Mercier, Jacques-Cartier : nos ponts arrivent-ils en fin de vie?","source":"Le Reflet","url":"https://www.lereflet.qc.ca/","image":"https://picsum.photos/seed/pont-mercier/800/450","il_y_a":"il y a 4 h"},
+                {"titre":"Ottawa instaure de nouvelles amendes visant les conseils frauduleux","source":"Le Devoir","url":"https://www.ledevoir.com/","il_y_a":"il y a 49 min"},
+                {"titre":"iPhone Duo could capture nearly 30% of foldable market in 2027","source":"9to5Mac","url":"https://9to5mac.com/","image":"https://picsum.photos/seed/iphone-duo/300/300","il_y_a":"il y a 45 min"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Et le MRR de Glutax sur six mois ?"),
+                .init(role: "assistant", text: """
+                Il monte depuis mai ; l’objectif de 4 000 $ est en vue.
+
+                \(fence)ui
+                {"type":"chart","title":"MRR Glutax","unit":"$","value":"3 900 $","delta":"+22 %","goal":4000,"points":[{"label":"mai","value":3200},{"label":"juin","value":3350},{"label":"juil.","value":3300},{"label":"août","value":3550},{"label":"sept.","value":3720},{"label":"oct.","value":3900}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "État du VPS ?"),
+                .init(role: "assistant", text: """
+                Tout tourne normalement. Seul le contrôle des sauvegardes ne répond pas : il cherche encore sur Google Drive.
+
+                \(fence)ui
+                {"type":"status","title":"noriven-prod","subtitle":"En ligne depuis 7 j 22 h · 14 conteneurs","gauges":[{"label":"CPU","value":9,"unit":"%"},{"label":"Mémoire","value":2.1,"max":7.8,"unit":"Go"},{"label":"Disque","value":27.6,"max":115,"unit":"Go"}],
+                "items":[{"name":"Noriven","state":"ok","detail":"4 services"},{"name":"Glutax","state":"ok","detail":"3 services"},{"name":"Minori","state":"ok","detail":"2 services"},{"name":"Authentification","state":"ok","detail":"3 services"},{"name":"Sauvegardes","state":"unknown","detail":"Contrôle absent"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Mes dépenses d’octobre ?"),
+                .init(role: "assistant", text: """
+                Six dépenses ce mois-ci, surtout l’hébergement.
+
+                \(fence)ui
+                {"type":"list","title":"Dépenses · octobre","items":[
+                {"title":"AWS","subtitle":"Hébergement · 12 oct.","value":"84,20 $","icon":"server.rack","tone":"negative","reply":"Détaille la facture AWS"},
+                {"title":"Hetzner","subtitle":"Serveur de prod · 1 oct.","value":"62,00 $","icon":"cpu","tone":"negative"},
+                {"title":"Apple Developer","subtitle":"Abonnement annuel","value":"129,00 $","icon":"apple.logo","badge":"Annuel","tone":"warning"},
+                {"title":"Figma","subtitle":"Design · 5 oct.","value":"20,00 $","icon":"paintpalette","tone":"negative"},
+                {"title":"Google Workspace","subtitle":"Courriels · 3 oct.","value":"8,40 $","icon":"envelope","tone":"negative"},
+                {"title":"Remboursement Stripe","subtitle":"Frais corrigés","value":"+12,00 $","icon":"arrow.uturn.backward","tone":"positive"},
+                {"title":"Domaine noriven.com","subtitle":"Renouvellement","value":"24,99 $","icon":"globe","tone":"negative"}],
+                "total":{"label":"Total du mois","value":"316,59 $"}}
+                \(fence)
+                """),
+                .init(role: "user", text: "Il me reste combien pour aujourd’hui ?"),
+                .init(role: "assistant", text: """
+                Il te reste 550 kcal et 40 g de protéines : un souper riche en protéines ferait la job.
+
+                \(fence)ui
+                {"type":"progress","title":"Aujourd’hui","items":[{"label":"Calories","value":1850,"goal":2400,"unit":"kcal"},{"label":"Protéines","value":120,"goal":160,"unit":"g"},{"label":"Glucides","value":190,"goal":260,"unit":"g"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "C’est quoi ma journée demain ?"),
+                .init(role: "assistant", text: """
+                Quart de jour, puis le barbier et un souper. Tu as une pause libre en fin de journée.
+
+                \(fence)ui
+                {"type":"agenda","title":"Jeudi 29 octobre","items":[
+                {"title":"Quart de jour","start":"2026-10-29T06:45","end":"2026-10-29T15:00","calendar":"Travail","location":"Poste de quartier"},
+                {"title":"Barbier du Village","start":"2026-10-29T17:00","end":"2026-10-29T17:45","calendar":"Personnel","location":"Rue Saint-Pierre"},
+                {"title":"Souper chez Julie","start":"2026-10-29T18:30","end":"2026-10-29T21:00","calendar":"Famille"}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Ma séance d’hier ?"),
+                .init(role: "assistant", text: """
+                Belle séance : record au développé couché.
+
+                \(fence)ui
+                {"type":"workout","title":"Push · pectoraux","subtitle":"Mardi · 52 min","stats":[{"label":"Volume","value":"8 450 kg"},{"label":"Séries","value":"18"},{"label":"Durée","value":"52 min"}],
+                "exercises":[{"name":"Développé couché","sets":"4 × 8","weight":"82,5 kg","done":true,"note":"Record"},{"name":"Développé incliné haltères","sets":"3 × 10","weight":"30 kg","done":true},{"name":"Dips lestés","sets":"3 × 8","weight":"+10 kg","done":true},{"name":"Écarté à la poulie","sets":"3 × 12","weight":"15 kg","done":false}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Et ma course de ce matin ?"),
+                .init(role: "assistant", text: """
+                8,2 km à 5:02 du kilomètre, ton meilleur temps sur ce parcours.
+
+                \(fence)ui
+                {"type":"route","title":"Course du matin","stats":[{"label":"Distance","value":"8,2 km"},{"label":"Allure","value":"5:02 /km"},{"label":"Durée","value":"41:20"}],"points":[\(Self.demoLoop)]}
+                \(fence)
+
+                \(fence)ui
+                {"type":"chart","title":"Kilomètres par semaine","style":"bar","unit":"km","delta":"+14 %","points":[{"label":"S38","value":18},{"label":"S39","value":22},{"label":"S40","value":15},{"label":"S41","value":24},{"label":"S42","value":21},{"label":"S43","value":26}]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Ajoute le barbier jeudi à 17 h"),
+                .init(role: "assistant", text: """
+                C’est noté dans ton agenda Personnel, sans conflit avec ton quart.
+
+                \(fence)ui
+                {"type":"event","title":"Barbier du Village","start":"2026-10-29T17:00","end":"2026-10-29T17:45","location":"Rue Saint-Pierre, Saint-Constant","calendar":"Personnel"}
+                \(fence)
+                """),
+                .init(role: "user", text: "Et l’annonce d’Apple ?"),
+                .init(role: "assistant", text: """
+                Tout est ici : https://www.apple.com/newsroom/
+
+                \(fence)ui
+                {"type":"choices","options":["Résume-la","Autre chose"]}
+                \(fence)
+                """),
+                .init(role: "user", text: "Merci"),
+                // The last reply holds a card and a link preview: it must stay reachable (VoiceOver, UI tests).
+                .init(role: "assistant", text: """
+                Avec plaisir. Le résumé complet est ici : https://www.apple.com/newsroom/
+
+                \(fence)ui
+                {"type":"choices","options":["Bonne soirée","Un dernier truc"]}
+                \(fence)
+                """)
+            ]
+        }
+        #endif
+        #if DEBUG
+        // A long history of rows with very different heights (headings, lists, code), like a real conversation.
+        if ProcessInfo.processInfo.arguments.contains("--demo-long-history") {
+            var many: [ChatMessage] = []
+            for index in 0..<120 {
+                many.append(.init(role: "user", text: String(repeating: "Question \(index) ", count: 1 + index % 5)))
+                let body = (0..<(1 + index % 6)).map { part in
+                    "Paragraphe \(part) de la réponse \(index). " + String(repeating: "Un peu de texte pour varier la hauteur. ", count: 1 + (part + index) % 4)
+                }.joined(separator: "\n\n")
+                let list = index % 3 == 0 ? "\n\n- point un\n- point deux\n- point trois" : ""
+                let code = index % 4 == 0 ? "\n\n```\nlet valeur = \(index)\nprint(valeur)\n```" : ""
+                many.append(.init(role: "assistant", text: "## Réponse \(index)\n\n" + body + list + code))
+            }
+            transcript.messages = many
+        }
+        #endif
         sessions = []
         // Preview history uses the same rows and navigation as a connected profile.
         for agent in profiles {
@@ -1413,10 +1953,17 @@ final class AppModel {
         }
     }
 
-    private func demoReply() async {
-        let text = draft; draft = ""
+    private func demoReply(_ text: String) async {
+        #if DEBUG
+        // Emulates the network round trip before a real message shows up (session creation, persistence).
+        if ProcessInfo.processInfo.arguments.contains("--demo-slow-send") { try? await Task.sleep(for: .milliseconds(220)) }
+        #endif
         transcript.messages.append(.init(role: "user", text: text))
         transcript.running = true
+        #if DEBUG
+        // Keeps the reply running long enough to look at the header's working state.
+        if ProcessInfo.processInfo.arguments.contains("--demo-long-reply") { try? await Task.sleep(for: .seconds(12)) }
+        #endif
         for word in "Ceci est un aperçu d’Hermès iOS. Connectez votre agent Hermes pour retrouver vos conversations, vos profils et vos outils.".split(separator: " ") {
             try? await Task.sleep(for: .milliseconds(60))
             transcript.apply(["type": "message.delta", "payload": ["text": .string(String(word) + " ")]])

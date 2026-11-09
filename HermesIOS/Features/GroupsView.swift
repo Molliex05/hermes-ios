@@ -27,7 +27,22 @@ private final class GroupModel {
             supported = capabilities["driver"].bool && capabilities["methods"].array.contains("groups.send")
             guard supported else { error = "Ce serveur n’expose pas encore les groupes natifs. Mettez Hermes à jour et relancez hermes serve."; return }
             try await refreshRooms()
+            await refreshStates()
         } catch { self.error = error.localizedDescription }
+    }
+    /// What the list shows: each room's last message, and which are waiting for an answer.
+    func refreshStates() async {
+        for room in data.rooms.map({ $0["room_id"].string }) { await refresh(room) }
+    }
+    func waiting(_ room: String) -> Bool {
+        if !(states[room]?["driver_status"]["pending_actions"].array ?? []).isEmpty { return true }
+        guard let last = data.events[room]?.last(where: { ["message.user", "message.member"].contains($0["kind"].string) }) else { return false }
+        return last["kind"].string == "message.member" && last["payload"]["text"].string.contains("@user")
+    }
+    func working(_ room: String) -> Bool { states[room]?["driver_status"]["working"].bool ?? false }
+    func preview(_ room: String) -> String? {
+        guard let event = data.events[room]?.last(where: { ["message.user", "message.member"].contains($0["kind"].string) }) else { return nil }
+        return ChatCard.plainText(event["payload"]["text"].string)
     }
     func call(_ method: String, _ params: JSONValue = [:]) async throws -> JSONValue {
         try await app.groupRequest(method, params: params, connectionID: connectionID)
@@ -46,7 +61,7 @@ private final class GroupModel {
     }
     func create(name: String, members: [AgentProfile], id: String) async throws {
         _ = try await call("groups.create", ["room_id": .string(id), "name": .string(name), "members": .array(members.map {
-            ["member_id": .string($0.name), "profile": .string($0.name), "handle": .string($0.name), "display_name": .string($0.title)]
+            ["member_id": .string($0.name), "profile": .string($0.name), "handle": .string(GroupMention.handle(title: $0.title, fallback: $0.name)), "display_name": .string($0.title)]
         })])
         try await refreshRooms()
     }
@@ -79,7 +94,8 @@ private final class GroupModel {
         await save()
         do {
             _ = try await call("groups.send", pending)
-            data.pending.removeValue(forKey: room); data.drafts[room] = ""
+            data.pending.removeValue(forKey: room)
+            if data.drafts[room] == text { data.drafts[room] = "" }
             await refresh(room)
         } catch { self.error = "Envoi en attente. Réessayer utilise le même identifiant et ne crée pas de doublon. \(error.localizedDescription)" }
         await save()
@@ -114,6 +130,8 @@ struct GroupsView: View {
     @State private var model: GroupModel?
     @State private var creating = false
     @State private var booting = true
+    /// The group a notification asked for.
+    @State private var requested: JSONValue?
     var body: some View {
         List {
             AppIntro("Plusieurs regards, une seule conversation. Hermes orchestre les agents sur votre serveur.")
@@ -122,10 +140,17 @@ struct GroupsView: View {
                 ForEach(model.data.rooms, id: \.["room_id"].string) { room in
                     NavigationLink { GroupChatView(model: model, room: room) } label: {
                         HStack(spacing: 14) {
-                            Image(systemName: "person.2.bubble").foregroundStyle(AppTheme.accent)
+                            HStack(spacing: -10) {
+                                ForEach(room["members"].array.prefix(3), id: \.["member_id"].string) { AgentAvatar(name: $0["profile"].string, size: 30) }
+                            }
                             VStack(alignment: .leading, spacing: 5) {
-                                Text(room["name"].string)
-                                Text("\(room["members"].array.count) agents").font(.caption).foregroundStyle(.secondary)
+                                Text(room["name"].string).lineLimit(1)
+                                Text(model.preview(room["room_id"].string) ?? "\(room["members"].array.count) agents").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                            if model.waiting(room["room_id"].string) {
+                                Text("Attend ta réponse").font(.caption2.weight(.semibold)).foregroundStyle(AppTheme.accent)
+                                    .padding(.horizontal, 8).padding(.vertical, 4).background(AppTheme.accent.opacity(0.12), in: Capsule())
                             }
                         }.padding(.vertical, 9)
                     }
@@ -139,8 +164,21 @@ struct GroupsView: View {
             .toolbar {
                 AppToolbarItem(placement: .primaryAction) { Button("Nouveau groupe", systemImage: "plus") { creating = true }.disabled(model?.supported != true) }
             }
-            .task { if model == nil { let m = GroupModel(app: app, connectionID: connectionID); model = m; await m.boot() }; booting = false }
+            .task { if model == nil { let m = GroupModel(app: app, connectionID: connectionID); model = m; await m.boot() }; booting = false; openRequested() }
+            .onChange(of: app.roomRequest) { _, _ in openRequested() }
+            .onAppear { if let model, !booting { Task { await model.refreshStates() } } }
+            .navigationDestination(isPresented: Binding(get: { requested != nil }, set: { if !$0 { requested = nil } })) {
+                if let model, let requested { GroupChatView(model: model, room: requested) }
+            }
             .sheet(isPresented: $creating) { if let model { GroupEditor(model: model) } }
+    }
+}
+
+private extension GroupsView {
+    func openRequested() {
+        guard !booting, let room = app.roomRequest else { return }
+        app.roomRequest = nil
+        requested = model?.data.rooms.first { $0["room_id"].string == room }
     }
 }
 
@@ -157,7 +195,7 @@ private struct GroupEditor: View {
             Form {
                 TextField("Nom du groupe", text: $name)
                 Section("De 2 à 6 agents") {
-                    ForEach(model.app.profiles) { agent in
+                    ForEach(model.app.visibleBots) { agent in
                         Toggle(agent.title, isOn: Binding(get: { members.contains(agent.name) }, set: { enabled in
                             if enabled { members.insert(agent.name) } else { members.remove(agent.name) }
                         }))
@@ -171,11 +209,58 @@ private struct GroupEditor: View {
                         Button("Créer") {
                             busy = true
                             Task {
-                                do { try await model.create(name: name, members: model.app.profiles.filter { members.contains($0.name) }, id: roomID); dismiss() }
+                                do { try await model.create(name: name, members: model.app.visibleBots.filter { members.contains($0.name) }, id: roomID); dismiss() }
                                 catch { self.error = error.localizedDescription }
                                 busy = false
                             }
                         }.disabled(busy || name.isEmpty || !(2...6).contains(members.count))
+                    }
+                }
+        }.presentationBackground(AppTheme.background)
+    }
+}
+
+/// What every agent of the group reads before answering, and who picks up a message that names nobody (`groups.context`).
+private struct GroupContextEditor: View {
+    let model: GroupModel
+    let room: String
+    let members: [JSONValue]
+    @State private var purpose: String
+    @State private var notes: String
+    @State private var lead: String
+    @Environment(\.dismiss) private var dismiss
+
+    init(model: GroupModel, room: String, members: [JSONValue], context: JSONValue) {
+        self.model = model; self.room = room; self.members = members
+        _purpose = State(initialValue: context["purpose"].string); _notes = State(initialValue: context["notes"].string)
+        _lead = State(initialValue: context["routing"].string == "lead" ? context["lead_member_id"].string : "")
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section { TextField("Ex. : suivre les finances de Noriven", text: $purpose, axis: .vertical).lineLimit(1...4) }
+                header: { Text("But du groupe") } footer: { Text("Tous les agents le lisent avant de répondre.") }
+                Section("Notes partagées") { TextField("Ce qu’ils doivent garder en tête", text: $notes, axis: .vertical).lineLimit(3...10) }
+                Section {
+                    Picker("Sans @", selection: $lead) {
+                        Text("Tout le monde répond").tag("")
+                        ForEach(members, id: \.["member_id"].string) { Text("\($0["display_name"].string) répartit").tag($0["member_id"].string) }
+                    }
+                } footer: { Text("Qui prend un message qui ne nomme personne.") }
+                if let error = model.error { Text(error).font(.caption).foregroundStyle(AppTheme.accent) }
+            }.modernList().navigationTitle("But et notes").navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    AppToolbarItem(placement: .cancellationAction) { Button("Annuler") { dismiss() } }
+                    AppToolbarItem(placement: .confirmationAction) {
+                        Button("Enregistrer") {
+                            Task {
+                                let saved = await model.action("groups.context", room: room, params: [
+                                    "event_id": .string(UUID().uuidString), "purpose": .string(String(purpose.prefix(500))), "notes": .string(notes),
+                                    "routing": .string(lead.isEmpty ? "everyone" : "lead"), "lead_member_id": .string(lead)])
+                                if saved { dismiss() }
+                            }
+                        }.disabled(model.busy)
                     }
                 }
         }.presentationBackground(AppTheme.background)
@@ -190,6 +275,7 @@ private struct GroupChatView: View {
     @State private var renaming = false
     @State private var title = ""
     @State private var disbanding = false
+    @State private var editingContext = false
     @State private var retry: JSONValue?
     private var currentRoom: JSONValue { model.states[id]?["room"] ?? room }
     private var id: String { room["room_id"].string }
@@ -198,10 +284,14 @@ private struct GroupChatView: View {
             LazyVStack(alignment: .leading, spacing: 25) {
                 Text(room["members"].array.map { $0["display_name"].string.isEmpty ? $0["profile"].string : $0["display_name"].string }.joined(separator: " · "))
                     .font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+                if let purpose = model.states[id]?["context"]["purpose"].string, !purpose.isEmpty {
+                    Text(purpose).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: .infinity)
+                }
                 ForEach(model.data.events[id] ?? [], id: \.["event_id"].string) { event in
                     if ["message.user", "message.member"].contains(event["kind"].string) {
                         let member = room["members"].array.first { $0["member_id"] == event["actor"]["id"] }
                         MessageView(message: .init(id: event["event_id"].string, role: event["kind"].string == "message.user" ? "user" : "assistant", text: event["payload"]["text"].string), agent: member?["display_name"].string ?? event["actor"]["id"].string)
+                            .environment(\.agentLook, AgentLooks.shared.look(for: [member?["profile"].string, event["actor"]["id"].string].compactMap { $0 }.first { !$0.isEmpty } ?? ""))
                     } else if event["kind"].string == "room.status" {
                         Text(event["payload"]["status"].string).font(.caption).foregroundStyle(.secondary)
                     }
@@ -214,12 +304,17 @@ private struct GroupChatView: View {
                             HStack {
                                 Button("Refuser") { approve(action, choice: "deny") }.buttonStyle(AppBorderedButtonStyle())
                                 Spacer()
-                                Button("Autoriser une fois") { approve(action, choice: "once") }.buttonStyle(AppProminentButtonStyle())
+                                Button("Pour cette session") { approve(action, choice: "session") }.buttonStyle(AppBorderedButtonStyle())
+                                Button("Une fois") { approve(action, choice: "once") }.buttonStyle(AppProminentButtonStyle())
                             }
                         } else if action["kind"].string == "retry" {
                             Button("Réessayer cette tâche") { retry = action }
                         } else { Text("Cette demande nécessite une autre interface Hermes.").font(.caption).foregroundStyle(.secondary) }
                     }.hermesCard().disabled(model.busy)
+                }
+                if model.working(id) {
+                    Label("Les agents répondent…", systemImage: "ellipsis.bubble").font(.caption.weight(.medium)).foregroundStyle(AppTheme.accent)
+                        .accessibilityIdentifier("group-working")
                 }
                 if let error = model.error { Text(error).font(.caption).foregroundStyle(AppTheme.accent) }
             }.padding(.horizontal, 16).padding(.vertical, 20)
@@ -228,10 +323,14 @@ private struct GroupChatView: View {
             .toolbar { AppToolbarItem(placement: .primaryAction) {
                 AppMenu {
                     AppMenuButton("Arrêter les agents", systemImage: "stop.circle") { Task { await model.stop(id) } }
+                    AppMenuButton("But et notes", systemImage: "text.badge.star") { editingContext = true }
                     AppMenuButton("Renommer", systemImage: "pencil") { title = currentRoom["name"].string; renaming = true }
                     AppMenuButton("Dissoudre le groupe", systemImage: "trash", role: .destructive) { disbanding = true }
                 } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }.disabled(model.busy)
             } }
+            .sheet(isPresented: $editingContext) {
+                GroupContextEditor(model: model, room: id, members: members, context: model.states[id]?["context"] ?? [:])
+            }
             .appAlert("Renommer le groupe", isPresented: $renaming) {
                 TextField("Nom", text: $title)
                 Button("Enregistrer") { Task { _ = await model.action("groups.rename", room: id, params: ["name": .string(title), "event_id": .string(UUID().uuidString)]) } }
@@ -241,19 +340,14 @@ private struct GroupChatView: View {
                 Button("Dissoudre", role: .destructive) { Task { if await model.action("groups.disband", room: id, params: ["cancel_id": .string(UUID().uuidString)]) { dismiss() } } }
             } message: { Text("Hermes arrêtera les agents et fermera ce groupe pour tous ses membres.") }
             .appConfirm("Réessayer cette tâche ?", isPresented: Binding(get: { retry != nil }, set: { if !$0 { retry = nil } })) {
-                Button("Réessayer") { guard let action = retry else { return }; retry = nil; Task { _ = await model.action("groups.retry", room: id, params: ["task_id": action["task_id"]]) } }
+                Button("Réessayer") { guard let action = retry else { return }; retry = nil; Task { _ = await model.action("groups.retry", room: id, params: ["task_id": action["task_id"], "member_id": action["member_id"], "execution_generation": action["execution_generation"]]) } }
             } message: { Text("Le résultat de l’exécution précédente est incertain. Une nouvelle tentative peut répéter ses actions.") }
-            .safeAreaInset(edge: .bottom) {
-                HStack {
-                    TextField("Une idée à partager…", text: Binding(get: { model.data.drafts[id] ?? "" }, set: { model.data.drafts[id] = $0 }), axis: .vertical).lineLimit(1...5)
-                    Button(model.data.pending[id] == nil ? "Envoyer" : "Réessayer") {
-                        Task { await model.send(id, text: model.data.drafts[id] ?? "") }
-                    }.disabled(model.busy || ((model.data.drafts[id] ?? "").isEmpty && model.data.pending[id] == nil))
-                }.padding(.horizontal, 16).padding(.vertical, 8)
-                    .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 22))
-                    .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(AppTheme.line))
-                    .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 8).background(AppTheme.background)
-            }
+            .safeAreaInset(edge: .bottom) { composer }
+            .environment(\.chatReply, ChatReplyAction { text in
+                guard !model.busy else { return false }
+                Task { await model.send(id, text: text) }
+                return true
+            })
             .task(id: phase) {
                 guard phase == .active else { await model.save(); return }
                 // Native hosted rooms expose cursor-based logs, not per-token WS notifications.
@@ -263,7 +357,58 @@ private struct GroupChatView: View {
                     do { try await Task.sleep(for: .seconds(2)) } catch { return }
                 }
             }
-            .onDisappear { Task { await model.save() } }
+            .onAppear { model.app.openRoomID = id }
+            .onDisappear { model.app.openRoomID = nil; Task { await model.save() } }
+    }
+    private var draft: String { model.data.drafts[id] ?? "" }
+    private var members: [JSONValue] { currentRoom["members"].array }
+    /// Who the « @ » being typed can name: the room's agents, then everyone.
+    private var mentions: [(handle: String, title: String, profile: String?)] {
+        guard let query = GroupMention.query(in: draft)?.lowercased() else { return [] }
+        let agents = members.map { (handle: $0["handle"].string, title: $0["display_name"].string, profile: Optional($0["profile"].string)) }
+        return (agents + [(handle: "all", title: "Tout le monde", profile: nil)]).filter { query.isEmpty || $0.handle.lowercased().hasPrefix(query) }
+    }
+    private var composer: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if !mentions.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(mentions, id: \.handle) { mention in
+                            Button {
+                                Haptics.select(); model.data.drafts[id] = GroupMention.completed(draft, handle: mention.handle)
+                            } label: {
+                                HStack(spacing: 7) {
+                                    if let profile = mention.profile { AgentAvatar(name: profile, size: 24) } else { Image(systemName: "person.2.fill").font(.caption) }
+                                    Text(mention.title).font(.caption)
+                                }.padding(8).background(AppTheme.surface, in: Capsule())
+                            }.buttonStyle(.plain).accessibilityIdentifier("group-mention-\(mention.handle)")
+                        }
+                    }
+                }
+            }
+            HStack(alignment: .bottom, spacing: 6) {
+                TextField("Écris au groupe, ou @ pour appeler un agent", text: Binding(get: { draft }, set: { model.data.drafts[id] = $0 }), axis: .vertical)
+                    .lineLimit(1...5).padding(.leading, 14).padding(.vertical, 12)
+                sendButton
+            }
+            .padding(2).background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 24))
+            .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(AppTheme.line))
+        }
+        .padding(.horizontal, 16).padding(.vertical, 8).background(AppTheme.background)
+    }
+    private var sendButton: some View {
+        let working = model.working(id), canSend = !draft.isEmpty || model.data.pending[id] != nil
+        return Button {
+            if working, !canSend { Task { await model.stop(id) } }
+            else { Haptics.send(); Task { await model.send(id, text: draft) } }
+        } label: {
+            Image(systemName: working && !canSend ? "stop.fill" : model.data.pending[id] == nil ? "arrow.up" : "arrow.clockwise")
+                .font(.system(size: working && !canSend ? 13 : 18, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 40, height: 40).background(canSend || working ? AppTheme.accent : Color.secondary.opacity(0.28), in: Circle())
+                .frame(width: 44, height: 44).contentShape(Rectangle())
+        }.buttonStyle(.plain).disabled(model.busy || (!canSend && !working))
+            .accessibilityLabel(working && !canSend ? "Arrêter les agents" : "Envoyer")
+            .accessibilityIdentifier("group-send")
     }
     private func approve(_ action: JSONValue, choice: String) {
         let requestID = action["approval"]["request_id"].isNull ? action["request_id"] : action["approval"]["request_id"]

@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parent.parent
 spec = importlib.util.spec_from_file_location("hermes_google_lite", ROOT / "__init__.py", submodule_search_locations=[str(ROOT)])
 plugin = importlib.util.module_from_spec(spec); sys.modules["hermes_google_lite"] = plugin; spec.loader.exec_module(plugin)
 api = sys.modules["hermes_google_lite.google_api"]
+REAL_PLATFORM, REAL_IN_CRON = plugin._env_platform, plugin._in_cron
 
 
 class Resp:
@@ -61,7 +62,7 @@ class Base(unittest.TestCase):
         api._token.update(value="", expires=0.0); api._timezone.clear()
         for window in plugin._recent.values(): window.clear()
         api._env = lambda name: {"GOOGLE_CLIENT_ID": "cid", "GOOGLE_CLIENT_SECRET": "sec", "GOOGLE_REFRESH_TOKEN": "rt"}.get(name, "")
-        plugin._env_platform = lambda: "desktop"
+        plugin._env_platform = lambda: "desktop"; plugin._in_cron = lambda: False
         self.tools = {}
         outer = self
         class Ctx:
@@ -112,9 +113,23 @@ class Mail(Base):
         self.assertTrue(post[1].endswith("/drafts"))
         raw = base64.urlsafe_b64decode(post[2]["json"]["message"]["raw"] + "==").decode()
         self.assertIn("In-Reply-To: <id@x>", raw); self.assertIn("To: b@y.org", raw)
+    def test_draft_attaches_only_the_files_maxime_sent(self):
+        import tempfile, email
+        home = Path(tempfile.mkdtemp()); (home / "attachments").mkdir(); (home / "images").mkdir()
+        (home / "attachments" / "facture.pdf").write_bytes(b"%PDF-1.4 facture"); (home / "images" / "photo.jpg").write_bytes(b"\xff\xd8jpeg")
+        (home / ".env").write_text("GOOGLE_REFRESH_TOKEN=secret"); (home / "attachments" / "lien").symlink_to(home / ".env")
+        plugin._profile_home = lambda: home
+        r = self.call("gmail_brouillon", a="b@y.org", objet="Facture", corps="Ci-joint.", pieces_jointes=["@file:facture.pdf", str(home / "images" / "photo.jpg")])
+        self.assertTrue(r["ok"]); self.assertEqual(r["pieces_jointes"], ["facture.pdf", "photo.jpg"])
+        raw = base64.urlsafe_b64decode([c for c in self.fake.api_calls() if c[0] == "POST"][-1][2]["json"]["message"]["raw"] + "==")
+        parts = [(part.get_filename(), part.get_content_type(), part.get_payload(decode=True)) for part in email.message_from_bytes(raw).walk() if part.get_filename()]
+        self.assertEqual(parts, [("facture.pdf", "application/pdf", b"%PDF-1.4 facture"), ("photo.jpg", "image/jpeg", b"\xff\xd8jpeg")])
+        for forbidden in (str(home / ".env"), "../.env", "/etc/passwd", "lien", "absent.pdf"):
+            self.assertIn("non permise", self.call("gmail_brouillon", a="b@y.org", objet="x", corps="y", pieces_jointes=[forbidden])["error"], forbidden)
+        self.assertNotIn("secret", json.dumps([c[2] for c in self.fake.api_calls()]))
     def test_draft_validation(self):
         self.assertIn("invalide", self.call("gmail_brouillon", a="pas une adresse", objet="x", corps="y")["error"])
-        self.assertIn("saut de ligne", self.call("gmail_brouillon", a="b@y.org", objet="x\nBcc: z@z.org", corps="y")["error"])
+        self.assertIn("une ligne", self.call("gmail_brouillon", a="b@y.org", objet="x\nBcc: z@z.org", corps="y")["error"])
         self.assertIn("vide", self.call("gmail_brouillon", a="b@y.org", objet="x", corps="  ")["error"])
     def test_draft_rate_limit(self):
         for _ in range(plugin.DRAFTS_PER_HOUR): self.assertTrue(self.call("gmail_brouillon", a="b@y.org", objet="x", corps="y")["ok"])
@@ -170,10 +185,24 @@ class Watcher(Base):
         import tempfile; self.seen = Path(tempfile.mkdtemp()) / "seen.json"
     def test_output_is_stable_and_has_no_content(self):
         first = self.script.render(api, self.seen)
-        self.assertEqual(first, "m1abcdef | A <a@x.org> | Salut")
+        self.assertEqual(first, "×1 | A <a@x.org> | Salut | ids: m1abcdef")
         calls = len(self.fake.api_calls())
         self.assertEqual(self.script.render(api, self.seen), first)            # unchanged → Hermes skips the agent
         self.assertEqual(len(self.fake.api_calls()) - calls, 1)                # only the listing; metadata is cached
+    def test_seen_emails_are_archived_and_marked_read_then_forgotten(self):
+        import tempfile, os; folder = Path(tempfile.mkdtemp())
+        (folder / "1.json").write_text(json.dumps({"ids": ["m1abcdef", "pas un id!"]})); (folder / "2.json").write_text("{casse")
+        self.assertEqual(self.script.archive_seen(api, folder), 1)
+        bodies = [c[2]["json"] for c in self.fake.api_calls() if c[1].endswith("/batchModify")]
+        self.assertEqual(bodies, [{"ids": ["m1abcdef"], "removeLabelIds": ["INBOX", "UNREAD"]}])
+        self.assertEqual(list(folder.iterdir()), [], "done or unreadable: the files are gone")
+        (folder / "3.json").write_text(json.dumps({"ids": ["m1abcdef"]}))
+        class Down:                                                           # Gmail unreachable: kept for the next run
+            def gmail_triage(self, *a): raise api.GoogleError("hors ligne")
+        self.assertEqual(self.script.archive_seen(Down(), folder), 0); self.assertEqual([f.name for f in folder.iterdir()], ["3.json"])
+        old = __import__("time").time() - 8 * 86400; os.utime(folder / "3.json", (old, old))
+        self.script.archive_seen(Down(), folder); self.assertEqual(list(folder.iterdir()), [], "a week later it is dropped")
+        self.assertEqual(self.script.archive_seen(api, folder / "absent"), 0)
     def test_failure_is_loud(self):
         api._env = lambda name: ""
         with self.assertRaises(RuntimeError): self.script.render(api, self.seen)
@@ -204,13 +233,22 @@ class Calendar(Base):
     def test_calendar_list_tool(self):
         names = [c["nom"] for c in self.call("agenda_calendriers")["agendas"]]
         self.assertEqual(names, ["Maxime", "Travail", "Ancien", "Jours fériés"])
-    def test_writes_stay_on_primary(self):
+    def test_writes_go_to_primary_or_a_calendar_maxime_can_edit(self):
         self.call("agenda_creer", titre="Test", debut="2026-10-22T09:30")
         posts = [c[1] for c in self.fake.api_calls() if c[0] == "POST" and c[1].endswith("/events")]
-        self.assertTrue(all("/calendars/primary/events" in u for u in posts))
-        for url in (f"{api.CALENDAR}/calendars/work%40corp.com/events", f"{api.CALENDAR}/calendars/work%40corp.com/events/e9"):
-            with self.assertRaises(api.GoogleError): api.request("POST", url)
-        with self.assertRaises(api.GoogleError): api.request("DELETE", f"{api.CALENDAR}/calendars/work%40corp.com/events/e9")
+        self.assertTrue(posts and all("/calendars/primary/events" in u for u in posts), "« Personnel » by default")
+        real = api.calendar_calendars
+        api.calendar_calendars = lambda: real() + [{"id": "police@group.calendar.google.com", "nom": "Police", "principal": False, "role": "owner", "affiche": True, "fuseau": "America/Toronto"}]
+        try:
+            self.assertTrue(self.call("agenda_creer", titre="Quart", debut="2026-11-09T13:00", fin="2026-11-09T21:45", calendrier="police")["ok"])
+            last = [c[1] for c in self.fake.api_calls() if c[0] == "POST" and c[1].endswith("/events")][-1]
+            self.assertIn("/calendars/police%40group.calendar.google.com/events", last)
+            self.assertIn("lecture seule", self.call("agenda_creer", titre="X", debut="2026-11-09T13:00", calendrier="Travail")["error"])
+            self.assertIn("Aucun agenda", self.call("agenda_creer", titre="X", debut="2026-11-09T13:00", calendrier="inconnu")["error"])
+            plugin._in_cron = lambda: True
+            self.assertIn("Personnel", self.call("agenda_creer", titre="X", debut="2026-11-09T13:00", calendrier="Police")["error"], "never from an unattended run")
+        finally:
+            api.calendar_calendars = real
     def test_modify_keeps_duration_and_notifies_nobody(self):
         r = self.call("agenda_modifier", id="e1", debut="2026-10-22T10:00", titre="Dentiste (déplacé)")
         self.assertTrue(r["ok"]); self.assertEqual(r["titre"], "Dentiste (déplacé)")
@@ -245,7 +283,38 @@ class Calendar(Base):
     def test_bad_dates(self):
         self.assertIn("Paramètre invalide", self.call("agenda_creer", titre="x", debut="demain")["error"])
         self.assertIn("après le début", self.call("agenda_creer", titre="x", debut="2026-10-22T10:00", fin="2026-10-22T09:00")["error"])
+    def test_a_series_is_created_in_one_call(self):
+        shifts = [{"titre": "Quart", "debut": f"2026-11-{d:02d}T13:00", "fin": f"2026-11-{d:02d}T21:45"} for d in (9, 10, 11, 12)]
+        r = self.call("agenda_creer", evenements=shifts)
+        self.assertTrue(r["ok"]); self.assertEqual(r["crees"], 4); self.assertEqual(len(r["evenements"]), 4)
+        posts = [c for c in self.fake.api_calls() if c[0] == "POST" and c[1].endswith("/events")]
+        self.assertEqual(sorted(c[2]["json"]["start"]["dateTime"][:10] for c in posts), ["2026-11-09", "2026-11-10", "2026-11-11", "2026-11-12"])
+        self.assertTrue(all(c[2]["params"] == {"sendUpdates": "none"} for c in posts))
+    def test_a_series_with_one_bad_event_creates_nothing(self):
+        r = self.call("agenda_creer", evenements=[{"titre": "Quart", "debut": "2026-11-09T13:00"}, {"titre": "Quart", "debut": "demain"}])
+        self.assertIn("Événement 2", r["error"]); self.assertIn("Rien n'a été créé", r["error"])
+        self.assertEqual([c for c in self.fake.api_calls() if c[0] == "POST" and c[1].endswith("/events")], [])
+        self.assertIn("1 à", self.call("agenda_creer", evenements=[{"titre": "Q", "debut": "2026-11-09"}] * (plugin.MAX_BATCH + 1))["error"])
+    def test_a_series_counts_against_the_hourly_limit(self):
+        many = [{"titre": "Q", "debut": "2026-11-09"}] * plugin.MAX_BATCH
+        self.assertTrue(self.call("agenda_creer", evenements=many)["ok"])
+        self.assertIn("Limite", self.call("agenda_creer", evenements=many)["error"], "the whole series is refused, not half of it")
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class UnsafeCharactersTests(unittest.TestCase):
+    def test_drafts_refuse_what_the_iphone_could_not_show_faithfully(self):
+        for subject, body, to in [("Facture \u202egnp.exe", "ok", "a@b.co"), ("=?utf-8?b?x?=", "ok", "a@b.co"),
+                                  ("Objet", "Payer\u200b ici", "a@b.co"), ("Objet", "ok", "a\u200b@b.co")]:
+            with self.subTest(subject=subject, body=body, to=to), self.assertRaises(api.GoogleError):
+                api.gmail_draft(to, subject, body)
+
+
+class FailClosedTests(unittest.TestCase):
+    def test_an_unreadable_session_context_is_refused_not_allowed(self):
+        sys.modules.pop("gateway.session_context", None)              # outside Hermes: the import fails
+        self.assertIn(REAL_PLATFORM(), plugin.BLOCKED_PLATFORMS)
+        self.assertTrue(REAL_IN_CRON())

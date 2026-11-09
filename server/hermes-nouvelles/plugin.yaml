@@ -1,0 +1,8 @@
+name: hermes-nouvelles
+version: 0.1.0
+description: "Titres récents de médias choisis (RSS, sans clé) : actualités du Québec, nouvelles locales, techno et Apple."
+author: Hermès iOS
+kind: standalone
+requires_hermes: ">=0.21.0"
+provides_tools:
+  - nouvelles

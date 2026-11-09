@@ -46,6 +46,9 @@ final class VoiceAudioEngine: @unchecked Sendable {
     private var inputTapInstalled = false
     private var outputTapInstalled = false
     private var recoveries: [TimeInterval] = []
+    private static let duckedVolume: Float = 0.25
+    /// The agent's voice is turned down while a sound that may be someone speaking is weighed (`duckPlayback`).
+    private var ducked = false
 
     var snapshot: Snapshot { state.snapshot() }
 
@@ -220,6 +223,15 @@ final class VoiceAudioEngine: @unchecked Sendable {
         }
     }
 
+    /// Turns the agent's voice down, or back up. It keeps playing: a noise mistaken for speech costs a dip in volume, never a
+    /// hole in the reply (the road can pass for speech for many seconds).
+    func duckPlayback(_ duck: Bool) {
+        Self.queue.async { [self] in
+            ducked = duck
+            player?.volume = duck ? Self.duckedVolume : 1
+        }
+    }
+
     func stopPlayback(id: UUID? = nil) {
         guard let stopped = state.cancelOutput(id: id) else { return }
         Self.queue.async { [self] in
@@ -339,7 +351,7 @@ final class VoiceAudioEngine: @unchecked Sendable {
                     }
                     engine.prepare()
                     try engine.start()
-                    if resumePlayback { player?.play() }
+                    if resumePlayback { player?.volume = ducked ? Self.duckedVolume : 1; player?.play() }
                     VoiceDiag.log("recovered in place running=\(engine.isRunning)")
                     return
                 } catch { VoiceDiag.log("in-place recovery failed: \(error)") }
@@ -349,7 +361,7 @@ final class VoiceAudioEngine: @unchecked Sendable {
         teardownGraphOnQueue()
         do {
             try prepareOnQueue(generation: generation)
-            if resumePlayback { player?.play() }
+            if resumePlayback { player?.volume = ducked ? Self.duckedVolume : 1; player?.play() }
             VoiceDiag.log("recovered by rebuild")
         } catch {
             VoiceDiag.log("rebuild failed: \(error)")
@@ -396,7 +408,7 @@ final class VoiceAudioEngine: @unchecked Sendable {
     }
 
     private func stopOutputOnQueue() {
-        player?.stop()
+        player?.stop(); ducked = false; player?.volume = 1
         converter = nil; pcmCarry = nil; playbackID = nil
         audioFile = nil
         if let url = audioFileURL { try? FileManager.default.removeItem(at: url) }
@@ -509,6 +521,7 @@ private final class VoiceAudioState: @unchecked Sendable {
     private var status = VoiceAudioEngine.Snapshot()
     private var muted = false
     private var resampler = VoicePCMResampler(sourceRate: 48000)
+    private var bandFilter = VoiceBandFilter(sampleRate: 48000)
     private var samples: [Int16] = []
     private var maximum = 120 * rate
     private var preRoll: [Int16] = []
@@ -539,6 +552,7 @@ private final class VoiceAudioState: @unchecked Sendable {
         lock.withLock {
             guard token == generation else { return }
             resampler = VoicePCMResampler(sourceRate: sampleRate)
+            bandFilter = VoiceBandFilter(sampleRate: sampleRate)
             sourceRate = sampleRate
             preRoll = [Int16](repeating: 0, count: Self.rate)
             ringIndex = 0; ringCount = 0
@@ -649,7 +663,9 @@ private final class VoiceAudioState: @unchecked Sendable {
         vDSP_svesq(channel, 1, &energy, vDSP_Length(count))
         let rms = sqrt(Double(energy) / Double(count))
         let time = when.isHostTimeValid ? AVAudioTime.seconds(forHostTime: when.hostTime) : ProcessInfo.processInfo.systemUptime
-        let level = VoiceLevel(time: time, duration: Double(count) / buffer.format.sampleRate, rms: rms * 32767)
+        // The level of the speech band alone: a car's rumble hardly registers there (see `VoiceBandFilter`).
+        let band = lock.withLock { bandFilter.rms(of: UnsafeBufferPointer(start: channel, count: count)) }
+        let level = VoiceLevel(time: time, duration: Double(count) / buffer.format.sampleRate, rms: rms * 32767, band: band * 32767)
         let delivery: (AsyncStream<VoiceLevel>.Continuation?, AsyncStream<Data>.Continuation?, Data?) = lock.withLock {
             guard token == generation, status.monitoring, !muted, !preRoll.isEmpty else {
                 diagTap(rms: rms * 32767, gate: "token=\(token == generation) monitoring=\(status.monitoring) muted=\(muted) preRollEmpty=\(preRoll.isEmpty)")

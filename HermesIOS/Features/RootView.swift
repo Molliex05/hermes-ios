@@ -10,7 +10,8 @@ struct RootView: View {
             } else if model.connections.isEmpty && !model.demo {
                 OnboardingView(model: model)
             } else {
-                ChatView(model: model).id(model.navigationRevision)
+                // Never rebuilt to close its pages: it does that itself on `navigationRevision`.
+                ChatView(model: model)
             }
         }
         .background(AppTheme.background)
@@ -26,17 +27,21 @@ struct RootView: View {
 struct ToastBanner: View {
     let model: AppModel
     var body: some View {
-        if let message = model.toast {
-            HStack(spacing: 10) {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(AppTheme.accent)
-                Text(message).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
-                Button { model.toast = nil } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
-                    .accessibilityLabel("Fermer la confirmation")
-            }.padding(.leading, 16).padding(.trailing, 4)
-                .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 18))
-                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(AppTheme.line))
-                .padding(16).accessibilityElement(children: .combine)
-        }
+        // Slides in and out like the notice dialog fades, instead of popping over the page.
+        ZStack {
+            if let message = model.toast {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill").foregroundStyle(AppTheme.accent)
+                    Text(message).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
+                    Button { model.toast = nil } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }
+                        .accessibilityLabel("Fermer la confirmation")
+                }.padding(.leading, 16).padding(.trailing, 4)
+                    .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(AppTheme.line))
+                    .padding(16).accessibilityElement(children: .combine)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }.animation(.easeOut(duration: 0.2), value: model.toast)
     }
 }
 

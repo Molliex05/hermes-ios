@@ -4,8 +4,9 @@ import WidgetKit
 @main
 struct HermesIOSWidgetsBundle: WidgetBundle {
     var body: some Widget {
-        NorivenFinanceWidget()
+        AgentBoardWidget()
         HermesVoiceWidget()
         HermesLiveActivity()
+        CallControl()
     }
 }

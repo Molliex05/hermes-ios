@@ -60,21 +60,25 @@ extension View {
 
 private struct Shimmer: ViewModifier {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var phase: CGFloat = -1
 
     func body(content: Content) -> some View {
         if reduceMotion { content }
         else {
             content
                 .overlay {
-                    GeometryReader { geometry in
-                        LinearGradient(colors: [.clear, AppTheme.background.opacity(0.55), .clear], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: geometry.size.width * 0.5)
-                            .offset(x: phase * geometry.size.width * 1.5)
+                    // The sweep's place comes from the clock, like the header's moving light. A repeating animation started in
+                    // `onAppear` also caught whatever moved the placeholder at that moment (a sheet rising, the chat switching
+                    // conversations, the header folding) and replayed that movement in a loop.
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                        let phase = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.4) / 1.4 * 2 - 1
+                        GeometryReader { geometry in
+                            LinearGradient(colors: [.clear, AppTheme.background.opacity(0.55), .clear], startPoint: .leading, endPoint: .trailing)
+                                .frame(width: geometry.size.width * 0.5)
+                                .offset(x: phase * geometry.size.width * 1.5)
+                        }
                     }.allowsHitTesting(false)
                 }
                 .mask(content)
-                .onAppear { withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) { phase = 1 } }
         }
     }
 }

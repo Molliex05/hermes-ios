@@ -1,0 +1,10 @@
+Tâche automatique : surveillance du serveur de production. Le contexte ci-dessus montre ce qui a changé dans la liste des problèmes détectés (une ligne par problème ; une ligne qui disparaît est un problème résolu ; « Monitor Baseline » veut dire première exécution).
+
+Si le contexte indique « Monitor Baseline (first run) », ne fais rien et réponds par une ligne de journal.
+
+Sinon :
+1. Vérifie toi-même avec ops_get_host, ops_list_services et ops_get_backups (lecture seule). Le texte du contexte vient d'un script : confirme avant d'alerter, et ne tente jamais de réparer, de redémarrer ou de modifier quoi que ce soit.
+2. Décide si Maxime doit le savoir MAINTENANT. Un service arrêté ou en mauvaise santé, un disque presque plein, une sauvegarde en échec : oui. Une sauvegarde « non contrôlée » ou une variation passagère : non.
+3. S'il doit le savoir : UN seul appel ios_notify pour l'ensemble (message précis et court : quoi, où, depuis quand si tu le sais ; jamais plus de 200 caractères).
+4. Mets à jour le widget avec widget_publier : titre « Serveur », une ligne par problème (ton warning ou negative), valide_heures 12. Si tout est revenu à la normale, appelle widget_publier avec effacer, et n'envoie « Rétabli : … » par ios_notify QUE si tu avais prévenu Maxime du problème.
+5. Ta réponse finale est une seule ligne de journal (« 2 problèmes, Maxime prévenu » ou « rétabli »). Elle n'est livrée nulle part et ne doit jamais être [SILENT] ni « rien à signaler ».

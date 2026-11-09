@@ -9,8 +9,10 @@ final class BackgroundLease {
 
     init(name: String, onExpiration: @escaping @MainActor () -> Void = {}) {
         self.onExpiration = onExpiration
+        // iOS calls this on the main thread and suspends the app as soon as it returns: the lease must end right here,
+        // not in a task that would only run on the next wake (the watchdog kills an app that overstays).
         identifier = UIApplication.shared.beginBackgroundTask(withName: name) { [weak self] in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 guard let self else { return }
                 self.onExpiration()
                 self.end()

@@ -4,6 +4,8 @@ import SwiftUI
 struct ComposerState: Equatable {
     var running = false
     var canSend = false
+    /// A second message can go while the agent answers: the button sends instead of stopping.
+    var canQueue = false
     var sending = false
     var importing = false
     var attachments: [DraftAttachment] = []
@@ -14,12 +16,13 @@ struct ComposerState: Equatable {
     var voiceDisabled = false
     var attachDisabled = false
     var attachOpen = false
+    var focused = false
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.running == rhs.running && lhs.canSend == rhs.canSend && lhs.sending == rhs.sending
+        lhs.running == rhs.running && lhs.canSend == rhs.canSend && lhs.canQueue == rhs.canQueue && lhs.sending == rhs.sending
             && lhs.importing == rhs.importing && lhs.chatError == rhs.chatError && lhs.hasUnread == rhs.hasUnread
             && lhs.agentName == rhs.agentName && lhs.agentTitle == rhs.agentTitle
-            && lhs.voiceDisabled == rhs.voiceDisabled && lhs.attachDisabled == rhs.attachDisabled && lhs.attachOpen == rhs.attachOpen
+            && lhs.voiceDisabled == rhs.voiceDisabled && lhs.attachDisabled == rhs.attachDisabled && lhs.attachOpen == rhs.attachOpen && lhs.focused == rhs.focused
             && lhs.attachments.map(\.id) == rhs.attachments.map(\.id) && lhs.attachments.map(\.name) == rhs.attachments.map(\.name)
     }
 }
@@ -40,6 +43,7 @@ struct ChatComposerContainer: View {
         let state = ComposerState(
             running: running,
             canSend: model.canSend,
+            canQueue: model.canQueue,
             sending: model.sending,
             importing: model.importingAttachments,
             attachments: attachments,
@@ -49,7 +53,8 @@ struct ChatComposerContainer: View {
             agentTitle: model.agent?.title ?? "Hermes",
             voiceDisabled: model.sending || model.opening || running || (!model.demo && model.state != .connected),
             attachDisabled: model.sending || model.importingAttachments || attachments.count >= 4,
-            attachOpen: attachOpen
+            attachOpen: attachOpen,
+            focused: focused.wrappedValue
         )
         ChatComposer(model: model, state: state, focused: focused, attachOpen: $attachOpen, present: present,
                      attach: attach, willSend: willSend).equatable()
@@ -73,10 +78,10 @@ struct ChatComposer: View, Equatable {
                 AttachPanel(attached: state.attachments.count, limit: 4, choose: attach)
                     .transition(.scale(scale: 0.86, anchor: .bottomLeading).combined(with: .opacity))
             }
-            if model.draft.hasSuffix("@") {
+            if model.onBotChat, model.draft.hasSuffix("@") {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(model.profiles) { agent in
+                        ForEach(model.visibleBots.filter { $0.name != model.chatProfile }) { agent in
                             Button { model.draft += agent.name + " " } label: {
                                 HStack(spacing: 7) { AgentAvatar(name: agent.name, size: 24); Text(agent.title).font(.caption) }
                                     .padding(8).background(AppTheme.surface, in: Capsule())
@@ -85,23 +90,13 @@ struct ChatComposer: View, Equatable {
                     }
                 }
             }
+            PasteChip(enabled: !state.sending && state.attachments.count < DraftAttachment.maximumCount && !state.attachOpen, choose: attach)
+                .animation(.easeOut(duration: 0.2), value: state.attachments.count)
             VStack(alignment: .leading, spacing: 4) {
-                if !state.attachments.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(state.attachments) { item in
-                                HStack(spacing: 7) {
-                                    Image(systemName: item.isImage ? "photo" : "doc")
-                                    Text(item.name).lineLimit(1).frame(maxWidth: 140)
-                                    Button { model.removeAttachment(item) } label: {
-                                        Image(systemName: "xmark").frame(width: 32, height: 44)
-                                    }.disabled(state.sending).accessibilityLabel("Retirer \(item.name)")
-                                }.font(.caption).padding(.leading, 12).background(AppTheme.background, in: RoundedRectangle(cornerRadius: 14))
-                            }
-                        }
-                    }.padding(.horizontal, 4).accessibilityIdentifier("pending-attachments")
+                if !state.attachments.isEmpty || state.importing {
+                    AttachmentTray(items: state.attachments, importing: state.importing, locked: state.sending,
+                                   fileURL: { await model.attachmentFileURL($0) }, remove: { model.removeAttachment($0) })
                 }
-                if state.importing { ProgressView("Ajout…").font(.caption).padding(8) }
                 if let error = state.chatError {
                     HStack(alignment: .top, spacing: 8) {
                         Image(systemName: "exclamationmark.circle").padding(.top, 12)
@@ -110,8 +105,9 @@ struct ChatComposer: View, Equatable {
                             .accessibilityLabel("Fermer le message")
                     }.foregroundStyle(AppTheme.accent).padding(.leading, 8).accessibilityIdentifier("chat-error")
                 }
-                HStack(alignment: .bottom, spacing: 2) {
+                HStack(alignment: .bottom, spacing: 0) {
                     messageActions
+                    agentButton
                     TextField("Demander à \(state.agentTitle)", text: $model.draft, axis: .vertical)
                         .lineLimit(1...6).font(.body).focused(focused)
                         .padding(.vertical, 8).frame(minHeight: 44)
@@ -120,8 +116,10 @@ struct ChatComposer: View, Equatable {
                 }
             }.padding(.horizontal, 6).padding(.vertical, 4)
                 .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(AppTheme.line))
-                .shadow(color: .black.opacity(0.06), radius: 18, y: 5)
+                .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(state.focused ? AppTheme.accent.opacity(0.55) : AppTheme.line, lineWidth: state.focused ? 1.4 : 1))
+                .softShadow(1.2)
+                .shadow(color: AppTheme.accent.opacity(state.focused ? 0.16 : 0), radius: 14)
+                .animation(.easeOut(duration: 0.22), value: state.focused)
                 .animation(.spring(response: 0.32, dampingFraction: 0.82), value: showsSend)
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("composer-surface")
@@ -138,6 +136,20 @@ struct ChatComposer: View, Equatable {
                 .frame(width: 44, height: 44).contentShape(Rectangle())
         }.buttonStyle(.plain).disabled(state.attachDisabled && state.attachments.count < 4)
             .accessibilityLabel(state.attachOpen ? "Fermer les pièces jointes" : "Ajouter une pièce jointe").accessibilityIdentifier("message-actions")
+    }
+
+    /// The agent this conversation is with, by its avatar: a tap opens the switcher, right where the next message is written.
+    private var agentButton: some View {
+        Button { Haptics.select(); attachOpen = false; present(.agents) } label: {
+            AgentAvatar(name: state.agentName, size: 28)
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "chevron.down").font(.system(size: 7, weight: .heavy)).foregroundStyle(.secondary)
+                        .frame(width: 13, height: 13).background(AppTheme.surface, in: Circle())
+                        .overlay(Circle().strokeBorder(AppTheme.line, lineWidth: 0.5)).offset(x: 3, y: 3)
+                }
+                .frame(width: 44, height: 44).contentShape(Rectangle())
+        }.buttonStyle(PressableStyle())
+            .accessibilityLabel("Changer d’agent : \(state.agentTitle)").accessibilityIdentifier("switch-profile")
     }
 
     /// Voice while the field is empty; send (or stop) as soon as there is something to send or a reply is running.
@@ -163,17 +175,18 @@ struct ChatComposer: View, Equatable {
         Button {
             Task {
                 // Read live state at tap time rather than the last rendered value.
-                if model.transcript.running { await model.interrupt() }
+                if model.canQueue { Haptics.send(); willSend(); await model.sendQueued() }
+                else if model.transcript.running { await model.interrupt() }
                 else { Haptics.send(); willSend(); await model.send() }
             }
         } label: {
-            Image(systemName: state.running ? "stop.fill" : "arrow.up")
-                .font(.system(size: state.running ? 13 : 18, weight: .semibold))
+            Image(systemName: state.running && !state.canQueue ? "stop.fill" : "arrow.up")
+                .font(.system(size: state.running && !state.canQueue ? 13 : 18, weight: .semibold))
                 .foregroundStyle(.white).frame(width: 40, height: 40)
                 .background(state.canSend || state.running ? AppTheme.accent : Color.secondary.opacity(0.28), in: Circle())
                 .frame(width: 44, height: 44).contentShape(Rectangle())
         }.buttonStyle(.plain).disabled(!state.canSend && !state.running)
-            .accessibilityLabel(state.running ? "Arrêter la réponse" : "Envoyer")
+            .accessibilityLabel(state.running && !state.canQueue ? "Arrêter la réponse" : "Envoyer")
             .accessibilityIdentifier("send-message")
     }
 }

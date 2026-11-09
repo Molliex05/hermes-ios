@@ -24,6 +24,8 @@ final class LiveActivities {
     /// A call card goes stale (« Appel interrompu ») this long after the app last confirmed it: if the app is force-quit
     /// nothing else can tell the system the call is over.
     private static let callStale: TimeInterval = 110
+    /// Bundled with the app (Resources/Sounds): 8 s of silence, in the hope that iOS keeps the island open while it plays (to confirm on the iPhone).
+    private static let silentAlert = "silence.caf"
 
     private var enabled: Bool { ActivityAuthorizationInfo().areActivitiesEnabled }
 
@@ -59,12 +61,18 @@ final class LiveActivities {
         }
     }
 
-    func updateCall(title: String, phase: String, muted: Bool) {
+    func updateCall(title: String, phase: String, muted: Bool, glance: CardGlance?) {
         guard let call else { return }
-        let state = HermesActivityAttributes.ContentState.call(title: title, phase: phase, muted: muted, startedAt: callStart)
+        let state = HermesActivityAttributes.ContentState.call(title: title, phase: phase, muted: muted, startedAt: callStart, glance: glance)
+        guard state != callState else { return }
+        // A new card opens the Dynamic Island for a few seconds (and lights the Lock Screen). iOS only does that with an
+        // alert, which always has a sound: a silent one, so the call's audio and microphone are left alone.
+        let alert: AlertConfiguration? = if let glance, glance != callState?.glance {
+            AlertConfiguration(title: "\(glance.title)", body: "\(glance.lines.first ?? glance.value)", sound: .named(Self.silentAlert))
+        } else { nil }
         callState = state
         let box = ActivityBox(activity: call)
-        Task.detached { await box.activity.update(.init(state: state, staleDate: .now.addingTimeInterval(Self.callStale))) }
+        Task.detached { await box.activity.update(.init(state: state, staleDate: .now.addingTimeInterval(Self.callStale)), alertConfiguration: alert) }
     }
 
     func endCall() {
@@ -105,6 +113,15 @@ final class LiveActivities {
         let identifier = activity.id, unregister = unregister
         let box = ActivityBox(activity: activity)
         Task.detached { await box.activity.end(nil, dismissalPolicy: .immediate); await unregister?(identifier) }
+    }
+
+    /// The user is back in the app, where the reply is on screen: every « Réponse prête » card left on the Lock Screen
+    /// and the Dynamic Island goes away now instead of lingering 15 minutes. A reply still running is left alone.
+    func clearFinishedReplies() {
+        for activity in Activity<HermesActivityAttributes>.activities where activity.attributes.kind == "reply" && activity.id != reply?.id {
+            let box = ActivityBox(activity: activity), identifier = activity.id, unregister = unregister
+            Task.detached { await box.activity.end(nil, dismissalPolicy: .immediate); await unregister?(identifier) }
+        }
     }
 
     /// The turn finished. In the foreground the activity just disappears; otherwise it stays as « Réponse prête ».
