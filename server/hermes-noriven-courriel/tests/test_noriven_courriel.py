@@ -120,7 +120,7 @@ class ToolTests(Base):
         self.assertTrue(run("courriel_ranger", ids=[MID], action="archiver")["ok"])
         self.assertEqual(self.fake.calls[-1][2]["json"], {"action": "archive"})
         self.assertIn("dossier", run("courriel_ranger", ids=[MID], action="deplacer")["error"])
-        self.assertEqual(SCHEMAS_ACTIONS(), {"archiver", "lu", "non_lu", "deplacer"})
+        self.assertEqual(SCHEMAS_ACTIONS(), {"archiver", "lu", "non_lu", "deplacer", "lu_archiver"})
 
     def test_the_agent_handles_short_references_that_go_back_to_the_signed_ids(self):
         # 2026-11-08: recopying ~200-character ids, the model mixed pieces of neighbours and every filing failed.
@@ -137,6 +137,37 @@ class ToolTests(Base):
         unknown = run("courriel_ranger", ids=["n-aaaaaaaa"], action="lu")
         self.assertIn("relance courriel_chercher", unknown["error"])
         self.assertIn("invalide", run("courriel_ranger", ids=["n-abc"], action="lu")["error"])
+
+    def test_archive_falls_back_to_the_archive_folder_when_the_box_has_none_flagged(self):
+        # 2026-11-08: the Polaris boxes hold an « Archive » folder the server does not flag \\Archive.
+        calls = []
+        def dashboard(method, url, **kw):
+            calls.append((url, kw.get("json")))
+            if url.endswith("/organize") and kw["json"] == {"action": "archive"}:
+                return Resp(409, {"error": "Ce dossier est introuvable. Actualisez la messagerie."})
+            return Resp(200, {"ok": True})
+        api._http = dashboard
+        result = run("courriel_ranger", ids=[MID, api.short(MID)], action="lu_archiver")
+        self.assertTrue(result["ok"], result)
+        bodies = [b for _, b in calls]
+        self.assertEqual(bodies.count({"action": "mark_read"}), 2)
+        self.assertEqual(bodies.count({"action": "move", "folder": "Archive"}), 2)
+        self.assertNotIn("DELETE", json.dumps(calls))
+
+    def test_tout_files_a_whole_folder_in_one_call(self):
+        listed = [{"id": MID[:-22] + chr(97 + n) * 22} for n in range(3)]
+        calls = []
+        def dashboard(method, url, **kw):
+            calls.append((method, url, kw))
+            if url.endswith("/mailboxes"): return Resp(200, {"mailboxes": [{"address": "a@noriven.com"}, {"address": "b@noriven.com"}]})
+            if url.endswith("/messages"): return Resp(200, {"messages": listed if kw["params"]["mailbox"] == "a@noriven.com" else listed[:1], "next_cursor": None})
+            return Resp(200, {"ok": True})
+        api._http = dashboard
+        result = run("courriel_ranger", boite="toutes", tout=True, action="lu")
+        self.assertEqual(result["ranges"], 4, result)
+        self.assertEqual(sum(1 for c in calls if c[1].endswith("/organize")), 4)
+        self.assertIn("boite", run("courriel_ranger", tout=True, action="lu")["error"])
+        self.assertIn("ids", run("courriel_ranger", action="lu")["error"])
 
     def test_a_page_cursor_is_short_too(self):
         self.fake.payload = {"messages": [], "next_cursor": "c" * 300}

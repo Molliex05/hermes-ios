@@ -95,7 +95,14 @@ def archive_seen(api, folder: Path = TO_FILE) -> int:
         for message_id in ids:
             try:
                 api.request("POST", api.message_path(message_id, "/organize"), body={"action": "mark_read"})
-                api.request("POST", api.message_path(message_id, "/organize"), body={"action": "archive"})
+                path = api.message_path(message_id, "/organize")
+                try:
+                    api.request("POST", path, body={"action": "archive"})
+                except api.NorivenError as error:
+                    if error.status != 409:
+                        raise
+                    # The box's « Archive » folder is not flagged \\Archive: moved there by name (as the agent's tool does).
+                    api.request("POST", path, body={"action": "move", "folder": "Archive"})
                 done += 1
             except api.NorivenError as error:
                 if error.status == 404:

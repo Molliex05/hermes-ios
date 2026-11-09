@@ -78,6 +78,18 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(organize[:2], [(mid(1), "mark_read"), (mid(1), "archive")])
         self.assertFalse((folder / "1.json").exists())
 
+    def test_a_box_without_a_flagged_archive_folder_gets_the_message_moved_to_archive(self):
+        folder = Path(tempfile.mkdtemp())
+        (folder / "1.json").write_text(json.dumps({"ids": [mid(1)]}))
+        bodies = []
+        def dashboard(method, url, **kw):
+            bodies.append(kw.get("json"))
+            return Resp(409, {"error": "Ce dossier est introuvable."}) if kw.get("json") == {"action": "archive"} else Resp(200, {"status": "done"})
+        self.api._http = dashboard
+        self.assertEqual(monitor.archive_seen(self.api, folder), 1)
+        self.assertEqual(bodies[-1], {"action": "move", "folder": "Archive"})
+        self.assertFalse((folder / "1.json").exists())
+
     def test_the_profile_env_gives_only_the_agent_settings(self):
         env = Path(tempfile.mkdtemp()) / ".env"
         env.write_text('export NORIVEN_COURRIEL_URL="http://noriven-mcp-staging:3000"\nNORIVEN_COURRIEL_RELAIS_TOKEN=relais\nNORIVEN_COURRIEL_TOKEN=t # x\n')
