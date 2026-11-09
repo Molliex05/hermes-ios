@@ -24,7 +24,7 @@ final class LiveActivities {
     /// A call card goes stale (« Appel interrompu ») this long after the app last confirmed it: if the app is force-quit
     /// nothing else can tell the system the call is over.
     private static let callStale: TimeInterval = 110
-    /// Bundled with the app (Resources/Sounds): 0.3 s of silence.
+    /// Bundled with the app (Resources/Sounds): 8 s of silence, in the hope that iOS keeps the island open while it plays (to confirm on the iPhone).
     private static let silentAlert = "silence.caf"
 
     private var enabled: Bool { ActivityAuthorizationInfo().areActivitiesEnabled }
