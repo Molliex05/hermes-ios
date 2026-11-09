@@ -18,7 +18,7 @@ struct VoiceView: View {
 
     init(app: AppModel, returnToChat: @escaping () -> Void) {
         self.app = app; self.returnToChat = returnToChat
-        _conversation = State(initialValue: VoiceConversation(app))
+        _conversation = State(initialValue: app.takeBackgroundCall() ?? VoiceConversation(app))
     }
 
     var body: some View {
@@ -71,7 +71,7 @@ struct VoiceView: View {
             // keeps the call running in the background (UIBackgroundModes `audio`).
             .task {
                 startedAt = Date(); UIApplication.shared.isIdleTimerDisabled = true
-                if before == nil { before = VoiceCards.snapshot(app.transcript.messages) }
+                if before == nil { before = conversation.cardsBefore ?? VoiceCards.snapshot(app.transcript.messages) }
                 conversation.start()
             }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false; conversation.pause() }

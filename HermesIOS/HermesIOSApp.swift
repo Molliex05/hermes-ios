@@ -4,12 +4,16 @@ import SwiftUI
 struct HermesIOSApp: App {
     @UIApplicationDelegateAdaptor(NotificationAppDelegate.self) private var notificationDelegate
     @State private var push = PushNotifications.shared
-    @State private var model = AppModel()
+    @State private var model: AppModel
     @Environment(\.scenePhase) private var phase
 
     init() {
         AppTheme.configureNavigationBars()
         VoiceSamples.applyLaunchArguments()
+        let model = AppModel()
+        _model = State(initialValue: model)
+        // A call started from the Lock Screen may launch the app in the background, with no window: the model is ready here.
+        CallLauncher.start = { profile in await model.startBackgroundCall(profile: profile) }
     }
 
     var body: some Scene {

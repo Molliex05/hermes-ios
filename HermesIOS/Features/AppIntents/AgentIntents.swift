@@ -42,6 +42,9 @@ struct AgentShortcuts: AppShortcutsProvider {
         AppShortcut(intent: TalkToAgentIntent(),
                     phrases: ["Parler à \(\.$agent) dans \(.applicationName)", "Appeler \(\.$agent) dans \(.applicationName)", "Parler dans \(.applicationName)"],
                     shortTitle: "Parler à un agent", systemImageName: "waveform")
+        AppShortcut(intent: StartCallIntent(),
+                    phrases: ["Appeler \(\.$agent) sans ouvrir \(.applicationName)", "Lancer un appel avec \(.applicationName)"],
+                    shortTitle: "Appeler sans ouvrir l’app", systemImageName: "phone.arrow.up.right")
         AppShortcut(intent: AskAgentIntent(),
                     phrases: ["Demander à \(\.$agent) dans \(.applicationName)", "Demander dans \(.applicationName)"],
                     shortTitle: "Demander à un agent", systemImageName: "text.bubble")

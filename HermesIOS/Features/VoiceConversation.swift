@@ -1,4 +1,5 @@
 import Foundation
+import AVFoundation
 import Observation
 
 /// One native conversation. Microphone meters are measured on the audio thread and drive
@@ -39,7 +40,7 @@ final class VoiceConversation {
     @ObservationIgnored private var leases: [(path: String, id: String)] = []
     @ObservationIgnored private var sessionID: String?
     /// The replies already there when the call started: their cards are not shown on the Lock Screen.
-    @ObservationIgnored private var cardsBefore: Set<String>?
+    @ObservationIgnored private(set) var cardsBefore: Set<String>?
     @ObservationIgnored private var standardModeAccepted = false
     // Utterance pipeline (standard voice).
     @ObservationIgnored private var onset = VoiceActivity(threshold: 200, silenceDuration: 0.8)
@@ -1124,6 +1125,30 @@ final class VoiceConversation {
     func systemInterrupted(_ message: String) {
         guard operation != nil else { return }
         pause(); error = message
+    }
+
+    /// Without the voice screen (a call started from the Lock Screen), the call itself listens for what pauses it, as the
+    /// screen does: an interruption (a phone call), no usable audio route, the audio services restarting.
+    @ObservationIgnored private var audioWatchers: [NSObjectProtocol] = []
+
+    func watchSystemAudio() {
+        guard audioWatchers.isEmpty else { return }
+        let center = NotificationCenter.default
+        audioWatchers = [
+            center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] note in
+                let began = (note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue
+                guard began else { return }
+                MainActor.assumeIsolated { self?.systemInterrupted("L’audio a été interrompu. Réactivez le micro quand vous êtes prêt.") }
+            },
+            center.addObserver(forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main) { [weak self] note in
+                let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt
+                guard let raw, AVAudioSession.RouteChangeReason(rawValue: raw) == .noSuitableRouteForCategory else { return }
+                MainActor.assumeIsolated { self?.systemInterrupted("Aucune sortie audio utilisable. Réactivez le micro quand l’iPhone est prêt.") }
+            },
+            center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.systemInterrupted("L’audio de l’iPhone a redémarré. Réactivez le micro pour reprendre.") }
+            },
+        ]
     }
 }
 

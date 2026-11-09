@@ -7,5 +7,6 @@ struct HermesIOSWidgetsBundle: WidgetBundle {
         AgentBoardWidget()
         HermesVoiceWidget()
         HermesLiveActivity()
+        CallControl()
     }
 }

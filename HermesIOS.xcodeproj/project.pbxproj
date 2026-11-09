@@ -49,6 +49,7 @@
 		3C71872B6874298E0B73C4F5 /* ChatHeader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DFB43B3E8A94574E7859F89 /* ChatHeader.swift */; };
 		3D6A1F7AFED4B023479B8E9A /* SettingsCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB26E0333D8D564B91C7D21F /* SettingsCatalog.swift */; };
 		3E21D0F74EAD9321904A5AC6 /* ActivityIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 085BE96A8289B836A61EB9B0 /* ActivityIntents.swift */; };
+		3F7CA54239926778EBD14A61 /* CallControl.swift in Sources */ = {isa = PBXBuildFile; fileRef = 706A505BDF096F69BC167BD7 /* CallControl.swift */; };
 		4246833D876E50E61234963B /* AgentConfigStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 224CAC4570952840E57256D5 /* AgentConfigStore.swift */; };
 		4360124DB73B3B91DC9DBC8E /* noriven_compare.wav in Resources */ = {isa = PBXBuildFile; fileRef = 41C5AE38319FEB1DF5D09D55 /* noriven_compare.wav */; };
 		439A876888E485FB158CB840 /* PresenceBeacon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88CDF5DC1D8A5E35BD92E7BF /* PresenceBeacon.swift */; };
@@ -152,6 +153,7 @@
 		BACC5A498A68882663AD5B37 /* VoiceMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C40E207DFACCFAA12FE387 /* VoiceMetrics.swift */; };
 		BDE7E9AD8486B77176875B30 /* ConversationIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5045723AB4101C15BB122A44 /* ConversationIndex.swift */; };
 		BDEEE1E227207A516C183154 /* VoiceProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B9EAF63DBFAA0C87C5FAAFD /* VoiceProgress.swift */; };
+		BFB991CE16F9E769A48BD267 /* CallIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783477DED5F076C5B220BFC0 /* CallIntents.swift */; };
 		C0F97796889C0EF73909DE34 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6736CBC0AB49572EDDC3502 /* AppModel.swift */; };
 		C414AC803088CB868E2A7381 /* WebRTC-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 191FD2CA28F784715C57C83D /* WebRTC-LICENSE.txt */; };
 		C4E5F98CEC41BFB069485A78 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 185269B34B53A2F564E2CD38 /* Keychain.swift */; };
@@ -180,6 +182,7 @@
 		E3BDA5080F70B105FDDA04F3 /* MarkdownText.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8C2642D7ADE3DDF465C6E89 /* MarkdownText.swift */; };
 		E3DA86494DC72FD507EB20CA /* AgentBoardWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = E31E8D5E5B6D38BAEB4EB697 /* AgentBoardWidget.swift */; };
 		E4687AFCE99263487AB19A15 /* AgentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB4E2583813D830A3E900B68 /* AgentsView.swift */; };
+		E9B582F274E3430DFA656D2A /* CallIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783477DED5F076C5B220BFC0 /* CallIntents.swift */; };
 		EB76A6E45F00A3052ABE4188 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E36DE38AF4ABDF2227F4C599 /* RootView.swift */; };
 		ECBF5ACD960F55A35F1DA570 /* VoiceLiveTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F7621658C8097D0BF7AFF62 /* VoiceLiveTransport.swift */; };
 		ECE02583DA54E4D0FD095A75 /* SharedBlob.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAF56DE797CE3B61A8D45A01 /* SharedBlob.swift */; };
@@ -348,12 +351,14 @@
 		697AC207AF73CC160EAC4C93 /* ApprovalKeySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalKeySection.swift; sourceTree = "<group>"; };
 		6DFB43B3E8A94574E7859F89 /* ChatHeader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatHeader.swift; sourceTree = "<group>"; };
 		6E2CB57B1CD64ACC08947C0D /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		706A505BDF096F69BC167BD7 /* CallControl.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallControl.swift; sourceTree = "<group>"; };
 		70C3D4CBCE21007427CF5346 /* NotificationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationsView.swift; sourceTree = "<group>"; };
 		7494750F87AE1DE4FCD29840 /* AppChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppChrome.swift; sourceTree = "<group>"; };
 		7501177E33D3A582977DBC58 /* DraftCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DraftCard.swift; sourceTree = "<group>"; };
 		753087B8E41F0A5AED4D3DC0 /* VoiceSamples.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceSamples.swift; sourceTree = "<group>"; };
 		76ACDEB64D082DA4095A0544 /* AgentToolsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentToolsView.swift; sourceTree = "<group>"; };
 		77DEDAE25F2DCE8DA3DB84F4 /* VoiceEnvironmentSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceEnvironmentSettings.swift; sourceTree = "<group>"; };
+		783477DED5F076C5B220BFC0 /* CallIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CallIntents.swift; sourceTree = "<group>"; };
 		78839756CD7B8D5952BBFAD8 /* web-page.pcm */ = {isa = PBXFileReference; path = "web-page.pcm"; sourceTree = "<group>"; };
 		79C37338BEC56A3322AAC1CF /* web.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = web.wav; sourceTree = "<group>"; };
 		7A87F904778F7AD694B573F1 /* HermesSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesSocket.swift; sourceTree = "<group>"; };
@@ -467,6 +472,7 @@
 			children = (
 				E31E8D5E5B6D38BAEB4EB697 /* AgentBoardWidget.swift */,
 				17AACE64A807F803F74D5A3C /* BoardBlockView.swift */,
+				706A505BDF096F69BC167BD7 /* CallControl.swift */,
 				0B53C79BCCEEDFBAEE6E54DE /* HermesIOSWidgets.entitlements */,
 				BFB1DB514EF6A36E1A2334FF /* HermesIOSWidgetsBundle.swift */,
 				CEAB709D8C5E3108719E06C0 /* HermesLiveActivity.swift */,
@@ -483,6 +489,7 @@
 			isa = PBXGroup;
 			children = (
 				085BE96A8289B836A61EB9B0 /* ActivityIntents.swift */,
+				783477DED5F076C5B220BFC0 /* CallIntents.swift */,
 				13A78B874AD786825A250979 /* HermesActivityAttributes.swift */,
 				8A63F8F4353EC7F32A9C2FF8 /* LiveActivities.swift */,
 			);
@@ -1086,6 +1093,7 @@
 				27316298D68C4B149E54621E /* AttachSheet.swift in Sources */,
 				CC1030C8ECC8A38DECC6A375 /* AttachmentTray.swift in Sources */,
 				EEF0B72EEC204B07A6808D5A /* BackgroundLease.swift in Sources */,
+				BFB991CE16F9E769A48BD267 /* CallIntents.swift in Sources */,
 				D0ACB4C8195AD6407B50EB93 /* CardGlance.swift in Sources */,
 				4AC347EB232545757FCB73E2 /* CardLinks.swift in Sources */,
 				AD9AED8F8F4E3D0848B5F90F /* ChatCards.swift in Sources */,
@@ -1216,6 +1224,8 @@
 				EE4F01E4DADF1992B6A7D1E6 /* AgentEntity.swift in Sources */,
 				371FF41FD2D50B2570AF426D /* AgentLook.swift in Sources */,
 				A66BE2BEE882B3407117391E /* BoardBlockView.swift in Sources */,
+				3F7CA54239926778EBD14A61 /* CallControl.swift in Sources */,
+				E9B582F274E3430DFA656D2A /* CallIntents.swift in Sources */,
 				7B365916039D795D671067A5 /* CardGlance.swift in Sources */,
 				67D1D9310384B74414E2E884 /* HermesActivityAttributes.swift in Sources */,
 				5CC1A8995D0FA687FF648279 /* HermesIOSWidgetsBundle.swift in Sources */,

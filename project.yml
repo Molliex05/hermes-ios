@@ -75,6 +75,7 @@ targets:
         includes:
           - HermesActivityAttributes.swift
           - ActivityIntents.swift
+          - CallIntents.swift
       - path: HermesIOS/Features
         includes:
           - OrbView.swift

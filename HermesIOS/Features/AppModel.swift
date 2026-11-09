@@ -99,6 +99,7 @@ final class AppModel {
             if oldValue && !voiceActive && !foreground && !sending { suspendConnection() }
             refreshPresence()
             if voiceActive != oldValue { voiceActive ? startCallActivity() : LiveActivities.shared.endCall() }
+            if !voiceActive { backgroundCall = nil }
         }
     }
     var importingAttachments = false
@@ -238,6 +239,44 @@ final class AppModel {
 
     /// Set by `hermesios://voice` (widget); the chat opens the voice sheet, also after a cold launch.
     var pendingVoiceLaunch = false
+
+    /// A call started with the app closed (Lock Screen widget or control, Action button, Siri), after Face ID. It runs
+    /// without the voice screen, shown by its Live Activity; opening the app brings the voice screen onto it.
+    @ObservationIgnored private(set) var backgroundCall: VoiceConversation?
+
+    /// Answers once the call runs (its Live Activity requested), or with the reason it could not start.
+    func startBackgroundCall(profile name: String?) async -> String? {
+        if voiceActive { return nil }
+        if !hasBooted { foreground = false }
+        callStarting = true
+        defer { callStarting = false }
+        await boot()
+        guard await waitUntilCallable() else { return "L’agent n’est pas joignable. Ouvrez l’app pour vérifier la connexion." }
+        if let name, name != profile {
+            guard profiles.contains(where: { $0.name == name }) else { return "L’agent « \(name) » est introuvable." }
+            await changeProfile(name)
+            guard profile == name else { return "L’agent n’a pas pu être choisi. Réessayez." }
+        }
+        guard !voiceActive else { return nil }
+        let call = VoiceConversation(self)
+        backgroundCall = call
+        call.watchSystemAudio()
+        call.start()
+        return voiceActive ? nil : "L’appel n’a pas pu démarrer. Ouvrez l’app."
+    }
+
+    /// The voice screen adopts the call already running in the background, if any.
+    func takeBackgroundCall() -> VoiceConversation? { voiceActive ? backgroundCall : nil }
+
+    private func waitUntilCallable() async -> Bool {
+        for _ in 0..<40 {
+            if notificationRoutingReady, connections.isEmpty, !demo { return false }
+            if notificationRoutingReady, state == .connected, !opening { return true }
+            if state != .connected, !opening { startReconnect() }
+            do { try await Task.sleep(for: .milliseconds(250)) } catch { return false }
+        }
+        return false
+    }
     /// Requests from outside the app (widgets, Siri and Shortcuts, the share sheet), done one at a time (see LaunchRequests).
     var launchQueue: [LaunchRequest] = []
     @ObservationIgnored var launching = false
@@ -313,7 +352,9 @@ final class AppModel {
     }
 
     /// The connection is wanted while the app is visible or a voice call is running.
-    private var connectionWanted: Bool { foreground || voiceActive }
+    private var connectionWanted: Bool { foreground || voiceActive || callStarting }
+    /// A background call is being set up: the connection it needs comes up before the call itself.
+    @ObservationIgnored private var callStarting = false
 
     func boot() async {
         guard !hasBooted else { return }
@@ -590,6 +631,7 @@ final class AppModel {
             suspendTask?.cancel(); suspendTask = nil
             LiveActivities.shared.endReply(quiet: true)
             LiveActivities.shared.clearFinishedReplies()
+            if backgroundCall != nil, voiceActive { pendingVoiceLaunch = true }
         } else {
             let lease = BackgroundLease(name: "Save Hermès conversation")
             defer { lease.end() }
