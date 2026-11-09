@@ -260,7 +260,24 @@ final class VoiceConversation {
             sessionID = tools.app.selected?.storedID
             try validate(attempt)
             try await respond(to: message, attempt: attempt)
+            // The agent said goodbye and asked to hang up: end the call, unless Maxime starts talking again right away.
+            if VoiceActivity.agentEndsCall(tools.app.transcript.toolSteps), try await hangUpGrace(attempt) { return }
         }
+    }
+
+    /// A short pause after the agent's goodbye: speech in it keeps the call going.
+    private static let hangUpGrace: TimeInterval = 1.5
+
+    private func hangUpGrace(_ attempt: UUID) async throws -> Bool {
+        if capture == nil, finished.isEmpty { phase = .listening; partial = ""; audio.listeningStarted() }
+        let until = ProcessInfo.processInfo.systemUptime + Self.hangUpGrace
+        while ProcessInfo.processInfo.systemUptime < until {
+            try validate(attempt)
+            if capture != nil || !finished.isEmpty { return false }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        VoiceDiag.log("agent ended the call")
+        return true
     }
 
     private func nextUtterance(_ attempt: UUID) async throws -> Utterance {

@@ -93,4 +93,11 @@ final class VoiceActivityTests: XCTestCase {
         pace.heard("", at: 105)
         XCTAssertEqual(pace.verdict(at: 105, elapsed: 12, noisy: true), .finished)
     }
+
+    func testTheAgentEndsTheCallOnlyWithItsOwnTool() {
+        XCTAssertTrue(VoiceActivity.agentEndsCall([Transcript.ToolStep(id: "1", name: "terminer_appel", state: .completed)]))
+        XCTAssertFalse(VoiceActivity.agentEndsCall([Transcript.ToolStep(id: "1", name: "meteo", state: .completed)]))
+        XCTAssertFalse(VoiceActivity.agentEndsCall([Transcript.ToolStep(id: "1", name: "terminer_appel", state: .stopped)]), "a stopped turn keeps the call")
+        XCTAssertFalse(VoiceActivity.agentEndsCall([]))
+    }
 }

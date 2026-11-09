@@ -1,8 +1,9 @@
 name: hermes-ios-push
-version: 0.4.1
-description: Private Apple notifications for Hermès iOS (encrypted preview, presence), Live Activity updates, silent widget refresh and the ios_notify tool.
+version: 0.4.2
+description: Private Apple notifications for Hermès iOS (encrypted preview, presence), Live Activity updates, silent widget refresh and the ios_notify and terminer_appel tools.
 provides_hooks:
   - post_llm_call
   - pre_tool_call
 provides_tools:
   - ios_notify
+  - terminer_appel

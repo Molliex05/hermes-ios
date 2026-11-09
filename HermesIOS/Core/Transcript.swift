@@ -56,6 +56,7 @@ public struct Transcript: Sendable {
             case "meteo": "Météo"
             case "nouvelles": "Nouvelles"
             case "ios_notify": "Notification"
+            case "terminer_appel": "Fin de l’appel"
             case "gmail_chercher": "Recherche de courriels"
             case "gmail_lire": "Lecture d’un courriel"
             case "gmail_trier", "gmail_dossiers": "Tri des courriels"

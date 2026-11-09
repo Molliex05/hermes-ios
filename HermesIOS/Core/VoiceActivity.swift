@@ -72,6 +72,14 @@ struct VoiceActivity {
         interval.isFinite && (0.001...0.25).contains(interval)
     }
 
+    /// The `hermes-ios-push` tool the agent calls to end the call once its goodbye is read (« bonne journée »,
+    /// « raccroche »). The app only acts on it during a call, after the reply is spoken.
+    public static let hangUpTool = "terminer_appel"
+
+    public static func agentEndsCall(_ steps: [Transcript.ToolStep]) -> Bool {
+        steps.contains { $0.baseName == hangUpTool && $0.state != .stopped }
+    }
+
     static func isStop(_ text: String, phrases: [String]) -> Bool {
         // Match the native whole-utterance contract. Internal punctuation and
         // spaces carry meaning; “stop the server” is never an exit command.
