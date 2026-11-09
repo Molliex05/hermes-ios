@@ -57,6 +57,7 @@ def load_api(env: dict):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     module._env = lambda name, _env=env: str(_env.get(name, "")).strip()
+    module.REFS_PATH = HOME / "cache" / "courriel_refs.sqlite3"     # the same references as the agent's tools
     return module
 
 
@@ -87,7 +88,7 @@ def archive_seen(api, folder: Path = TO_FILE) -> int:
     done = 0
     for entry in sorted(folder.glob("*.json")) if folder.is_dir() else []:
         try:
-            ids = [str(i) for i in json.loads(entry.read_text(encoding="utf-8")).get("ids") or [] if api.ID.fullmatch(str(i))][:100]
+            ids = [str(i) for i in json.loads(entry.read_text(encoding="utf-8")).get("ids") or [] if api.ID.fullmatch(str(i)) or api.REF.fullmatch(str(i))][:100]
         except (OSError, ValueError, AttributeError):
             ids = []
         failed = False
@@ -132,7 +133,7 @@ def render(api, seen_path: Path = SEEN, now: datetime = None) -> str:
     lines = []
     for members in groups.values():
         first = cache[members[0]]
-        shown = " ".join(members[:MAX_IDS]) + (f" (+{len(members) - MAX_IDS})" if len(members) > MAX_IDS else "")
+        shown = " ".join(api.short(m) for m in members[:MAX_IDS]) + (f" (+{len(members) - MAX_IDS})" if len(members) > MAX_IDS else "")
         lines.append(f"×{len(members)} | {first['box']} | {first['from']} | {first['subject']} | ids: {shown}")
     return "\n".join(lines)
 

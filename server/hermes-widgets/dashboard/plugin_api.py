@@ -141,8 +141,9 @@ def draft_send(profile: str, draft_id: str, payload: dict = Body(...)):
 
 @router.get("/messages/{profile}/{message_id}")
 def message_read(profile: str, message_id: str):
-    """A received message's whole text (Gmail, or Noriven's Polaris boxes for an `m1.` id), for Maxime to read in its card."""
-    if noriven_outbox.is_noriven(message_id):
+    """A received message's whole text (Gmail, or Noriven's Polaris boxes for an `m1.` id or the agent's `n-` reference to
+    one), for Maxime to read in its card."""
+    if noriven_outbox.is_noriven(message_id) or re.fullmatch(r"n-[a-z2-7]{8}", message_id or ""):
         root = Path(os.environ.get("HERMES_PROFILES_DIR", "/opt/data/profiles"))
         if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", profile or "") or not (root / profile).is_dir():
             raise HTTPException(404, "Profil inconnu.")

@@ -7,9 +7,14 @@ logged, returned or placed in an error message.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import ipaddress
 import os
 import re
+import sqlite3
+import time
+from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import quote, urlparse
 
@@ -21,6 +26,15 @@ MAX_RECIPIENTS = 20
 # noriven-web's signed ids: m1.<base64url payload>.<22-character signature>.
 ID = re.compile(r"m1\.[A-Za-z0-9_-]{1,8000}\.[A-Za-z0-9_-]{22}")
 _ID = r"m1\.[A-Za-z0-9_-]{1,8000}\.[A-Za-z0-9_-]{22}"
+
+# What the agent sees instead: a short reference per message (`n-` + 8 characters) or per page of results (`p-`). A model
+# recopying a 200-character signed id mixes up pieces of its neighbours and noriven-web rightly answers « introuvable »;
+# eight characters it copies faithfully. Derived from the id itself, so a message always gets the same reference (the
+# monitor's lines stay stable), and remembered in the profile for REF_DAYS so any later turn, cron or widget can use it.
+REF = re.compile(r"[np]-[a-z2-7]{8}")
+REF_DAYS = 30
+REFS_PATH: Optional[Path] = None                      # set by the cron script; else <profile>/cache/courriel_refs.sqlite3
+_memory_refs: Dict[str, str] = {}                     # when no profile folder can be found (tests)
 
 # The whole surface the agent can reach. Anything else is refused before leaving the server.
 _ALLOWED = (
@@ -117,7 +131,73 @@ def request(method: str, path: str, *, params: Optional[Dict[str, Any]] = None, 
     return payload
 
 
+def _refs_path() -> Optional[Path]:
+    if REFS_PATH:
+        return REFS_PATH
+    try:
+        from hermes_constants import get_hermes_home
+        home = Path(get_hermes_home())
+    except Exception:
+        home = Path(os.environ["HERMES_HOME"]) if os.environ.get("HERMES_HOME") else None
+    return home / "cache" / "courriel_refs.sqlite3" if home else None
+
+
+def _refs_db() -> Optional[sqlite3.Connection]:
+    path = _refs_path()
+    if not path:
+        return None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    db = sqlite3.connect(path, timeout=5)
+    db.execute("create table if not exists refs (ref text primary key, value text not null, seen real not null)")
+    return db
+
+
+def short(value: str, kind: str = "n") -> str:
+    """The short reference of a signed id (`n`) or of a page cursor (`p`), remembered for later calls."""
+    digest = base64.b32encode(hashlib.sha256(value.encode()).digest()).decode().lower()[:8]
+    ref = f"{kind}-{digest}"
+    db = _refs_db()
+    if db is None:
+        _memory_refs[ref] = value
+        return ref
+    with db:
+        db.execute("insert into refs (ref, value, seen) values (?, ?, ?) on conflict(ref) do update set value = excluded.value, seen = excluded.seen",
+                   (ref, value, time.time()))
+        if hashlib.sha256(ref.encode()).digest()[0] < 4:                  # now and then, forget the old ones
+            db.execute("delete from refs where seen < ?", (time.time() - REF_DAYS * 86400,))
+    db.close()
+    return ref
+
+
+def resolve(value: str, kind: str = "n") -> str:
+    """A reference given back by the agent → the signed id. A full signed id is still accepted as is."""
+    text = str(value or "").strip().strip("`\"'")
+    if kind == "n" and ID.fullmatch(text):
+        return text
+    if REF.fullmatch(text) and text[0] == kind:
+        db = _refs_db()
+        if db is None:
+            found = _memory_refs.get(text)
+        else:
+            row = db.execute("select value from refs where ref = ?", (text,)).fetchone()
+            db.close()
+            found = row[0] if row else None
+        if found:
+            return found
+        raise NorivenError("Référence de courriel inconnue ou expirée : relance courriel_chercher pour la retrouver.", 404)
+    raise NorivenError("Référence de courriel invalide : reprends exactement le `id` (n-xxxxxxxx) que courriel_chercher a rendu.")
+
+
+def shorten(value: Any) -> Any:
+    """Every signed message id inside a result, replaced by its reference (draft ids are never passed here)."""
+    if isinstance(value, dict):
+        return {k: shorten(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [shorten(v) for v in value]
+    if isinstance(value, str) and ID.fullmatch(value):
+        return short(value)
+    return value
+
+
 def message_path(message_id: str, suffix: str = "") -> str:
-    if not ID.fullmatch(message_id or ""):
-        raise NorivenError("Identifiant de courriel invalide : reprends celui que courriel_chercher a rendu.")
-    return f"{BASE_PATH}/messages/{quote(message_id, safe='')}{suffix}"
+    return f"{BASE_PATH}/messages/{quote(resolve(message_id), safe='')}{suffix}"

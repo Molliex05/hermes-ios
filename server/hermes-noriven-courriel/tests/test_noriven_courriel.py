@@ -44,6 +44,7 @@ class Base(unittest.TestCase):
         self.home = Path(tempfile.mkdtemp())
         (self.home / "attachments").mkdir(); (self.home / "images").mkdir()
         plugin._profile_home = lambda: self.home
+        api.REFS_PATH = self.home / "cache" / "refs.sqlite3"
 
 
 class SurfaceTests(Base):
@@ -120,6 +121,35 @@ class ToolTests(Base):
         self.assertEqual(self.fake.calls[-1][2]["json"], {"action": "archive"})
         self.assertIn("dossier", run("courriel_ranger", ids=[MID], action="deplacer")["error"])
         self.assertEqual(SCHEMAS_ACTIONS(), {"archiver", "lu", "non_lu", "deplacer"})
+
+    def test_the_agent_handles_short_references_that_go_back_to_the_signed_ids(self):
+        # 2026-11-08: recopying ~200-character ids, the model mixed pieces of neighbours and every filing failed.
+        found = run("courriel_chercher", boite="contact@noriven.com")
+        ref = found["messages"][0]["id"]
+        self.assertRegex(ref, r"^n-[a-z2-7]{8}$")
+        self.assertNotIn(MID, json.dumps(found))
+        self.assertEqual(api.short(MID), ref, "a message always gets the same reference")
+        read = run("courriel_lire", id=ref)
+        self.assertIn(api.quote(MID, safe=""), self.fake.calls[-1][1])
+        self.assertEqual(read["id"], ref)
+        self.assertTrue(run("courriel_ranger", ids=[ref, MID], action="lu")["ok"])
+        self.assertTrue(all(MID in call[1] for call in self.fake.calls[-2:]))
+        unknown = run("courriel_ranger", ids=["n-aaaaaaaa"], action="lu")
+        self.assertIn("relance courriel_chercher", unknown["error"])
+        self.assertIn("invalide", run("courriel_ranger", ids=["n-abc"], action="lu")["error"])
+
+    def test_a_page_cursor_is_short_too(self):
+        self.fake.payload = {"messages": [], "next_cursor": "c" * 300}
+        page = run("courriel_chercher", boite="contact@noriven.com")
+        self.assertRegex(page["curseur_suivant"], r"^p-[a-z2-7]{8}$")
+        run("courriel_chercher", boite="contact@noriven.com", curseur=page["curseur_suivant"])
+        self.assertEqual(self.fake.calls[-1][2]["params"]["cursor"], "c" * 300)
+        self.assertIn("invalide", run("courriel_chercher", boite="contact@noriven.com", curseur=api.short(MID))["error"])
+
+    def test_references_outlive_the_process(self):
+        ref = api.short(MID)
+        api._memory_refs.clear()
+        self.assertEqual(api.resolve(ref), MID, "kept in the profile, for a later turn, a cron or the widget")
 
     def test_draft_sends_fixed_mailbox_clean_recipients_and_a_stable_key(self):
         (self.home / "attachments" / "facture.pdf").write_bytes(b"%PDF-1.4 x")

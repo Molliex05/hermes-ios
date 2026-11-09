@@ -43,7 +43,7 @@ extension ChatCard {
         /// Attachments known only by their number.
         let attachmentCount: Int
 
-        var gmailURL: URL? { messageID.isEmpty || MailID.isNoriven(messageID) ? nil : URL(string: "https://mail.google.com/mail/u/0/#all/\(messageID)") }
+        var gmailURL: URL? { messageID.isEmpty || MailID.isNorivenMessage(messageID) ? nil : URL(string: "https://mail.google.com/mail/u/0/#all/\(messageID)") }
         var hasAttachments: Bool { attachmentCount > 0 || !attachments.isEmpty }
         /// « le courriel de Hydro-Québec (18f2a9c0d1e2) », for what the app sends.
         var reference: String {

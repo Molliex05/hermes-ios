@@ -11,6 +11,9 @@ final class MailIDTests: XCTestCase {
             XCTAssertFalse(MailID.validMessage(bad), bad)
         }
         XCTAssertFalse(MailID.isNoriven("r5784066649391460414"))
+        XCTAssertTrue(MailID.isNorivenMessage("n-k2m7xq7a")); XCTAssertTrue(MailID.validMessage("n-k2m7xq7a"))
+        XCTAssertFalse(MailID.isNoriven("n-k2m7xq7a"), "a draft is never a short reference")
+        XCTAssertFalse(MailID.isNorivenMessage("18f2a9c0d1e2"))
         XCTAssertEqual(OutboxDraft.path(profile: "noriven", draftID: noriven), "/api/plugins/hermes-widgets/drafts/noriven/\(noriven)")
         XCTAssertNil(OutboxDraft.path(profile: "noriven", draftID: noriven + "/../x"))
     }

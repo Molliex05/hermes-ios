@@ -40,6 +40,7 @@ def message(n, sender="Julie <julie@client.ca>", subject="Soumission 2026-114", 
 class MonitorTests(unittest.TestCase):
     def setUp(self):
         self.api = monitor.load_api(ENV)
+        self.api.REFS_PATH = Path(tempfile.mkdtemp()) / "refs.sqlite3"
         self.fake = Dashboard(); self.api._http = self.fake
         self.seen = Path(tempfile.mkdtemp()) / "vus.json"
 
@@ -49,7 +50,8 @@ class MonitorTests(unittest.TestCase):
         lines = first.splitlines()
         self.assertEqual(len(lines), 2)
         self.assertTrue(any(l.startswith("×2 | contact@noriven.com | Julie <julie@client.ca>") for l in lines))
-        self.assertIn(mid(1), first)
+        self.assertIn(self.api.short(mid(1)), first)
+        self.assertNotIn(mid(1), first, "the agent gets short references, never the long signed ids")
         for call in self.fake.calls[1:]:
             self.assertEqual(call[2]["params"]["q"], "since:2026-10-30")
         self.fake.inbox["contact@noriven.com"] = []                # Hermès archived everything
@@ -69,7 +71,7 @@ class MonitorTests(unittest.TestCase):
 
     def test_seen_emails_are_marked_read_then_archived_and_gone_ones_do_not_block(self):
         folder = Path(tempfile.mkdtemp())
-        (folder / "1.json").write_text(json.dumps({"ids": [mid(1), mid(2), "pas-un-id"]}))
+        (folder / "1.json").write_text(json.dumps({"ids": [self.api.short(mid(1)), mid(2), "pas-un-id"]}))   # a card's reference, a full id
         self.fake.gone = {mid(2)}
         self.assertEqual(monitor.archive_seen(self.api, folder), 1)
         organize = [(c[1].split("/messages/")[1].split("/")[0], c[2]["json"]["action"]) for c in self.fake.calls if c[1].endswith("/organize")]
