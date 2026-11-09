@@ -371,7 +371,7 @@ final class AppModel {
         ActivityActions.handler = { [weak self] action in
             switch action {
             case .toggleMute: VoiceCallRemote.current?.toggleMicrophone()
-            case .endCall: VoiceCallRemote.current?.pause()
+            case .endCall: VoiceCallRemote.current?.endCall()
             case .stopReply: Task { [weak self] in await self?.interrupt() }
             }
         }

@@ -20,6 +20,8 @@ final class VoiceConversation {
     var error: String?
     /// A turn-level problem; listening continues.
     var notice: String?
+    /// The call is over (the stop phrase, or the agent hung up after its goodbye): the voice screen closes, it does not pause.
+    private(set) var hungUp = false
     var requiresStandardMode = false
     var isLive = false
     var inputMuted = false { didSet { if inputMuted != oldValue { syncActivity() } } }
@@ -141,7 +143,7 @@ final class VoiceConversation {
         sessionID = tools.app.selected?.storedID
         if cardsBefore == nil { cardsBefore = VoiceCards.snapshot(tools.app.transcript.messages) }
         let attempt = UUID(); generation = attempt
-        inputMuted = false; error = nil; notice = nil; phase = .ready
+        inputMuted = false; error = nil; notice = nil; phase = .ready; hungUp = false
         tools.app.voiceActive = true
         operation = Task {
             defer {
@@ -233,7 +235,7 @@ final class VoiceConversation {
             if capture != nil || !finished.isEmpty { continue }
             partial = ""
             guard !pending.isEmpty else { speechStream.stop(); continue }
-            if VoiceActivity.isStop(pending, phrases: preferences.stopPhrases) { return }
+            if VoiceActivity.isStop(pending, phrases: preferences.stopPhrases) { hangUp(); return }
             // From here on, speech interrupts (barge-in) instead of extending the request.
             turnActive = true; bargeRequested = false
             barge = makeBarge(preferences)
@@ -262,7 +264,7 @@ final class VoiceConversation {
             try validate(attempt)
             try await respond(to: message, attempt: attempt)
             // The agent said goodbye and asked to hang up: end the call, unless Maxime starts talking again right away.
-            if VoiceActivity.agentEndsCall(tools.app.transcript.toolSteps), try await hangUpGrace(attempt) { return }
+            if VoiceActivity.agentEndsCall(tools.app.transcript.toolSteps), try await hangUpGrace(attempt) { hangUp(); return }
         }
     }
 
@@ -875,7 +877,7 @@ final class VoiceConversation {
                 self.stopTimer = Task { [weak self] in
                     do { try await Task.sleep(for: .milliseconds(1500)) } catch { return }
                     guard let self, self.generation == attempt else { return }
-                    if VoiceActivity.isStop(utterance, phrases: preferences.stopPhrases) { self.pause() }
+                    if VoiceActivity.isStop(utterance, phrases: preferences.stopPhrases) { self.pause(); self.hangUp() }
                 }
             } else if event["type"].string == "session.output_transcript.delta" {
                 self.lastLiveSpeechAt = ProcessInfo.processInfo.systemUptime
@@ -914,7 +916,7 @@ final class VoiceConversation {
                 notice = "Une demande vocale n’a pas été transcrite. Répétez-la si besoin."
             }
             if let next = try liveTranscript.nextRequest(now: ProcessInfo.processInfo.systemUptime) {
-                if VoiceActivity.isStop(next.prompt, phrases: preferences.stopPhrases) { return }
+                if VoiceActivity.isStop(next.prompt, phrases: preferences.stopPhrases) { hangUp(); return }
                 // New delegations wait for the active turn; conversational interruptions
                 // must not cancel backend actions or discard their final result.
                 phase = .thinking
@@ -1104,6 +1106,9 @@ final class VoiceConversation {
         bargeRequested = false; interruptedTurn = false
         speechStream.stop(); audio.cleanup(); level = 0; partial = ""
     }
+    private func hangUp() { hungUp = true }
+    /// Hang up from outside the screen (the Live Activity's button): the call ends and its screen closes.
+    func endCall() { pause(); hangUp() }
     func pause() {
         generation = UUID(); operation?.cancel(); operation = nil
         stopLocalAudio(); phase = .paused; tools.app.voiceActive = false; releaseLeases()

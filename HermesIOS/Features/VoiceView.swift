@@ -75,6 +75,8 @@ struct VoiceView: View {
                 conversation.start()
             }
             .onDisappear { UIApplication.shared.isIdleTimerDisabled = false; conversation.pause() }
+            // Hung up by voice, by the agent or from the Lock Screen: back to the chat, like the « Terminer » button.
+            .onChange(of: conversation.hungUp) { _, ended in if ended { returnToChat() } }
             .onReceive(NotificationCenter.default.publisher(for: AVAudioSession.interruptionNotification)) { notification in
                 if (notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt) == AVAudioSession.InterruptionType.began.rawValue {
                     conversation.systemInterrupted("L’audio a été interrompu. Réactivez le micro quand vous êtes prêt.")
