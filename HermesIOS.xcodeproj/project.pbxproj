@@ -89,6 +89,7 @@
 		765EF247204218360E128232 /* AgentBoard.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0EE0FE0A291482EAABF4561 /* AgentBoard.swift */; };
 		7A1CAA77F2D007BB7301D686 /* PluginsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5EAF91D4EE15D71A06822725 /* PluginsSettingsView.swift */; };
 		7A86A29B3033EB4330917E7A /* HermesActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 13A78B874AD786825A250979 /* HermesActivityAttributes.swift */; };
+		7B365916039D795D671067A5 /* CardGlance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A09676F353370202D0FD16DD /* CardGlance.swift */; };
 		7BDCB9B6CACE95ECB2ACA842 /* noriven_depenses.wav in Resources */ = {isa = PBXBuildFile; fileRef = AE4F2E495217FD87EC1192B3 /* noriven_depenses.wav */; };
 		7BF56607B705F09D6A5C73EF /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB77C4015371E1075BEE95F0 /* NotificationService.swift */; };
 		7C605C008BB1D4C4E09FCBE0 /* RoutineDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37886968AE83A88E7E1B9678 /* RoutineDetailView.swift */; };
@@ -161,6 +162,7 @@
 		CC1030C8ECC8A38DECC6A375 /* AttachmentTray.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A5129171883AB1C4E1A09B4 /* AttachmentTray.swift */; };
 		CE079D497EBE915D4F454CF1 /* VoiceBargeIn.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD8B320D314E6D15DCC251E2 /* VoiceBargeIn.swift */; };
 		D05BE56AEBCE63175CCD3B5D /* EmailCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AA9531D4948791BED70E2CD /* EmailCards.swift */; };
+		D0ACB4C8195AD6407B50EB93 /* CardGlance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A09676F353370202D0FD16DD /* CardGlance.swift */; };
 		D1CC512C9E9B3893031D6FEE /* ApprovalKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE2C6010FFB5271388959D83 /* ApprovalKey.swift */; };
 		D2F30355CF8346E7A40F704A /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03771C2DF46F958CA751A93C /* JSONValue.swift */; };
 		D3ECA0013412E4B5DF9CD824 /* agenda-lire.pcm in Resources */ = {isa = PBXBuildFile; fileRef = 574BB10567F5562D017CD198 /* agenda-lire.pcm */; };
@@ -375,6 +377,7 @@
 		9E3094D370FF8C0E5B303161 /* web-cherche.pcm */ = {isa = PBXFileReference; path = "web-cherche.pcm"; sourceTree = "<group>"; };
 		9FE8B5391134DE1081572A11 /* OrbView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbView.swift; sourceTree = "<group>"; };
 		A0560CDB37DB5361F6266DB9 /* MessagingSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingSettingsView.swift; sourceTree = "<group>"; };
+		A09676F353370202D0FD16DD /* CardGlance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardGlance.swift; sourceTree = "<group>"; };
 		A1197D5BDD7DEED40843B4D4 /* MailIDs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailIDs.swift; sourceTree = "<group>"; };
 		A2B786F5F6662DB91C33D678 /* AttachSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachSheet.swift; sourceTree = "<group>"; };
 		A35FCE467300937D0131D0EF /* RoutineSchedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutineSchedule.swift; sourceTree = "<group>"; };
@@ -725,6 +728,7 @@
 			isa = PBXGroup;
 			children = (
 				B0EE0FE0A291482EAABF4561 /* AgentBoard.swift */,
+				A09676F353370202D0FD16DD /* CardGlance.swift */,
 				4E860692EEEAFF8808740459 /* ChatCards.swift */,
 				BBAAD9CB1B93F3090CFE6326 /* ChatMarkdown.swift */,
 				5DCA55A82A315E84D55C9939 /* ChatStage.swift */,
@@ -1082,6 +1086,7 @@
 				27316298D68C4B149E54621E /* AttachSheet.swift in Sources */,
 				CC1030C8ECC8A38DECC6A375 /* AttachmentTray.swift in Sources */,
 				EEF0B72EEC204B07A6808D5A /* BackgroundLease.swift in Sources */,
+				D0ACB4C8195AD6407B50EB93 /* CardGlance.swift in Sources */,
 				4AC347EB232545757FCB73E2 /* CardLinks.swift in Sources */,
 				AD9AED8F8F4E3D0848B5F90F /* ChatCards.swift in Sources */,
 				310DFB70B3DD5F4DA5D1F973 /* ChatComposer.swift in Sources */,
@@ -1211,6 +1216,7 @@
 				EE4F01E4DADF1992B6A7D1E6 /* AgentEntity.swift in Sources */,
 				371FF41FD2D50B2570AF426D /* AgentLook.swift in Sources */,
 				A66BE2BEE882B3407117391E /* BoardBlockView.swift in Sources */,
+				7B365916039D795D671067A5 /* CardGlance.swift in Sources */,
 				67D1D9310384B74414E2E884 /* HermesActivityAttributes.swift in Sources */,
 				5CC1A8995D0FA687FF648279 /* HermesIOSWidgetsBundle.swift in Sources */,
 				1D6BA5CFD24AA3160DEFA81E /* HermesLiveActivity.swift in Sources */,

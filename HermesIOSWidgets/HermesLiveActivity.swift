@@ -22,12 +22,21 @@ struct HermesLiveActivity: Widget {
                         Text(context.isStale && context.attributes.kind == "call" ? "Appel interrompu" : context.state.detail).font(.subheadline).foregroundStyle(ActivityStyle.detailColor(context.state)).lineLimit(1)
                     }
                 }
-                DynamicIslandExpandedRegion(.bottom) { ActivityButtons(kind: context.attributes.kind, state: context.state, stale: context.isStale).padding(.top, 6) }
+                DynamicIslandExpandedRegion(.bottom) {
+                    VStack(spacing: 6) {
+                        if let glance = context.state.glance, !context.isStale { GlanceCard(glance: glance) }
+                        ActivityButtons(kind: context.attributes.kind, state: context.state, stale: context.isStale, compact: context.state.glance != nil)
+                    }.padding(.top, 4)
+                }
             } compactLeading: {
                 ActivityOrb(state: context.state, profile: context.attributes.profile, size: 22)
             } compactTrailing: {
                 if context.state.isFinished { Image(systemName: "checkmark").font(.caption.weight(.bold)).foregroundStyle(ActivityStyle.accent) }
                 else if context.state.muted { Image(systemName: "mic.slash.fill").font(.caption).foregroundStyle(ActivityStyle.accent) }
+                else if let glance = context.state.glance, !context.isStale {
+                    if !glance.value.isEmpty, glance.value.count <= 5 { Text(glance.value).font(.caption.weight(.semibold).monospacedDigit()).foregroundStyle(ActivityStyle.accent) }
+                    else { Image(systemName: glance.symbol).font(.caption).foregroundStyle(ActivityStyle.accent) }
+                }
                 else { ActivityClock(state: context.state).frame(maxWidth: 46) }
             } minimal: {
                 ActivityOrb(state: context.state, profile: context.attributes.profile, size: 20)
@@ -94,6 +103,8 @@ private struct ActivityButtons: View {
     let kind: String
     let state: HermesActivityAttributes.ContentState
     var stale = false
+    /// Shorter buttons when a card shares the space (the activity is at most 160 points tall).
+    var compact = false
 
     var body: some View {
         if stale && kind == "call" {
@@ -102,35 +113,38 @@ private struct ActivityButtons: View {
             HStack(spacing: 10) {
                 Button(intent: ToggleMuteIntent()) {
                     Label(state.muted ? "Activer le micro" : "Couper le micro", systemImage: state.muted ? "mic.fill" : "mic.slash.fill")
-                        .labelStyle(PillLabel()).background(.white.opacity(0.14), in: Capsule())
+                        .labelStyle(PillLabel(compact: compact)).background(.white.opacity(0.14), in: Capsule())
                 }.buttonStyle(.plain)
                 Button(intent: EndCallIntent()) {
-                    Label("Raccrocher", systemImage: "phone.down.fill").labelStyle(PillLabel()).background(Color(red: 0.86, green: 0.24, blue: 0.20), in: Capsule())
+                    Label("Raccrocher", systemImage: "phone.down.fill").labelStyle(PillLabel(compact: compact)).background(Color(red: 0.86, green: 0.24, blue: 0.20), in: Capsule())
                 }.buttonStyle(.plain)
             }
         } else if !state.isFinished {
             Button(intent: StopReplyIntent()) {
-                Label("Arrêter la réponse", systemImage: "stop.fill").labelStyle(PillLabel()).background(.white.opacity(0.14), in: Capsule())
+                Label("Arrêter la réponse", systemImage: "stop.fill").labelStyle(PillLabel(compact: compact)).background(.white.opacity(0.14), in: Capsule())
             }.buttonStyle(.plain)
         }
     }
 }
 
 private struct PillLabel: LabelStyle {
+    var compact = false
     func makeBody(configuration: Configuration) -> some View {
         HStack(spacing: 7) {
             configuration.icon.font(.system(size: 14, weight: .semibold))
             configuration.title.font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.85)
-        }.foregroundStyle(.white).frame(maxWidth: .infinity, minHeight: 42)
+        }.foregroundStyle(.white).frame(maxWidth: .infinity, minHeight: compact ? 34 : 42)
     }
 }
 
 private struct LockScreenActivity: View {
     let context: ActivityViewContext<HermesActivityAttributes>
+    private var glance: CardGlance? { context.isStale ? nil : context.state.glance }
+
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: glance == nil ? 12 : 8) {
             HStack(spacing: 12) {
-                ActivityOrb(state: context.state, profile: context.attributes.profile, size: 50)
+                ActivityOrb(state: context.state, profile: context.attributes.profile, size: glance == nil ? 50 : 36)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(context.state.title).font(.headline).foregroundStyle(.white).lineLimit(1)
                     Text(context.isStale && context.attributes.kind == "call" ? "Appel interrompu" : context.state.detail).font(.subheadline).foregroundStyle(ActivityStyle.detailColor(context.state)).lineLimit(1)
@@ -138,7 +152,31 @@ private struct LockScreenActivity: View {
                 Spacer(minLength: 8)
                 ActivityClock(state: context.state)
             }
-            ActivityButtons(kind: context.attributes.kind, state: context.state, stale: context.isStale)
-        }.padding(.horizontal, 16).padding(.vertical, 14)
+            if let glance { GlanceCard(glance: glance) }
+            ActivityButtons(kind: context.attributes.kind, state: context.state, stale: context.isStale, compact: glance != nil)
+        }.padding(.horizontal, 16).padding(.vertical, glance == nil ? 14 : 10)
+    }
+}
+
+/// The newest card of the call, made small: its symbol, title and figure, then one or two short lines.
+private struct GlanceCard: View {
+    let glance: CardGlance
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: glance.symbol).font(.system(size: 15, weight: .semibold)).foregroundStyle(ActivityStyle.accent)
+                .frame(width: 30, height: 30).background(ActivityStyle.accent.opacity(0.16), in: Circle())
+            VStack(alignment: .leading, spacing: 1) {
+                Text(glance.title).font(.subheadline.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
+                if let line = glance.lines.first { Text(line).font(.caption).foregroundStyle(.white.opacity(0.7)).lineLimit(1) }
+                if glance.lines.count > 1 { Text(glance.lines[1]).font(.caption).foregroundStyle(.white.opacity(0.55)).lineLimit(1) }
+            }
+            Spacer(minLength: 4)
+            if !glance.value.isEmpty {
+                Text(glance.value).font(.title3.weight(.semibold).monospacedDigit()).foregroundStyle(.white).lineLimit(1).minimumScaleFactor(0.6)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 7)
+        .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityElement(children: .combine)
     }
 }

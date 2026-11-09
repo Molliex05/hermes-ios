@@ -23,4 +23,22 @@ final class VoiceCardsTests: XCTestCase {
         let streaming = ChatMessage(id: "s", role: "assistant", text: "Voici.\n\n```ui\n{\"type\":\"weather\"", streaming: true)
         XCTAssertEqual(VoiceCards.latest(in: [streaming], before: [])?.cards.first?.complete, false)
     }
+
+    func testTheCallActivityGetsASmallVersionOfTheNewestCard() {
+        let reply = ChatMessage(id: "w", role: "assistant", text: weather)
+        let glance = VoiceCards.glance(in: [reply], before: [])
+        XCTAssertEqual(glance?.title, "Saint-Constant"); XCTAssertEqual(glance?.value, "7°"); XCTAssertEqual(glance?.symbol, "cloud.sun.fill")
+        let dentist = VoiceCards.glance(in: [ChatMessage(id: "e", role: "assistant", text: event)], before: [])
+        XCTAssertEqual(dentist?.title, "Dentiste"); XCTAssertEqual(dentist?.symbol, "calendar")
+        XCTAssertNil(VoiceCards.glance(in: [reply], before: VoiceCards.snapshot([reply])), "nothing from before the call")
+        let streaming = ChatMessage(id: "s", role: "assistant", text: "Voici.\n\n```ui\n{\"type\":\"weather\"", streaming: true)
+        XCTAssertNil(VoiceCards.glance(in: [streaming], before: []), "a card still being written is not shown")
+    }
+
+    func testAGlanceStaysSmall() {
+        let glance = CardGlance(symbol: "list.bullet", title: String(repeating: "a", count: 200), value: "1234567890123456789",
+                                lines: ["un\ndeux", "", "trois", "quatre"])
+        XCTAssertEqual(glance.title.count, 70); XCTAssertEqual(glance.value.count, 14)
+        XCTAssertEqual(glance.lines, ["un deux", "trois"])
+    }
 }

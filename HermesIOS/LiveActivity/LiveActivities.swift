@@ -59,9 +59,10 @@ final class LiveActivities {
         }
     }
 
-    func updateCall(title: String, phase: String, muted: Bool) {
+    func updateCall(title: String, phase: String, muted: Bool, glance: CardGlance?) {
         guard let call else { return }
-        let state = HermesActivityAttributes.ContentState.call(title: title, phase: phase, muted: muted, startedAt: callStart)
+        let state = HermesActivityAttributes.ContentState.call(title: title, phase: phase, muted: muted, startedAt: callStart, glance: glance)
+        guard state != callState else { return }
         callState = state
         let box = ActivityBox(activity: call)
         Task.detached { await box.activity.update(.init(state: state, staleDate: .now.addingTimeInterval(Self.callStale))) }

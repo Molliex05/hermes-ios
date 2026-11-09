@@ -70,6 +70,7 @@ targets:
           - SharedBlob.swift
           - AgentBoard.swift
           - WidgetBlock.swift
+          - CardGlance.swift
       - path: HermesIOS/LiveActivity
         includes:
           - HermesActivityAttributes.swift

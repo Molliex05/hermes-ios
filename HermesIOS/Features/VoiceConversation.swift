@@ -38,6 +38,8 @@ final class VoiceConversation {
     @ObservationIgnored private var generation = UUID()
     @ObservationIgnored private var leases: [(path: String, id: String)] = []
     @ObservationIgnored private var sessionID: String?
+    /// The replies already there when the call started: their cards are not shown on the Lock Screen.
+    @ObservationIgnored private var cardsBefore: Set<String>?
     @ObservationIgnored private var standardModeAccepted = false
     // Utterance pipeline (standard voice).
     @ObservationIgnored private var onset = VoiceActivity(threshold: 200, silenceDuration: 0.8)
@@ -115,7 +117,8 @@ final class VoiceConversation {
         case .waiting: "waiting"
         case .paused: "paused"
         }
-        LiveActivities.shared.updateCall(title: tools.app.agent?.title ?? "Hermès", phase: name, muted: inputMuted)
+        let glance = cardsBefore.flatMap { VoiceCards.glance(in: tools.app.transcript.messages, before: $0) }
+        LiveActivities.shared.updateCall(title: tools.app.agent?.title ?? "Hermès", phase: name, muted: inputMuted, glance: glance)
     }
     var title: String {
         if inputMuted, [.listening, .transcribing, .thinking].contains(phase) { return "Microphone coupé." }
@@ -135,6 +138,7 @@ final class VoiceConversation {
         if standardMode { standardModeAccepted = true; liveRequested = false }
         if useLive { standardModeAccepted = false; liveRequested = true }
         sessionID = tools.app.selected?.storedID
+        if cardsBefore == nil { cardsBefore = VoiceCards.snapshot(tools.app.transcript.messages) }
         let attempt = UUID(); generation = attempt
         inputMuted = false; error = nil; notice = nil; phase = .ready
         tools.app.voiceActive = true
