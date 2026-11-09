@@ -107,6 +107,15 @@ final class LiveActivities {
         Task.detached { await box.activity.end(nil, dismissalPolicy: .immediate); await unregister?(identifier) }
     }
 
+    /// The user is back in the app, where the reply is on screen: every « Réponse prête » card left on the Lock Screen
+    /// and the Dynamic Island goes away now instead of lingering 15 minutes. A reply still running is left alone.
+    func clearFinishedReplies() {
+        for activity in Activity<HermesActivityAttributes>.activities where activity.attributes.kind == "reply" && activity.id != reply?.id {
+            let box = ActivityBox(activity: activity), identifier = activity.id, unregister = unregister
+            Task.detached { await box.activity.end(nil, dismissalPolicy: .immediate); await unregister?(identifier) }
+        }
+    }
+
     /// The turn finished. In the foreground the activity just disappears; otherwise it stays as « Réponse prête ».
     func finishReply(foreground: Bool) {
         guard let activity = reply else { return }

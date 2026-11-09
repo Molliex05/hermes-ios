@@ -589,6 +589,7 @@ final class AppModel {
             if state != .connected, !sending { startReconnect() }
             suspendTask?.cancel(); suspendTask = nil
             LiveActivities.shared.endReply(quiet: true)
+            LiveActivities.shared.clearFinishedReplies()
         } else {
             let lease = BackgroundLease(name: "Save Hermès conversation")
             defer { lease.end() }
