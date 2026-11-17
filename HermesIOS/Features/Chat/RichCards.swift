@@ -315,13 +315,10 @@ private struct PlaceRow: View {
         }.padding(12)
     }
 
+    /// By car: Plans starts the driving route, which CarPlay shows on the car's screen.
     private var directions: URL {
-        var parts = URLComponents(string: "https://maps.apple.com/")!
         let target = coordinate.map { "\($0.latitude),\($0.longitude)" } ?? place.query
-        // By car: Plans starts the driving route, which CarPlay shows on the car's screen.
-        parts.queryItems = [URLQueryItem(name: "daddr", value: target), URLQueryItem(name: "dirflg", value: "d"),
-                            URLQueryItem(name: "q", value: place.name.isEmpty ? place.address : place.name)]
-        return parts.url!
+        return CarDestination.drivingURL(to: target, name: place.name.isEmpty ? place.address : place.name) ?? URL(string: "https://maps.apple.com/")!
     }
 
     private var phoneURL: URL? {

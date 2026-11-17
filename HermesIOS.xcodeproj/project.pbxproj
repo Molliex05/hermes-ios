@@ -59,6 +59,7 @@
 		49D5CCC3ADD83BD5A45B554D /* QuestionCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1368063F251016EFD9290672 /* QuestionCards.swift */; };
 		4AC347EB232545757FCB73E2 /* CardLinks.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48F4B51FA524CF9E3A8B67F4 /* CardLinks.swift */; };
 		4B24A2F7FE0E4948DD8C0FAF /* LaunchRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A93056EAE4D19D00341467 /* LaunchRequests.swift */; };
+		4BA854E3045EB00B5108D24B /* CarVoiceScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5786B66100751480FECF60C /* CarVoiceScreen.swift */; };
 		4F12D4CF4D888EA890A98BF3 /* HistoryRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C910078020A4AF8014712019 /* HistoryRequests.swift */; };
 		4F7E457B9EC1B22606C5986B /* ActivityIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 085BE96A8289B836A61EB9B0 /* ActivityIntents.swift */; };
 		52C9BC863A7453430E40B47B /* SharedBlob.swift in Sources */ = {isa = PBXBuildFile; fileRef = BAF56DE797CE3B61A8D45A01 /* SharedBlob.swift */; };
@@ -137,6 +138,7 @@
 		AADE0DBCBE2CB80A20E9C5C5 /* LinkPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0E2A096609367B94AB7780 /* LinkPreviews.swift */; };
 		ABA9D5840897492F3D791A22 /* WidgetBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26272BFF6993226D5281C095 /* WidgetBlock.swift */; };
 		ABCCADA0778FB2EE84A5D9D2 /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03771C2DF46F958CA751A93C /* JSONValue.swift */; };
+		ABE49A90CBFAA89B87DFC0E9 /* CarPlayScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F1F6D19D24AB9279FB9BC67 /* CarPlayScene.swift */; };
 		AD68B66A2C390D8BFACA6842 /* serveur.wav in Resources */ = {isa = PBXBuildFile; fileRef = 03798866749FB588780AC10D /* serveur.wav */; };
 		AD9AED8F8F4E3D0848B5F90F /* ChatCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E860692EEEAFF8808740459 /* ChatCards.swift */; };
 		AF6C7D38F74FA92DCF7CF64C /* WidgetRefresh.swift in Sources */ = {isa = PBXBuildFile; fileRef = B056C8FD81F3AB48622A70C0 /* WidgetRefresh.swift */; };
@@ -298,6 +300,7 @@
 		19B9D9CC524C6E12BC3360D4 /* KanbanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanbanView.swift; sourceTree = "<group>"; };
 		1C1CA4BD09AAD37D7D849AF6 /* AgentSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSettingsView.swift; sourceTree = "<group>"; };
 		1C508AA7C9E85121414A024E /* HermesIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesIOSApp.swift; sourceTree = "<group>"; };
+		1F1F6D19D24AB9279FB9BC67 /* CarPlayScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayScene.swift; sourceTree = "<group>"; };
 		1FEFFF5E8E53C4E477676BDD /* ConversationActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationActions.swift; sourceTree = "<group>"; };
 		20505E1C09C0651480D93ECE /* GroupMention.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupMention.swift; sourceTree = "<group>"; };
 		224CAC4570952840E57256D5 /* AgentConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConfigStore.swift; sourceTree = "<group>"; };
@@ -416,6 +419,7 @@
 		C090E451DBD450770375EC1E /* StreamingTranscriber.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingTranscriber.swift; sourceTree = "<group>"; };
 		C441C89A69FCD1A5AFB9881D /* nouvelles.pcm */ = {isa = PBXFileReference; path = nouvelles.pcm; sourceTree = "<group>"; };
 		C56134E4ED76011AEFADCD65 /* HermesIOSShare.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = HermesIOSShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		C5786B66100751480FECF60C /* CarVoiceScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarVoiceScreen.swift; sourceTree = "<group>"; };
 		C910078020A4AF8014712019 /* HistoryRequests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryRequests.swift; sourceTree = "<group>"; };
 		CE2C6010FFB5271388959D83 /* ApprovalKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalKey.swift; sourceTree = "<group>"; };
 		CE92F3CCA9C168E1636289CF /* regarde.pcm */ = {isa = PBXFileReference; path = regarde.pcm; sourceTree = "<group>"; };
@@ -721,6 +725,7 @@
 				4B1B07CAFC53C700A7E55E59 /* VoiceView.swift */,
 				F836B8FAB56D3E5A0BBD6BD2 /* WorkspaceFilesView.swift */,
 				703B02378F64B271BA0A45A5 /* AppIntents */,
+				F0517A8F84CD03E47C925B9B /* CarPlay */,
 				849B39FAD7A53186BFECD97C /* Chat */,
 				7F7D81CC082CC4E9640116A5 /* Settings */,
 			);
@@ -752,6 +757,7 @@
 			children = (
 				B0EE0FE0A291482EAABF4561 /* AgentBoard.swift */,
 				A09676F353370202D0FD16DD /* CardGlance.swift */,
+				C5786B66100751480FECF60C /* CarVoiceScreen.swift */,
 				4E860692EEEAFF8808740459 /* ChatCards.swift */,
 				BBAAD9CB1B93F3090CFE6326 /* ChatMarkdown.swift */,
 				5DCA55A82A315E84D55C9939 /* ChatStage.swift */,
@@ -811,6 +817,14 @@
 				2F70FF112480D3C6FE42D631 /* Resources */,
 			);
 			path = HermesIOS;
+			sourceTree = "<group>";
+		};
+		F0517A8F84CD03E47C925B9B /* CarPlay */ = {
+			isa = PBXGroup;
+			children = (
+				1F1F6D19D24AB9279FB9BC67 /* CarPlayScene.swift */,
+			);
+			path = CarPlay;
 			sourceTree = "<group>";
 		};
 		FC06CF147056BBA4A3A39C2D /* HermesIOSShare */ = {
@@ -1112,6 +1126,8 @@
 				CC1030C8ECC8A38DECC6A375 /* AttachmentTray.swift in Sources */,
 				EEF0B72EEC204B07A6808D5A /* BackgroundLease.swift in Sources */,
 				BFB991CE16F9E769A48BD267 /* CallIntents.swift in Sources */,
+				ABE49A90CBFAA89B87DFC0E9 /* CarPlayScene.swift in Sources */,
+				4BA854E3045EB00B5108D24B /* CarVoiceScreen.swift in Sources */,
 				D0ACB4C8195AD6407B50EB93 /* CardGlance.swift in Sources */,
 				4AC347EB232545757FCB73E2 /* CardLinks.swift in Sources */,
 				AD9AED8F8F4E3D0848B5F90F /* ChatCards.swift in Sources */,
