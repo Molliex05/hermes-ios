@@ -1,4 +1,5 @@
 import AppIntents
+import AVFoundation
 import Foundation
 
 /// Starts a voice call with an agent without opening the app: after Face ID the call runs in the background and shows in
@@ -23,6 +24,33 @@ struct StartCallIntent: AudioRecordingIntent, LiveActivityIntent {
         let profile = agent?.id
         guard let start = CallLauncher.start else { throw CallLaunchError("Ouvrez l’app Hermès une fois, puis réessayez.") }
         if let problem = await start(profile) { throw CallLaunchError(problem) }
+        return .result()
+    }
+}
+
+/// The same call from the car, where the iPhone stays locked in a pocket and Face ID cannot be asked: Siri on CarPlay
+/// (« Appeler Jarvis en voiture avec Hermès ») or the car's widget. It only runs while the sound goes out through the car
+/// (CarPlay); anywhere else it refuses and points to the Face ID call. Being at the wheel of a car this iPhone was paired
+/// with (pairing needs the iPhone unlocked) stands in for Face ID, as Siri reading messages on CarPlay already does.
+struct CarCallIntent: AudioRecordingIntent, LiveActivityIntent {
+    static let title: LocalizedStringResource = "Appeler un agent en voiture"
+    static let description = IntentDescription("Démarre un appel vocal sans déverrouiller l’iPhone, seulement quand il est connecté à la voiture (CarPlay).")
+    static let openAppWhenRun = false
+    static let authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
+
+    @Parameter(title: "Agent") var agent: AgentEntity?
+
+    init() {}
+    init(agent: AgentEntity?) { self.agent = agent }
+
+    static var parameterSummary: some ParameterSummary { Summary("Appeler \(\.$agent) en voiture") }
+
+    @MainActor func perform() async throws -> some IntentResult {
+        guard AVAudioSession.sharedInstance().currentRoute.outputs.contains(where: { $0.portType == .carAudio }) else {
+            throw CallLaunchError("Cette commande marche seulement quand l’iPhone est connecté à la voiture. Sinon, dites « Appeler Jarvis sans ouvrir Hermès ».")
+        }
+        guard let start = CallLauncher.start else { throw CallLaunchError("Ouvrez l’app Hermès une fois, puis réessayez.") }
+        if let problem = await start(agent?.id) { throw CallLaunchError(problem) }
         return .result()
     }
 }

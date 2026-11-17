@@ -111,17 +111,28 @@ final class VoiceConversation {
         audio.fixture = ProcessInfo.processInfo.arguments.contains("--voice-fixture") && app.activeConnection?.endpoint.baseURL.host == "127.0.0.1"
         #endif
     }
-    private func syncActivity() {
-        guard !tools.app.demo else { return }
-        let name: String = switch phase {
+    /// The phase as the Live Activity and the car's screen name it.
+    private var activityPhase: String {
+        switch phase {
         case .ready, .listening, .transcribing: "listening"
         case .thinking: "thinking"
         case .speaking: "speaking"
         case .waiting: "waiting"
         case .paused: "paused"
         }
+    }
+    private func syncActivity() {
+        guard !tools.app.demo else { return }
         let glance = cardsBefore.flatMap { VoiceCards.glance(in: tools.app.transcript.messages, before: $0) }
-        LiveActivities.shared.updateCall(title: tools.app.agent?.title ?? "Hermès", phase: name, muted: inputMuted, glance: glance)
+        LiveActivities.shared.updateCall(title: tools.app.agent?.title ?? "Hermès", phase: activityPhase, muted: inputMuted, glance: glance)
+        refreshCarScreen()
+    }
+    /// Keeps the car's screen (CarPlay) in step; `open: false` when the screen connects mid-call, so that a place given
+    /// earlier in the call does not open Plans again.
+    func refreshCarScreen(open: Bool = true) {
+        guard CarScreen.shared.connected, !tools.app.demo else { return }
+        let destination = cardsBefore.flatMap { VoiceCards.destination(in: tools.app.transcript.messages, before: $0) }
+        CarScreen.shared.update(agent: tools.app.agent?.title ?? "Hermès", phase: activityPhase, muted: inputMuted, destination: destination, open: open)
     }
     var title: String {
         if inputMuted, [.listening, .transcribing, .thinking].contains(phase) { return "Microphone coupé." }
@@ -145,6 +156,7 @@ final class VoiceConversation {
         let attempt = UUID(); generation = attempt
         inputMuted = false; error = nil; notice = nil; phase = .ready; hungUp = false
         tools.app.voiceActive = true
+        if VoiceEnvironmentSetting.isForced { DrivingLocation.shared.refresh() }  // the town is ready by the first turn
         operation = Task {
             defer {
                 if generation == attempt {
@@ -252,7 +264,11 @@ final class VoiceConversation {
             let interrupted = interruptedTurn; interruptedTurn = false
             let message: String
             VoiceMetrics.shared.mark(.submitSent)
-            do { message = try await tools.app.sendVoice("🎙️ " + text, voiceTurn: true, interrupted: interrupted); VoiceMetrics.shared.mark(.submitAck) }
+            // At the wheel the agent hears it (shorter answers) and roughly where; the town never delays the turn.
+            let driving = VoiceEnvironmentSetting.isForced
+            if driving { DrivingLocation.shared.refresh() }
+            let spoken = SpokenTurn.text(text, driving: driving, near: driving ? DrivingLocation.shared.current : nil)
+            do { message = try await tools.app.sendVoice(spoken, voiceTurn: true, interrupted: interrupted); VoiceMetrics.shared.mark(.submitAck) }
             catch is CancellationError { throw CancellationError() }
             catch {
                 try validate(attempt)
