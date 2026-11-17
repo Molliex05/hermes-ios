@@ -18,7 +18,10 @@ enum VoiceEnvironmentSetting {
     static func set(_ mode: Mode) { UserDefaults.standard.set(mode.rawValue, forKey: key) }
 
     /// Told rather than measured: the setting says car, or the audio goes out through CarPlay.
-    static var isForced: Bool {
-        mode == .car || AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .carAudio }
+    static var isForced: Bool { mode == .car || throughCar }
+
+    /// The audio goes out through CarPlay: the person is at the wheel.
+    static var throughCar: Bool {
+        AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .carAudio }
     }
 }

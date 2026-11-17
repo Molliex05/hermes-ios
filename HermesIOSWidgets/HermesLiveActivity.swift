@@ -8,7 +8,7 @@ import WidgetKit
 struct HermesLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: HermesActivityAttributes.self) { context in
-            LockScreenActivity(context: context)
+            ActivityContent(context: context)
                 .activityBackgroundTint(ActivityStyle.card)
                 .activitySystemActionForegroundColor(.white)
                 .widgetURL(URL(string: context.attributes.kind == "call" ? "hermesios://voice" : "hermesios://open"))
@@ -51,6 +51,77 @@ struct HermesLiveActivity: Widget {
             }
             .keylineTint(ActivityStyle.accent)
         }
+        // The small family is what CarPlay's Dashboard and the Apple Watch Smart Stack show; without it CarPlay falls
+        // back to the island's two compact views.
+        .supplementalActivityFamilies([.small])
+    }
+}
+
+/// The Lock Screen card, or its small version for CarPlay and the watch.
+private struct ActivityContent: View {
+    let context: ActivityViewContext<HermesActivityAttributes>
+    @Environment(\.activityFamily) private var family
+
+    var body: some View {
+        switch family {
+        case .small: SmallActivity(context: context)
+        default: LockScreenActivity(context: context)
+        }
+    }
+}
+
+/// CarPlay and the watch: read at a glance while driving. The call's card on show alone, otherwise the agent's orb, its
+/// state and the clock, with a single hang-up button for a call (the car's touchscreen can press it).
+private struct SmallActivity: View {
+    let context: ActivityViewContext<HermesActivityAttributes>
+
+    var body: some View {
+        if let glance = ActivityStyle.shown(context) {
+            SmallGlance(glance: glance)
+        } else {
+            HStack(spacing: 8) {
+                ActivityOrb(state: context.state, profile: context.attributes.profile, size: 34)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(context.state.title).font(.headline).foregroundStyle(.white).lineLimit(1)
+                    Text(context.isStale && context.attributes.kind == "call" ? "Appel interrompu" : context.state.detail)
+                        .font(.caption).foregroundStyle(ActivityStyle.detailColor(context.state)).lineLimit(1)
+                    ActivityClock(state: context.state).font(.caption2)
+                }
+                Spacer(minLength: 0)
+                if context.attributes.kind == "call", !context.isStale {
+                    Button(intent: EndCallIntent()) {
+                        Image(systemName: "phone.down.fill").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
+                            .frame(width: 36, height: 36).background(Color(red: 0.86, green: 0.24, blue: 0.20), in: Circle())
+                    }.buttonStyle(.plain).accessibilityLabel("Raccrocher")
+                }
+            }.padding(8)
+        }
+    }
+}
+
+/// The card on show, made for the small family: its symbol, title and figure, and one short line.
+private struct SmallGlance: View {
+    let glance: CardGlance
+    var body: some View {
+        let theme = CardTheme(glance)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                Image(systemName: glance.symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.icon)
+                    .frame(width: 24, height: 24).background(theme.iconBackground, in: Circle())
+                Text(glance.title).font(.subheadline.weight(.semibold)).foregroundStyle(theme.primary).lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            if !glance.value.isEmpty {
+                Text(glance.value).font(.title3.weight(.semibold).monospacedDigit()).foregroundStyle(theme.primary)
+                    .lineLimit(1).minimumScaleFactor(0.6)
+            }
+            if let line = glance.rows.first.map({ [$0.label, $0.value].filter { !$0.isEmpty }.joined(separator: " · ") }) ?? glance.lines.first {
+                Text(line).font(.caption).foregroundStyle(theme.secondary).lineLimit(2)
+            }
+        }
+        .padding(8).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(theme.background)
+        .accessibilityElement(children: .combine)
     }
 }
 

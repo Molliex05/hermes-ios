@@ -145,6 +145,7 @@ final class VoiceConversation {
         let attempt = UUID(); generation = attempt
         inputMuted = false; error = nil; notice = nil; phase = .ready; hungUp = false
         tools.app.voiceActive = true
+        if VoiceEnvironmentSetting.isForced { DrivingLocation.shared.refresh() }  // the town is ready by the first turn
         operation = Task {
             defer {
                 if generation == attempt {
@@ -252,7 +253,11 @@ final class VoiceConversation {
             let interrupted = interruptedTurn; interruptedTurn = false
             let message: String
             VoiceMetrics.shared.mark(.submitSent)
-            do { message = try await tools.app.sendVoice("🎙️ " + text, voiceTurn: true, interrupted: interrupted); VoiceMetrics.shared.mark(.submitAck) }
+            // At the wheel the agent hears it (shorter answers) and roughly where; the town never delays the turn.
+            let driving = VoiceEnvironmentSetting.isForced
+            if driving { DrivingLocation.shared.refresh() }
+            let spoken = SpokenTurn.text(text, driving: driving, near: driving ? DrivingLocation.shared.current : nil)
+            do { message = try await tools.app.sendVoice(spoken, voiceTurn: true, interrupted: interrupted); VoiceMetrics.shared.mark(.submitAck) }
             catch is CancellationError { throw CancellationError() }
             catch {
                 try validate(attempt)
