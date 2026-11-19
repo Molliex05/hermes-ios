@@ -1,0 +1,12 @@
+name: hermes-paie
+version: 0.1.0
+description: "Talons de paie de Maxime : synchronise MaPaie.net vers son iCloud par le service du Mac mini (Tailscale) et lit un talon par sa date de paie."
+author: Hermès iOS
+kind: standalone
+requires_hermes: ">=0.21.0"
+optional_env:
+  - HERMES_PAIE_TOKEN
+  - HERMES_PAIE_URL
+provides_tools:
+  - paie_synchroniser
+  - paie_lire

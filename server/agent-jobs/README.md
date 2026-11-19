@@ -11,6 +11,7 @@ dépendent plus d'une réponse exactement `[SILENT]`, et une réponse « rien à
 | `jarvis-tableau.prompt.fr.txt` | personnel | 5 passages par jour | met à jour le widget « À l'affiche » |
 | `jarvis-courriels.prompt.fr.txt` | personnel | retirée le 2026-11-04 (voir plus bas) | tri des courriels, brouillons de réponse |
 | `hermes-courriels.prompt.fr.txt` | noriven | retirée le 2026-11-04 (voir plus bas) | boîtes Polaris de Noriven : tri prudent, brouillons, widget, alerte si urgent |
+| `jarvis-paie.prompt.fr.txt` | personnel | chaque mercredi à 9 h (`c463f77da5b6`, livraison locale, échec dans le Bot Chat) | talons MaPaie.net rangés dans iCloud par le Mac, vérifiés avec l'agenda « Police » ; notification seulement en cas de problème ; le résumé du jeudi lit sa sortie (`context_from`) |
 | `hermes-matin.prompt.fr.txt` | noriven | chaque matin à 8 h 15, avec sa sortie précédente en contexte | point libre sur l'entreprise, en cartes, et courriels urgents ou à traiter |
 
 ```bash
@@ -60,3 +61,9 @@ dans les jeux d'outils des tâches (`hermes tools enable … --platform cron`).
   `<profil>/skill-backups/courriels-5min-20261104/jobs.json`. Depuis `hermes-widgets` 0.9.1, un « Vu » archive directement ses courriels (`seen.py`) sans ces tâches ; ce qui échoue attend le prochain « Vu ».
 - Déployé le 2026-11-04 : « Point du matin » (noriven, `4146b1236c72`), livré dans le Bot Chat. Il remplace la surveillance par un seul passage quotidien sur les courriels Noriven.
   `hermes -p noriven cron create --name "Point du matin" --deliver bot-chat --continuity "15 8 * * *" "$(cat hermes-matin.prompt.fr.txt)"`
+
+- Déployé le 2026-11-18 : « Paie de la semaine » (personnel, `c463f77da5b6`, créée en pause). Plugin `hermes-paie` 0.1.0 (lié dans
+  `personnel/plugins/`, jeu d'outils `paie` exclu d'`api_server`), règle « Paie » du SOUL (`SOUL.md.bak-paie-20261118`) et
+  `context_from` du « Résumé de la journée » (`["self", "c463f77da5b6"]`, copie `cron/jobs.json.bak-paie-20261118`). Le service du
+  Mac est dans `mac/hermes-paie/`. Le jeton `HERMES_PAIE_TOKEN` est placé par Maxime dans `personnel/.env`.
+  `hermes -p personnel cron create --name "Paie de la semaine" --deliver local --failure-deliver bot-chat:personnel --timezone America/Toronto --paused "0 9 * * 3" "$(cat jarvis-paie.prompt.fr.txt)"`
