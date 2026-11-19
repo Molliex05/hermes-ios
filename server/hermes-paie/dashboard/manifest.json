@@ -1,0 +1,9 @@
+{
+  "name": "hermes-paie",
+  "label": "Paie",
+  "description": "Le PDF d'un talon de paie, pour la carte « paie » de l'app Hermès iOS",
+  "version": "0.2.0",
+  "tab": {"hidden": true},
+  "entry": "index.js",
+  "api": "plugin_api.py"
+}

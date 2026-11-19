@@ -154,6 +154,7 @@
 		BA6318803D1A3C27303451A8 /* ScrollGap.swift in Sources */ = {isa = PBXBuildFile; fileRef = F422B4D6EFE7EBEF4D11C54C /* ScrollGap.swift */; };
 		BA651A22F5C0CF5320C4E383 /* RoutinesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B015E03D9D8F60B51C9F3C89 /* RoutinesView.swift */; };
 		BACC5A498A68882663AD5B37 /* VoiceMetrics.swift in Sources */ = {isa = PBXBuildFile; fileRef = D3C40E207DFACCFAA12FE387 /* VoiceMetrics.swift */; };
+		BDB4222C2E8C844B6C8C20BB /* PaystubCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CDB2F5FEF82407DD39E403B /* PaystubCard.swift */; };
 		BDE7E9AD8486B77176875B30 /* ConversationIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5045723AB4101C15BB122A44 /* ConversationIndex.swift */; };
 		BDEEE1E227207A516C183154 /* VoiceProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B9EAF63DBFAA0C87C5FAAFD /* VoiceProgress.swift */; };
 		BFB991CE16F9E769A48BD267 /* CallIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783477DED5F076C5B220BFC0 /* CallIntents.swift */; };
@@ -171,6 +172,7 @@
 		D0ACB4C8195AD6407B50EB93 /* CardGlance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A09676F353370202D0FD16DD /* CardGlance.swift */; };
 		D1CC512C9E9B3893031D6FEE /* ApprovalKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE2C6010FFB5271388959D83 /* ApprovalKey.swift */; };
 		D2F30355CF8346E7A40F704A /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03771C2DF46F958CA751A93C /* JSONValue.swift */; };
+		D38D8AF193792DE365D78E63 /* PaystubCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 310E2DB64B7EEDCE3350D5AA /* PaystubCardView.swift */; };
 		D3ECA0013412E4B5DF9CD824 /* agenda-lire.pcm in Resources */ = {isa = PBXBuildFile; fileRef = 574BB10567F5562D017CD198 /* agenda-lire.pcm */; };
 		D4431BD400879D502BDD748A /* VoiceSamples.swift in Sources */ = {isa = PBXBuildFile; fileRef = 753087B8E41F0A5AED4D3DC0 /* VoiceSamples.swift */; };
 		D5A28AE3E671EF121993E660 /* HermesIOSWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 0950720749BFDC7C3C5A89A9 /* HermesIOSWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -314,6 +316,7 @@
 		2F7621658C8097D0BF7AFF62 /* VoiceLiveTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLiveTransport.swift; sourceTree = "<group>"; };
 		2FA5B594D96A6A55C14D98BA /* VoiceStreams.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceStreams.swift; sourceTree = "<group>"; };
 		30696B67955BC3B70D5E2AB4 /* PDFReading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFReading.swift; sourceTree = "<group>"; };
+		310E2DB64B7EEDCE3350D5AA /* PaystubCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaystubCardView.swift; sourceTree = "<group>"; };
 		32B0BB03FB83ADE42F469277 /* courriels-lire.pcm */ = {isa = PBXFileReference; path = "courriels-lire.pcm"; sourceTree = "<group>"; };
 		3356B2AA5CDED860A54BD12A /* ConfigFieldRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConfigFieldRow.swift; sourceTree = "<group>"; };
 		33653FCB4712F78B59195DEF /* VoiceTextCursor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTextCursor.swift; sourceTree = "<group>"; };
@@ -388,6 +391,7 @@
 		94E003103ABED5DE7BD3D43B /* AgentsHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentsHubView.swift; sourceTree = "<group>"; };
 		98AA1ACBDDA529E8147CB542 /* AgentLook.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentLook.swift; sourceTree = "<group>"; };
 		9C606DC15B703A147031EE7E /* VoiceHeard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceHeard.swift; sourceTree = "<group>"; };
+		9CDB2F5FEF82407DD39E403B /* PaystubCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaystubCard.swift; sourceTree = "<group>"; };
 		9E3094D370FF8C0E5B303161 /* web-cherche.pcm */ = {isa = PBXFileReference; path = "web-cherche.pcm"; sourceTree = "<group>"; };
 		9FE8B5391134DE1081572A11 /* OrbView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbView.swift; sourceTree = "<group>"; };
 		A0560CDB37DB5361F6266DB9 /* MessagingSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessagingSettingsView.swift; sourceTree = "<group>"; };
@@ -620,6 +624,7 @@
 				5F6073B38EDB59B3768B2EE6 /* EmailCardViews.swift */,
 				384DDEDB7A703B22350AA929 /* InsightCards.swift */,
 				CF0E2A096609367B94AB7780 /* LinkPreviews.swift */,
+				310E2DB64B7EEDCE3350D5AA /* PaystubCardView.swift */,
 				1368063F251016EFD9290672 /* QuestionCards.swift */,
 				0AEFC910E5CBFB0EDE731D28 /* RichCards.swift */,
 			);
@@ -780,6 +785,7 @@
 				E8BBC0720EC796E9C661E8B0 /* NotificationKeyStore.swift */,
 				FAE26FF8CAD8052D3A341332 /* NotificationTarget.swift */,
 				10506438478DEE3FDE80841C /* Outbox.swift */,
+				9CDB2F5FEF82407DD39E403B /* PaystubCard.swift */,
 				A35FCE467300937D0131D0EF /* RoutineSchedule.swift */,
 				F422B4D6EFE7EBEF4D11C54C /* ScrollGap.swift */,
 				0EB41B1C8A6C2E3CADDEDCC5 /* SentAttachments.swift */,
@@ -1188,6 +1194,8 @@
 				2DFA705484B15701021AC6AF /* OrbView.swift in Sources */,
 				F83F78AC4D6258FD1ADF2DFF /* Outbox.swift in Sources */,
 				2657F7B07167D5D51B4364F0 /* PDFReading.swift in Sources */,
+				BDB4222C2E8C844B6C8C20BB /* PaystubCard.swift in Sources */,
+				D38D8AF193792DE365D78E63 /* PaystubCardView.swift in Sources */,
 				7EFE62313F42242EB94E4FA3 /* PhoneAudio.swift in Sources */,
 				0EAAC808AC8CD5F546371AFE /* PhotoAttachment.swift in Sources */,
 				7A1CAA77F2D007BB7301D686 /* PluginsSettingsView.swift in Sources */,

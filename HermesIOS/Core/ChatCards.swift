@@ -208,6 +208,7 @@ enum ChatCard: Equatable {
     case emails(Inbox)
     case email(Message)
     case triage(Triage)
+    case paystub(Paystub)
 
     static let maxItems = 12
     /// Lists and agendas are read through, so they hold more (a week of shifts, a month of expenses).
@@ -430,6 +431,8 @@ enum ChatCard: Equatable {
             return .status(Status(title: title, subtitle: clean(json["subtitle"].string, 100),
                                   state: given.isEmpty ? derived : health(given),
                                   gauges: Array(gauges.prefix(4)), items: items))
+        case "paie":
+            return parsePaystub(json)
         default:
             return nil
         }
@@ -454,6 +457,7 @@ enum ChatCard: Equatable {
         case "workout", "entrainement", "entraînement", "seance", "séance", "training": "workout"
         case "route", "parcours", "trace", "tracé", "course", "run": "route"
         case "status", "etat", "état", "serveur", "server", "vps", "services", "monitoring": "status"
+        case "paie", "talon", "talon-de-paie", "paystub", "payslip", "paye": "paie"
         case "news", "nouvelles", "actualites", "actualités", "articles", "presse": "news"
         case "brief", "matin", "morning", "resume", "résumé", "digest", "bulletin": "brief"
         default: ""
@@ -830,6 +834,8 @@ enum ChatCard: Equatable {
         case .email(let m): lines = [joined(m.email.sender.label, m.email.subject), m.email.summary] + m.points.map { "• " + $0 } + [m.due]
         case .triage(let t): lines = [joined(t.title, t.total > 0 ? "\(t.total) rangés" : "", t.archived > 0 ? "\(t.archived) archivés" : "")]
                 + t.folders.map { "\($0.name) : \($0.count)" } + t.pending.map { joined($0.sender.label, $0.subject) }
+        case .paystub(let p): lines = [joined("Paie du \(p.payDate)", p.week), p.verdict == .balance ? "Tout balance" : p.verdict == .gap ? "Écart" : "À vérifier"]
+                + p.lines.map { joined($0.label, $0.paid, $0.calendar.isEmpty ? "" : "agenda \($0.calendar)") } + [joined("Net", p.net)] + p.adjustments + [p.note]
         }
         return lines.filter { !$0.isEmpty }
     }

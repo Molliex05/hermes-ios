@@ -317,6 +317,13 @@ final class AppModel {
         return draft
     }
 
+    /// A payslip's PDF, kept by the agent's `hermes-paie` plugin (fetched from the Mac mini if needed), for its card.
+    func loadPaystub(_ payDate: String, profile: String) async throws -> Data {
+        guard let http, let path = ChatCard.Paystub.path(profile: profile, payDate: payDate) else { throw RPCFailure("Ce talon ne peut pas être ouvert ici.") }
+        guard let data = ChatCard.Paystub.pdf(from: try await http.request(path), payDate: payDate) else { throw RPCFailure("Le talon reçu n’est pas un PDF lisible.") }
+        return data
+    }
+
     /// A received email's whole text as Gmail holds it, for its card.
     func loadMailBody(_ messageID: String, profile: String) async throws -> MailBody {
         guard let http, let path = MailBody.path(profile: profile, messageID: messageID) else { throw RPCFailure("Ce courriel ne peut pas être ouvert ici.") }

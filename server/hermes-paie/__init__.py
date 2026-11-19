@@ -89,6 +89,28 @@ def _folder() -> Path:
     return folder
 
 
+def fetch_pdf(day: dt.date, url: str, token: str, folder: Path, timeout: int = READ_TIMEOUT) -> Path:
+    """Le PDF d'un talon : la copie du profil s'il l'a déjà, sinon celle du Mac, gardée ensuite dans `folder`."""
+    import requests
+    path = folder / f"Paye ({day.isoformat()}).pdf"
+    if path.is_file() and path.read_bytes()[:5] == b"%PDF-":
+        return path
+    if not token:
+        raise RuntimeError("Le jeton du service paie (HERMES_PAIE_TOKEN) n'est pas configuré sur le serveur.")
+    try:
+        response = requests.get(f"{url.rstrip('/')}/talon/{day.isoformat()}", headers={"Authorization": f"Bearer {token}"}, timeout=timeout)
+    except requests.exceptions.RequestException:
+        raise RuntimeError("Le Mac mini ne répond pas : il est peut-être éteint ou hors de Tailscale.") from None
+    if response.status_code != 200 or not response.content.startswith(b"%PDF-"):
+        _json(response)  # raises with the Mac's message
+        raise RuntimeError("Le Mac n'a pas renvoyé un PDF.")
+    folder.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.partiel")
+    temporary.write_bytes(response.content)
+    os.replace(temporary, path)
+    return path
+
+
 def _text(path: Path) -> str:
     """Le texte du PDF par l'extracteur de Hermes (celui de read_file)."""
     try:
@@ -111,14 +133,8 @@ def read(args, **kwargs) -> str:
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
             return _error("Donne la date de paie au format AAAA-MM-JJ.")
         day = dt.date.fromisoformat(raw)
-        response = _call("GET", f"/talon/{day.isoformat()}", READ_TIMEOUT)
-        if response.status_code != 200 or not response.content.startswith(b"%PDF-"):
-            _json(response)  # raises with the Mac's message
-            return _error("Le Mac n'a pas renvoyé un PDF.")
-        path = _folder() / f"Paye ({day.isoformat()}).pdf"
-        temporary = path.with_name(f".{path.name}.partiel")
-        temporary.write_bytes(response.content)
-        os.replace(temporary, path)
+        url, token = _service()
+        path = fetch_pdf(day, url, token, _folder())
         text = _text(path)
         result = {"ok": True, "date": day.isoformat(), "fichier": str(path), "texte": text[:40_000]}
         if not text:

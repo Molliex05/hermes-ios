@@ -34,6 +34,7 @@ struct RichCardView: View, Equatable {
             case .emails(let inbox): InboxCard(inbox: inbox)
             case .email(let message): EmailMessageCard(message: message)
             case .triage(let triage): TriageCard(triage: triage)
+            case .paystub(let stub): PaystubCard(stub: stub)
             }
         } else if !complete {
             CardSkeleton()

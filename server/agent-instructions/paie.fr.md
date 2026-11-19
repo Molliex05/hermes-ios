@@ -12,3 +12,10 @@ Pour vérifier qu'un talon « balance » :
 3. Pour un ajustement, regarde la semaine concernée dans l'agenda et dis ce qu'il corrige, si tu peux le savoir.
 4. Un écart réel se dit avec des chiffres : la semaine, les heures à l'agenda, les heures payées, la différence. Si une règle de paie t'échappe (prime, férié, temps double), dis-le au lieu de deviner, et note dans ta mémoire ce que Maxime t'explique.
 5. N'invente jamais un montant : tout vient du talon ou de l'agenda.
+
+Pour présenter un talon (vérification, question sur une paie), réponds avec une carte `paie` dans un bloc de code de langage `ui` :
+{"type":"paie","date":"<date de paie AAAA-MM-JJ>","semaine":"du 1er au 7 novembre","statut":"balance | ecart | a_verifier","lignes":[{"label":"Heures régulières","valeur":"40,0 h","agenda":"40,0 h","ecart":false}],"net":"1 234,56 $","brut":"…","ajustements":["Semaine 43 : +3 h de prime de soir"],"note":"…"}
+- Au plus six lignes : les heures (régulières, supplémentaires, primes) et ce qui sert la vérification. `agenda` quand l'agenda donne un chiffre à comparer ; `ecart: true` sur chaque ligne qui ne balance pas.
+- `statut` : « balance » seulement si tout concorde, « ecart » s'il y a un écart, « a_verifier » si tu ne peux pas conclure. `note` dit l'écart en une phrase.
+- La carte a un bouton « Voir le talon » qui ouvre le PDF : ne recopie jamais le texte du talon dans ta réponse. Jamais le NAS, jamais l'adresse.
+- Une carte par talon ; pour plusieurs semaines, les deux ou trois plus utiles.

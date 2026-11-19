@@ -46,7 +46,7 @@ final class HermesHTTP {
     func request(_ path: String, method: String = "GET", body: JSONValue? = nil, query: [URLQueryItem] = []) async throws -> JSONValue {
         var request = URLRequest(url: connection.endpoint.url(path, query: query))
         request.httpMethod = method
-        request.timeoutInterval = path == "/api/audio/tts-lease" ? 10 : path.hasPrefix("/api/audio/") ? 180 : 20
+        request.timeoutInterval = path == "/api/audio/tts-lease" ? 10 : path.hasPrefix("/api/audio/") ? 180 : path.hasPrefix("/api/plugins/hermes-paie/") ? 90 : 20
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         if let token { request.setValue(token, forHTTPHeaderField: "X-Hermes-Session-Token") }
         if let body {

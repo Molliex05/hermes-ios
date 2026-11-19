@@ -68,6 +68,9 @@ extension CardGlance {
                           Row(symbol: $0.unread ? "circle.fill" : "", label: $0.sender.label, detail: $0.subject,
                               value: $0.date.map { Self.when($0) } ?? "")
                       })
+        case .paystub(let stub):
+            self.init(symbol: "dollarsign.circle.fill", title: "Paie du \(stub.payDate)", value: stub.net,
+                      lines: [stub.week, stub.verdict == .balance ? "Tout balance" : stub.verdict == .gap ? "Écart à revoir" : "À vérifier"])
         case .triage(let triage):
             self.init(symbol: "tray.and.arrow.down.fill", title: triage.title.isEmpty ? "Tri des courriels" : triage.title,
                       value: "\(triage.pendingCount)", lines: ["\(triage.archived) archivés · \(triage.drafts) brouillons",
