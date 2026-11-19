@@ -62,6 +62,13 @@ final class VoiceConversation {
     @ObservationIgnored private var bargeRearmAt = -TimeInterval.infinity
     @ObservationIgnored private var turnActive = false
     @ObservationIgnored private var awaitingUser = false
+    /// The agent's request being answered by voice (an approval, or a question with choices); nil for a secret, which stays
+    /// in the chat. The call asks it aloud, then listens only once its own question has finished playing.
+    @ObservationIgnored private var asking: VoiceAsk?
+    @ObservationIgnored private var askedAt: TimeInterval = 0
+    @ObservationIgnored private var askHeard = false
+    @ObservationIgnored private var askListening = false
+    @ObservationIgnored private var askRetries = 0
     @ObservationIgnored private var bargeRequested = false
     @ObservationIgnored private var interruptedTurn = false
     @ObservationIgnored private var liveSTT = false
@@ -90,6 +97,7 @@ final class VoiceConversation {
     /// Connection|profile pairs whose GPT-Live failed during this app session.
     private static var liveUnavailable = Set<String>()
     private static let waitingNotice = "Hermes attend votre réponse dans le chat. La conversation vocale reprendra ensuite."
+    private static let answerNotice = "Répondez à voix haute (oui ou non) ou touchez la carte."
     private static let busyNotice = "Hermes termine la réponse précédente…"
     private static let localVoiceNotice = "La voix du serveur est indisponible (quota). L’iPhone lit la réponse."
     private static let cardOnlyNotice = "La réponse est dans le chat."
@@ -425,13 +433,27 @@ final class VoiceConversation {
                 }
             }
             if transcript.approval != nil || transcript.clarification != nil || transcript.credential != nil {
-                if !awaitingUser {
-                    awaitingUser = true; phase = .waiting; notice = Self.waitingNotice
-                    if !announced { announced = true; speechStream.send("\n\nJ’attends votre réponse dans le chat de l’application.\n\n") }
+                let ask = VoiceAsk(transcript)
+                if !awaitingUser || ask?.key != asking?.key {
+                    awaitingUser = true; phase = .waiting
+                    asking = ask; askRetries = 0; askHeard = false; askListening = ask != nil; askedAt = now
+                    if let ask {
+                        notice = Self.answerNotice
+                        speechStream.send("\n\n" + ask.question(agent: tools.app.agent?.title ?? "Hermès") + "\n\n")
+                    } else {
+                        notice = Self.waitingNotice
+                        if !announced { announced = true; speechStream.send("\n\nJ’attends votre réponse dans le chat de l’application.\n\n") }
+                    }
+                }
+                if asking != nil, let index = finished.firstIndex(where: { !$0.barge }) {
+                    let utterance = finished.remove(at: index)
+                    let words = try await transcribe(utterance, attempt: attempt)
+                    try validate(attempt)
+                    await answerByVoice(words)
                 }
             } else if awaitingUser {
-                awaitingUser = false; phase = .thinking
-                if notice == Self.waitingNotice { notice = nil }
+                awaitingUser = false; asking = nil; phase = .thinking
+                if notice == Self.waitingNotice || notice == Self.answerNotice { notice = nil }
             }
             if !awaitingUser, speechStream.hasAudio || audio.playing { phase = .speaking }
             if reply.complete { break }
@@ -445,8 +467,8 @@ final class VoiceConversation {
             guard now < deadline else { throw VoiceTurnIssue("Hermes travaille encore. Retrouvez sa réponse dans le chat.") }
             try await Task.sleep(for: .milliseconds(100))
         }
-        awaitingUser = false
-        if notice == Self.waitingNotice { notice = nil }
+        awaitingUser = false; asking = nil
+        if notice == Self.waitingNotice || notice == Self.answerNotice { notice = nil }
         if replyStatus == "error" {
             throw VoiceTurnIssue(tools.app.transcript.failure ?? "Hermes n’a pas pu terminer cette réponse. Elle reste dans le chat.")
         }
@@ -687,7 +709,15 @@ final class VoiceConversation {
             ambientBand.sample(rms: frame.band, duration: frame.duration, multiplier: 2)
             onset.adapt(noiseFloor: detectionFloor)
         }
-        guard !awaitingUser else { return }
+        if awaitingUser {
+            // A request answered by voice: listen once the call's own question has played (never over it).
+            if asking != nil, playing { askHeard = true }
+            let questionDone = askHeard || ProcessInfo.processInfo.systemUptime - askedAt > 6
+            guard asking != nil, askListening, questionDone, !playing, speechStream.queuedSeconds < 0.05 else { return }
+            _ = onset.sample(detection(frame))
+            if onset.hasSpeech { beginUtterance(barge: false, spoken: "", attempt: attempt) }
+            return
+        }
         if turnActive {
             guard var detector = barge, frame.time >= bargeRearmAt else { return }
             let tripped = detector.sample(frame, playing: playing)
@@ -1214,6 +1244,69 @@ private struct VoiceTurnIssue: LocalizedError {
 private struct VoiceLiveUnavailable: Error {
     let message: String
     init(_ message: String) { self.message = message }
+}
+
+extension VoiceConversation {
+    /// Answers the request being asked with what was heard. Unclear: asks once more, then leaves it to the screen.
+    fileprivate func answerByVoice(_ words: String) async {
+        guard let ask = asking else { return }
+        switch ask {
+        case .approval(let request):
+            guard let decision = VoiceRequestAnswer.approval(words) else { return askAgain(VoiceRequestAnswer.notUnderstood) }
+            // One answer per request: what is said next belongs to the conversation again.
+            if await tools.app.answerApproval(decision == .approve ? "once" : "deny", request: request) { askListening = false; Haptics.select() }
+        case .choice(let request, let qid, let question, let choices):
+            let trimmed = words.trimmingCharacters(in: .whitespacesAndNewlines)
+            let picked = choices.isEmpty ? (trimmed.isEmpty ? nil : trimmed) : VoiceRequestAnswer.choice(trimmed, among: choices)
+            guard let picked else { return askAgain("Je n’ai pas compris. " + VoiceRequestAnswer.choiceQuestion(question, choices: choices)) }
+            if await tools.app.answerClarification(picked, request: request, qid: qid) { askListening = false; Haptics.select() }
+        }
+    }
+
+    private func askAgain(_ line: String) {
+        phase = .waiting
+        if askRetries == 0 {
+            askRetries = 1; askHeard = false; askedAt = ProcessInfo.processInfo.systemUptime
+            speechStream.send("\n\n" + line + "\n\n")
+        } else {
+            askListening = false
+            speechStream.send("\n\n" + VoiceRequestAnswer.answerOnScreen + "\n\n")
+        }
+    }
+}
+
+/// A request of the agent that a voice call can answer: an approval Hermes allows once (not one the guardian refused), or
+/// the next question of a clarification. Secrets (sudo, keys, codes) never qualify: they are not said aloud.
+enum VoiceAsk: Equatable {
+    case approval(JSONValue)
+    case choice(JSONValue, qid: String, question: String, choices: [String])
+
+    @MainActor init?(_ transcript: Transcript) {
+        guard transcript.credential == nil else { return nil }
+        if let approval = transcript.approval {
+            let choices = approval["choices"].array
+            guard choices.contains(.string("once")), choices.contains(.string("deny")), !approval["smart_denied"].bool else { return nil }
+            self = .approval(approval)
+        } else if let clarification = transcript.clarification, let next = ClarificationCard.pendingQuestions(clarification).first {
+            self = .choice(clarification, qid: next.id, question: next.question, choices: next.choices)
+        } else {
+            return nil
+        }
+    }
+
+    var key: String {
+        switch self {
+        case .approval(let request): "a:" + request["rpc_id"].string + request["request_id"].string
+        case .choice(let request, let qid, _, _): "c:" + request["rpc_id"].string + qid
+        }
+    }
+
+    func question(agent: String) -> String {
+        switch self {
+        case .approval: VoiceRequestAnswer.approvalQuestion(agent: agent)
+        case .choice(_, _, let question, let choices): VoiceRequestAnswer.choiceQuestion(question, choices: choices)
+        }
+    }
 }
 
 /// The call on screen: what the Live Activity's buttons act on.

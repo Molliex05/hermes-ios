@@ -160,6 +160,12 @@ struct VoiceView: View {
     }
 
     @ViewBuilder private var messages: some View {
+        // The agent's request, as in the chat: answered by voice or with a touch, without leaving the call.
+        if let approval = app.transcript.approval {
+            ApprovalCard(payload: approval, model: app).equatable().id(approval["rpc_id"].string + approval["request_id"].string).padding(.top, 18)
+        } else if let clarification = app.transcript.clarification, ClarificationCard.hasPendingQuestions(clarification) {
+            ClarificationCard(payload: clarification, model: app).equatable().id(clarification["rpc_id"].string + clarification["request_id"].string).padding(.top, 18)
+        }
         if conversation.requiresStandardMode { standardModePrompt.padding(.top, 22) }
         if let error = conversation.error { errorMessage(error).padding(.top, 20) }
         else if let notice = conversation.notice { noticeMessage(notice).padding(.top, 20) }

@@ -158,6 +158,7 @@
 		BDE7E9AD8486B77176875B30 /* ConversationIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5045723AB4101C15BB122A44 /* ConversationIndex.swift */; };
 		BDEEE1E227207A516C183154 /* VoiceProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B9EAF63DBFAA0C87C5FAAFD /* VoiceProgress.swift */; };
 		BFB991CE16F9E769A48BD267 /* CallIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 783477DED5F076C5B220BFC0 /* CallIntents.swift */; };
+		C05BDDA7296D35882399CC22 /* VoiceRequestAnswer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1B90FEE6D75B9F71A2962343 /* VoiceRequestAnswer.swift */; };
 		C0F97796889C0EF73909DE34 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6736CBC0AB49572EDDC3502 /* AppModel.swift */; };
 		C414AC803088CB868E2A7381 /* WebRTC-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 191FD2CA28F784715C57C83D /* WebRTC-LICENSE.txt */; };
 		C4E5F98CEC41BFB069485A78 /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = 185269B34B53A2F564E2CD38 /* Keychain.swift */; };
@@ -300,6 +301,7 @@
 		185269B34B53A2F564E2CD38 /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		191FD2CA28F784715C57C83D /* WebRTC-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "WebRTC-LICENSE.txt"; sourceTree = "<group>"; };
 		19B9D9CC524C6E12BC3360D4 /* KanbanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanbanView.swift; sourceTree = "<group>"; };
+		1B90FEE6D75B9F71A2962343 /* VoiceRequestAnswer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRequestAnswer.swift; sourceTree = "<group>"; };
 		1C1CA4BD09AAD37D7D849AF6 /* AgentSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSettingsView.swift; sourceTree = "<group>"; };
 		1C508AA7C9E85121414A024E /* HermesIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesIOSApp.swift; sourceTree = "<group>"; };
 		1F1F6D19D24AB9279FB9BC67 /* CarPlayScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayScene.swift; sourceTree = "<group>"; };
@@ -805,6 +807,7 @@
 				5FFBB999CB80F593A702DC86 /* VoiceLiveProtocol.swift */,
 				92A2BB106302AD38E8FB4767 /* VoiceNoiseFloor.swift */,
 				0B9EAF63DBFAA0C87C5FAAFD /* VoiceProgress.swift */,
+				1B90FEE6D75B9F71A2962343 /* VoiceRequestAnswer.swift */,
 				2FA5B594D96A6A55C14D98BA /* VoiceStreams.swift */,
 				33653FCB4712F78B59195DEF /* VoiceTextCursor.swift */,
 				26272BFF6993226D5281C095 /* WidgetBlock.swift */,
@@ -1239,6 +1242,7 @@
 				BACC5A498A68882663AD5B37 /* VoiceMetrics.swift in Sources */,
 				5757F16F224868FE2B6565D2 /* VoiceNoiseFloor.swift in Sources */,
 				BDEEE1E227207A516C183154 /* VoiceProgress.swift in Sources */,
+				C05BDDA7296D35882399CC22 /* VoiceRequestAnswer.swift in Sources */,
 				D4431BD400879D502BDD748A /* VoiceSamples.swift in Sources */,
 				C87C5E2A7A4031795423E7C0 /* VoiceSettingsView.swift in Sources */,
 				73B2167D11DF44147AD7EC05 /* VoiceStreams.swift in Sources */,
