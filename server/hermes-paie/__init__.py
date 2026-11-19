@@ -46,10 +46,17 @@ def _error(message: str) -> str:
     return json.dumps({"ok": False, "erreur": message}, ensure_ascii=False)
 
 
+def _env(name: str) -> str:
+    """Le .env du profil de la conversation (comme les autres plugins), sinon l'environnement du processus."""
+    try:
+        from hermes_cli.config import get_env_value
+        return str(get_env_value(name) or "").strip()
+    except Exception:
+        return os.environ.get(name, "").strip()
+
+
 def _service() -> tuple:
-    url = (os.environ.get("HERMES_PAIE_URL") or DEFAULT_URL).rstrip("/")
-    token = (os.environ.get("HERMES_PAIE_TOKEN") or "").strip()
-    return url, token
+    return (_env("HERMES_PAIE_URL") or DEFAULT_URL).rstrip("/"), _env("HERMES_PAIE_TOKEN")
 
 
 def _call(method: str, path: str, timeout: int):
