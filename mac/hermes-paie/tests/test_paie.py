@@ -131,6 +131,13 @@ class Service(unittest.TestCase):
             status, kind, body = self.call(path="/talon/2026-11-12")
         self.assertEqual((status, kind, body), (200, "application/pdf", b"%PDF-1.7"))
 
+    def test_the_layout_text_of_a_payslip_by_date(self):
+        with mock.patch.object(paie, "read_text", return_value="Période travaillée 2026-45   40,00"):
+            status, kind, body = self.call(path="/texte/2026-11-19")
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["texte"], "Période travaillée 2026-45   40,00")
+        self.assertEqual(self.call(path="/texte/../x")[0], 404)
+
     def test_failures_are_told_plainly(self):
         with mock.patch.object(paie, "synchronize", side_effect=paie.LoginRefused("MaPaie.net a refusé la connexion")):
             status, _, body = self.call(method="POST", path="/synchroniser")

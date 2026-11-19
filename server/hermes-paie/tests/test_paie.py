@@ -56,7 +56,8 @@ class Tools(unittest.TestCase):
         return mock.patch("requests.get", side_effect=get)
 
     def test_read_saves_the_pdf_in_the_profile_and_asks_by_date_only(self):
-        with self.fetched(Response(200, b"%PDF-1.7 talon")), mock.patch.object(paie, "_text", return_value="Période travaillée 2026-45"):
+        with self.fetched(Response(200, b"%PDF-1.7 talon")), mock.patch.object(paie, "_layout_text", return_value=""), \
+                mock.patch.object(paie, "_text", return_value="Période travaillée 2026-45"):
             result = json.loads(paie.read({"date": "2026-11-19"}))
             again = json.loads(paie.read({"date": "2026-11-19"}))
         self.assertEqual(self.calls, [("GET", "/talon/2026-11-19")], "the second read uses the profile's copy")
@@ -64,6 +65,12 @@ class Tools(unittest.TestCase):
         self.assertTrue(result["ok"]); self.assertIn("2026-45", result["texte"])
         self.assertEqual(Path(result["fichier"]).read_bytes(), b"%PDF-1.7 talon")
         self.assertEqual(Path(result["fichier"]).parent, Path(self.home.name) / "paie")
+
+    def test_the_macs_layout_text_comes_first(self):
+        with self.fetched(Response(200, b"%PDF-1.7 talon")), self.answer(Response(200, {"ok": True, "texte": "Période travaillée 2026-45   40,00"})), \
+                mock.patch.object(paie, "_text", return_value="texte pauvre"):
+            result = json.loads(paie.read({"date": "2026-11-19"}))
+        self.assertEqual(result["texte"], "Période travaillée 2026-45   40,00")
 
     def test_read_refuses_anything_but_a_date(self):
         for bad in ("../../etc/passwd", "2026-11-19/../x", "", "2026-13-45"):

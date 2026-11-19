@@ -346,6 +346,17 @@ def read(root: Path, pay_date: dt.date) -> bytes:
     return data
 
 
+def read_text(root: Path, pay_date: dt.date) -> str:
+    """Le texte d'un talon classé, colonnes alignées comme sur le papier (pdftotext -layout)."""
+    paths = filed(root).get(pay_date)
+    if not paths:
+        raise PaieError(f"Aucun talon classé pour le {pay_date.isoformat()}.")
+    text = pdf_text(local_pdf(sorted(paths, key=lambda p: p.suffix != ".pdf")[0]))
+    if not text.strip():
+        raise PaieError("Le texte de ce talon n'a pas pu être extrait sur le Mac.")
+    return text
+
+
 def status(root: Path = ROOT, today: Optional[dt.date] = None) -> Dict[str, object]:
     state = _read_state()
     return {"ok": True, **summary(root, today or dt.date.today()),

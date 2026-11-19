@@ -26,9 +26,10 @@ SYNC_DESCRIPTION = (
     "Lis ensuite un talon avec paie_lire."
 )
 READ_DESCRIPTION = (
-    "Donne le talon de paie complet d'une date de paie (un jeudi, AAAA-MM-JJ) : le PDF est copié dans le dossier `paie` du "
-    "profil et son texte intégral est renvoyé (heures, taux, gains, déductions, cumuls). Le talon contient des données "
-    "personnelles : n'en recopie que ce qui sert la réponse."
+    "Donne le talon de paie complet d'une date de paie (un jeudi, AAAA-MM-JJ) : son texte intégral, colonnes alignées comme "
+    "sur le papier (périodes, heures, taux, gains, déductions, cumuls), et le PDF copié dans le dossier `paie` du profil. "
+    "Ce texte suffit : ne relis jamais le PDF avec un script. Le talon contient des données personnelles : n'en recopie que "
+    "ce qui sert la réponse."
 )
 SYNC_SCHEMA = {"name": "paie_synchroniser", "description": SYNC_DESCRIPTION,
                "parameters": {"type": "object", "properties": {}, "additionalProperties": False}}
@@ -120,6 +121,14 @@ def _text(path: Path) -> str:
         return ""
 
 
+def _layout_text(day: dt.date) -> str:
+    """Le texte du talon tel que le Mac le lit (colonnes alignées, périodes comprises) ; vide si le Mac ne le donne pas."""
+    try:
+        return str(_json(_call("GET", f"/texte/{day.isoformat()}", READ_TIMEOUT)).get("texte") or "")
+    except Exception:
+        return ""
+
+
 def synchronize(args, **kwargs) -> str:
     try:
         return json.dumps(_json(_call("POST", "/synchroniser", SYNC_TIMEOUT)), ensure_ascii=False)
@@ -135,7 +144,7 @@ def read(args, **kwargs) -> str:
         day = dt.date.fromisoformat(raw)
         url, token = _service()
         path = fetch_pdf(day, url, token, _folder())
-        text = _text(path)
+        text = _layout_text(day) or _text(path)
         result = {"ok": True, "date": day.isoformat(), "fichier": str(path), "texte": text[:40_000]}
         if not text:
             result["note"] = "Le texte n'a pas pu être extrait ici : lis le fichier avec read_file."

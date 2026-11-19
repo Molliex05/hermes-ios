@@ -10,6 +10,7 @@ Routes :
   GET  /etat                  ce qui est classé et ce qui manque (sans se connecter à MaPaie.net)
   POST /synchroniser          range dans iCloud les talons publiés qui manquent
   GET  /talon/AAAA-MM-JJ      le PDF d'un talon classé (par sa date seulement : aucun chemin de fichier n'est accepté)
+  GET  /texte/AAAA-MM-JJ      son texte, colonnes alignées (pdftotext -layout)
 """
 from __future__ import annotations
 
@@ -67,12 +68,14 @@ def respond(method: str, path: str, headers: dict, peer: str, local: str, expect
             return answer(200, paie.status())
         if method == "POST" and path == "/synchroniser":
             return answer(200, paie.synchronize())
-        match = re.fullmatch(r"/talon/(\d{4}-\d{2}-\d{2})", path)
+        match = re.fullmatch(r"/(talon|texte)/(\d{4}-\d{2}-\d{2})", path)
         if method == "GET" and match:
             try:
-                day = dt.date.fromisoformat(match.group(1))
+                day = dt.date.fromisoformat(match.group(2))
             except ValueError:
                 return answer(400, {"ok": False, "erreur": "Date invalide."})
+            if match.group(1) == "texte":
+                return answer(200, {"ok": True, "date": day.isoformat(), "texte": paie.read_text(paie.ROOT, day)})
             return 200, "application/pdf", paie.read(paie.ROOT, day)
         return answer(404, {"ok": False, "erreur": "Route inconnue."})
     except paie.PaieError as error:
