@@ -100,6 +100,9 @@ final class AppModel {
             refreshPresence()
             if voiceActive != oldValue { voiceActive ? startCallActivity() : LiveActivities.shared.endCall() }
             if !voiceActive { backgroundCall = nil; AgentCalls.shared.voiceEnded() }
+            // A call started outside the voice screen (an agent's call answered, then unlocked with the app in front)
+            // shows its screen at once, the way a return to the app already does (`setForeground`).
+            if voiceActive, !oldValue, foreground, backgroundCall != nil { pendingVoiceLaunch = true }
         }
     }
     var importingAttachments = false
