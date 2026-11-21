@@ -94,7 +94,7 @@ extension BoardWidgetView {
         let after = hero.flatMap { next(after: $0).first }
         return VStack(alignment: .leading, spacing: 7) {
             dayHeader
-            dayStrip(labels: false)
+            dayStrip(labels: false).padding(.bottom, 5)   // room between the strip and the line under it
             if let hero {
                 link(hero) {
                     HStack(alignment: .center, spacing: 10) {
