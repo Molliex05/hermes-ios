@@ -62,6 +62,9 @@ dans les jeux d'outils des tâches (`hermes tools enable … --platform cron`).
 - Déployé le 2026-11-04 : « Point du matin » (noriven, `4146b1236c72`), livré dans le Bot Chat. Il remplace la surveillance par un seul passage quotidien sur les courriels Noriven.
   `hermes -p noriven cron create --name "Point du matin" --deliver bot-chat --continuity "15 8 * * *" "$(cat hermes-matin.prompt.fr.txt)"`
 
+- Déployé le 2026-11-21 : la paie met son verdict dans le widget de Jarvis (étape 5 du prompt, règle « Paie » du SOUL, `widget_bloc`
+  emplacement `paie`, sans montant). Jeu d'outils `widget_publier` ajouté à `platform_toolsets.cron` de personnel ; copies
+  `SOUL.md`, `config.yaml` et `cron/jobs.json` en `.bak-widget-paie-20261121`.
 - Déployé le 2026-11-18 : « Paie de la semaine » (personnel, `c463f77da5b6`, créée en pause). Plugin `hermes-paie` 0.1.0 (lié dans
   `personnel/plugins/`, jeu d'outils `paie` exclu d'`api_server`), règle « Paie » du SOUL (`SOUL.md.bak-paie-20261118`) et
   `context_from` du « Résumé de la journée » (`["self", "c463f77da5b6"]`, copie `cron/jobs.json.bak-paie-20261118`). Le service du

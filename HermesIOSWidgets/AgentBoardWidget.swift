@@ -327,7 +327,7 @@ private struct DayBar: View {
 }
 
 /// « Maintenant », or « dans 45 min » counting down by itself.
-private struct Countdown: View {
+struct Countdown: View {
     let row: BoardRow
     let color: Color
     var body: some View {
@@ -361,9 +361,9 @@ struct BoardWidgetView: View {
         case .accessoryInline, .accessoryRectangular: accessory
         case .systemSmall where entry.role == .desk: deskSmall
         case .systemMedium where entry.role == .desk: deskMedium
+        case .systemMedium: dayMedium
         case .systemLarge where entry.role == .desk: deskLarge
         case .systemSmall: if showsBackground { small } else { farSmall }
-        case .systemMedium: medium
         default: large
         }
     }
@@ -476,7 +476,7 @@ struct BoardWidgetView: View {
     }
 
     /// « JEUDI 29 OCTOBRE » on one line.
-    fileprivate func dateCaps(_ font: Font = .caption2) -> some View {
+    func dateCaps(_ font: Font = .caption2) -> some View {
         Text(entry.date, format: .dateTime.weekday(.wide).day().month(.wide)).environment(\.locale, Self.french)
             .font(font.weight(.bold)).textCase(.uppercase).foregroundStyle(accent).lineLimit(1).minimumScaleFactor(0.7)
     }
@@ -493,13 +493,13 @@ struct BoardWidgetView: View {
     private var rainColor: Color { dark ? Color(red: 0.45, green: 0.7, blue: 1.0) : Color(red: 0.12, green: 0.4, blue: 0.85) }
 
     /// A weather symbol in its own colours (a yellow sun, a grey cloud); an unknown name is a plain cloud.
-    fileprivate func wx(_ symbol: String, _ size: CGFloat) -> some View {
+    func wx(_ symbol: String, _ size: CGFloat) -> some View {
         Image(systemName: UIImage(systemName: symbol) != nil ? symbol : "cloud.fill").symbolRenderingMode(.multicolor)
             .font(.system(size: size)).frame(width: size * 1.35, height: size * 1.15)       // one box for every symbol: a cloud and a sun differ in height, and what sits under them must line up
             .accessibilityHidden(true)
     }
 
-    fileprivate func degrees(_ value: Int?) -> String { value.map { "\($0)°" } ?? "–" }
+    func degrees(_ value: Int?) -> String { value.map { "\($0)°" } ?? "–" }
 
     /// « Couvert · ressenti 6° · vent 14 km/h ».
     private func conditions(_ report: WeatherReport, wind: Bool = true) -> String {
@@ -510,7 +510,7 @@ struct BoardWidgetView: View {
     }
 
     /// « ↑10° ↓3° » and the chance of rain when it is worth saying.
-    fileprivate func highLow(_ day: WeatherReport.Day?) -> String {
+    func highLow(_ day: WeatherReport.Day?) -> String {
         guard let day else { return "" }
         return ["↑\(day.high)° ↓\(day.low)°", day.rain >= 30 ? "pluie \(day.rain) %" : ""].filter { !$0.isEmpty }.joined(separator: " · ")
     }
@@ -572,7 +572,7 @@ struct BoardWidgetView: View {
     }
 
     /// « Maintenant », « dans 45 min », else the place.
-    @ViewBuilder private func sub(_ row: BoardRow) -> some View {
+    @ViewBuilder func sub(_ row: BoardRow) -> some View {
         if row.phase == .now || row.phase == .next { Countdown(row: row, color: color(row)) }
         else if !row.item.detail.isEmpty { Text(row.item.detail).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
     }
@@ -641,7 +641,7 @@ struct BoardWidgetView: View {
         }
     }
 
-    private func next(after hero: BoardRow) -> [BoardRow] { entry.rows.first { $0.id != hero.id && $0.phase != .past }.map { [$0] } ?? [] }
+    func next(after hero: BoardRow) -> [BoardRow] { entry.rows.first { $0.id != hero.id && $0.phase != .past }.map { [$0] } ?? [] }
 
     fileprivate func smallHero(_ hero: BoardRow, showNext: Bool) -> some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -661,130 +661,7 @@ struct BoardWidgetView: View {
         }
     }
 
-    private var medium: some View {
-        Group {
-            if !entry.sections.isEmpty {
-                mediumComposed(entry.sections)
-            } else if let weather = entry.weather, !entry.upcomingRows.isEmpty || !entry.note.isEmpty {
-                mediumSplit(weather)
-            } else if entry.live != nil, let hero = entry.hero {
-                mediumBoard(hero)
-            } else if let weather = entry.weather {
-                mediumWeather(weather)
-            } else {
-                mediumCalm
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func mediumBoard(_ hero: BoardRow) -> some View {
-        let rest = entry.rows.filter { $0.id != hero.id }
-        let focus = entry.note
-        let shown = Array(rest.prefix(bigText ? 2 : focus.isEmpty ? 4 : 3))
-        return HStack(alignment: .top, spacing: 12) {
-            link(hero) {
-                VStack(alignment: .leading, spacing: 0) {
-                    HStack(alignment: .top) {
-                        bigTime(hero)
-                        Spacer(minLength: 4)
-                        Tile(symbol: BoardTone.symbol(hero.item), color: color(hero), size: 30)
-                    }
-                    Spacer(minLength: 4)
-                    Text(hero.item.text).font(.headline).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                    sub(hero).padding(.top, 2)
-                }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }.frame(width: 138)
-            RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1).frame(maxHeight: .infinity)
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(shown) { row in
-                    link(row) { compactRow(row) }.frame(minHeight: 26, maxHeight: 40)
-                }
-                if rest.isEmpty && focus.isEmpty { Text("C’est tout pour l’instant.").font(.caption).foregroundStyle(.secondary) }
-                Spacer(minLength: 0)
-                noteLine([hero] + shown)
-            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-    }
-
-    /// Half weather, half agenda: the weather now on the left, what is coming (and the agent's note) on the right.
-    private func mediumSplit(_ weather: WeatherReport) -> some View {
-        let rows = Array(entry.upcomingRows.prefix(bigText ? 2 : entry.note.isEmpty ? 4 : 3))
-        return HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 1) {
-                dateCaps()
-                Spacer(minLength: 2)
-                HStack(spacing: 6) {
-                    wx(entry.weatherSymbol, 26)
-                    Text(degrees(entry.temperature)).font(.system(size: 34, weight: .bold, design: .rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
-                }
-                Text(weather.summary).font(.caption.weight(.semibold)).lineLimit(1)
-                Text(highLow(entry.today)).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
-                Spacer(minLength: 2)
-                dayLeft()
-            }.frame(width: 128, alignment: .leading).frame(maxHeight: .infinity, alignment: .topLeading)
-            RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1).frame(maxHeight: .infinity)
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(rows) { row in link(row) { compactRow(row) }.frame(minHeight: 26, maxHeight: 40) }
-                if rows.isEmpty { Text(agendaEmptyText).font(.caption).foregroundStyle(.secondary) }
-                Spacer(minLength: 0)
-                noteLine(rows)
-            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-    }
-
     private var agendaEmptyText: String { entry.dayDone ? "Journée terminée" : entry.freeDay ? "Rien à l’agenda aujourd’hui" : "Rien à l’affiche" }
-
-    /// The weather now at the top left, the day's ring at the top right, the next hours across the bottom.
-    private func mediumWeather(_ weather: WeatherReport) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 1) {
-                    dateCaps()
-                    HStack(spacing: 8) {
-                        wx(entry.weatherSymbol, 28)
-                        Text(degrees(entry.temperature)).font(.system(size: 36, weight: .bold, design: .rounded)).monospacedDigit().lineLimit(1)
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(weather.summary).font(.caption.weight(.semibold)).lineLimit(1)
-                            Text(highLow(entry.today)).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
-                        }
-                    }
-                }
-                Spacer(minLength: 6)
-                ring(34)
-            }
-            Spacer(minLength: 4)
-            hoursRow(bigText ? 4 : 6, rain: false)
-        }
-    }
-
-    /// No weather and nothing on the board.
-    private var mediumCalm: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top) {
-                    dateBlock(day: 34)
-                    Spacer(minLength: 4)
-                    ring(32)
-                }
-                Spacer(minLength: 4)
-                Text(shortStatus).font(.caption.weight(.semibold)).foregroundStyle(accent).lineLimit(1)
-            }.frame(width: 138, alignment: .leading).frame(maxHeight: .infinity, alignment: .topLeading)
-            RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1).frame(maxHeight: .infinity)
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Journée").font(.system(size: 9, weight: .bold)).textCase(.uppercase).foregroundStyle(accent)
-                dayLeft(.title3.weight(.bold)).foregroundStyle(.primary)
-                DayBar(progress: entry.dayProgress, color: accent)
-                HStack {
-                    ForEach(["6 h", "12 h", "18 h", "23 h"], id: \.self) { label in
-                        Text(label).font(.system(size: 9, weight: .medium)).foregroundStyle(.tertiary)
-                        if label != "23 h" { Spacer() }
-                    }
-                }
-                Spacer(minLength: 0)
-            }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-    }
 
     private var large: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -826,6 +703,8 @@ struct BoardWidgetView: View {
             }
             Spacer(minLength: 0)
         }.frame(maxHeight: .infinity, alignment: .top)
+        dayStrip(labels: true)
+        if let pay = payBlock { blockLine(pay) }
         if !entry.note.isEmpty { focusBox(entry.note, compact: bigText) }
         actions
     }
@@ -852,6 +731,7 @@ struct BoardWidgetView: View {
             }
         }
         hoursRow(6, rain: true)
+        dayStrip(labels: true)
         Rectangle().fill(Color.primary.opacity(0.1)).frame(height: 1)
         let rows = Array(entry.upcomingRows.prefix(bigText ? 2 : entry.note.isEmpty ? 4 : 3))
         HStack(spacing: 5) {
@@ -874,6 +754,7 @@ struct BoardWidgetView: View {
             }
             Spacer(minLength: 0)
         }.frame(maxHeight: .infinity, alignment: .top)
+        if let pay = payBlock { blockLine(pay) }
         if !entry.note.isEmpty { focusBox(entry.note, compact: bigText) }
         actions
     }
@@ -1025,55 +906,6 @@ extension BoardWidgetView {
         case .block(let block):
             BoardBlockView(block: block, palette: entry.palette, style: .small)
         }
-    }
-
-    /// Two pieces side by side; with only one, the weather (else the date) keeps the left half.
-    fileprivate func mediumComposed(_ sections: [BoardEntry.Section]) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            if sections.count >= 2 {
-                halfSection(sections[0])
-                divider
-                halfSection(sections[1])
-            } else {
-                Group {
-                    if entry.weather != nil { halfSection(.meteo) } else { dateBlock(day: 34).frame(maxHeight: .infinity, alignment: .topLeading) }
-                }.frame(width: 128, alignment: .leading)
-                divider
-                halfSection(sections[0])
-            }
-        }
-    }
-
-    private var divider: some View { RoundedRectangle(cornerRadius: 1).fill(Color.primary.opacity(0.1)).frame(width: 1).frame(maxHeight: .infinity) }
-
-    @ViewBuilder private func halfSection(_ section: BoardEntry.Section) -> some View {
-        Group {
-            switch section {
-            case .meteo:
-                if let weather = entry.weather {
-                    VStack(alignment: .leading, spacing: 1) {
-                        dateCaps()
-                        Spacer(minLength: 2)
-                        HStack(spacing: 6) {
-                            wx(entry.weatherSymbol, 24)
-                            Text(degrees(entry.temperature)).font(.system(size: 30, weight: .bold, design: .rounded)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
-                        }
-                        Text(weather.summary).font(.caption.weight(.semibold)).lineLimit(1)
-                        Text(highLow(entry.today)).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
-                        Spacer(minLength: 0)
-                    }
-                }
-            case .affiche:
-                let rows = Array(entry.upcomingRows.prefix(bigText ? 2 : entry.note.isEmpty ? 3 : 2))
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(rows) { row in link(row) { compactRow(row) }.frame(minHeight: 24, maxHeight: 36) }
-                    Spacer(minLength: 0)
-                    noteLine(rows)
-                }
-            case .block(let block):
-                blockLink(block) { BoardBlockView(block: block, palette: entry.palette, style: .compact) }
-            }
-        }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     /// The date and the weather in one line, then as many bands as fit (four at most).

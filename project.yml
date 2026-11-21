@@ -70,6 +70,7 @@ targets:
           - SharedBlob.swift
           - AgentBoard.swift
           - BoardDesk.swift
+          - DayStrip.swift
           - WidgetBlock.swift
           - CardGlance.swift
       - path: HermesIOS/LiveActivity

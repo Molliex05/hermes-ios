@@ -104,6 +104,7 @@
 		83C379CC804844BE37694A45 /* GroupsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 399BB0F5CE1F8FF278DE6053 /* GroupsView.swift */; };
 		8610E270BF29B6493850123C /* web-cherche.pcm in Resources */ = {isa = PBXBuildFile; fileRef = 9E3094D370FF8C0E5B303161 /* web-cherche.pcm */; };
 		86C4EF693632EE046319A6CD /* AgentLook.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98AA1ACBDDA529E8147CB542 /* AgentLook.swift */; };
+		8777FCDB1D99DCD945F913B7 /* DayStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E3C91F1E7FF9FE3703339A /* DayStrip.swift */; };
 		87CF654D7D7185292175380D /* Transcript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0133611339BB4310770DF600 /* Transcript.swift */; };
 		89135DE6AC23EF8D02F38393 /* BoardDesk.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF11FFCDAE3BC9EF60D22841 /* BoardDesk.swift */; };
 		896523BF78230ECF8B565827 /* DeskWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 899D64D9282D74A7ECD2799C /* DeskWidgetViews.swift */; };
@@ -138,6 +139,7 @@
 		A95A1A969026C220303DA621 /* DraftAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = B083DF2BEBD828CF266749E2 /* DraftAttachment.swift */; };
 		AAAFC9C5AB58ED7F81D94A8E /* NotificationAvatar.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB6654114FD77B90312DE557 /* NotificationAvatar.swift */; };
 		AADE0DBCBE2CB80A20E9C5C5 /* LinkPreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF0E2A096609367B94AB7780 /* LinkPreviews.swift */; };
+		AB483A02490CA3864315DF7A /* DayStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26E3C91F1E7FF9FE3703339A /* DayStrip.swift */; };
 		ABA9D5840897492F3D791A22 /* WidgetBlock.swift in Sources */ = {isa = PBXBuildFile; fileRef = 26272BFF6993226D5281C095 /* WidgetBlock.swift */; };
 		ABCCADA0778FB2EE84A5D9D2 /* JSONValue.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03771C2DF46F958CA751A93C /* JSONValue.swift */; };
 		ABE49A90CBFAA89B87DFC0E9 /* CarPlayScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F1F6D19D24AB9279FB9BC67 /* CarPlayScene.swift */; };
@@ -151,6 +153,7 @@
 		B4F7674BD7E40625FFA1833A /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C4EE51D78FA0482C1CE5323 /* OnboardingView.swift */; };
 		B5CF2AD754D560B1008E216E /* RichCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AEFC910E5CBFB0EDE731D28 /* RichCards.swift */; };
 		B65D72CB6A9A04874540B07D /* ConversationTitle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6BB1418556563AAEF6FBCE6 /* ConversationTitle.swift */; };
+		B7176FDF868DEA3BA822DE91 /* DayWidgetViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D1E97AC3DAF8791BFF6E51B /* DayWidgetViews.swift */; };
 		B8683193F9756EE676D1E4DB /* NotificationEnvelope.swift in Sources */ = {isa = PBXBuildFile; fileRef = E42A71A430869150B40B16D6 /* NotificationEnvelope.swift */; };
 		B9769A1645106A420D44BF99 /* web.wav in Resources */ = {isa = PBXBuildFile; fileRef = 79C37338BEC56A3322AAC1CF /* web.wav */; };
 		BA6318803D1A3C27303451A8 /* ScrollGap.swift in Sources */ = {isa = PBXBuildFile; fileRef = F422B4D6EFE7EBEF4D11C54C /* ScrollGap.swift */; };
@@ -313,6 +316,7 @@
 		224CAC4570952840E57256D5 /* AgentConfigStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentConfigStore.swift; sourceTree = "<group>"; };
 		23406111A6D8CD5FE59A411C /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		26272BFF6993226D5281C095 /* WidgetBlock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetBlock.swift; sourceTree = "<group>"; };
+		26E3C91F1E7FF9FE3703339A /* DayStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayStrip.swift; sourceTree = "<group>"; };
 		2717CCF90B5F1FC42676E709 /* VoiceBench.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceBench.swift; sourceTree = "<group>"; };
 		2BB69B8FF1C16F9DAD19B5C3 /* AgentIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentIntents.swift; sourceTree = "<group>"; };
 		2BFBAC9B6E331893F7ADA152 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -390,6 +394,7 @@
 		8A54B12A9499936CBAE46FFC /* comptes.pcm */ = {isa = PBXFileReference; path = comptes.pcm; sourceTree = "<group>"; };
 		8A63F8F4353EC7F32A9C2FF8 /* LiveActivities.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivities.swift; sourceTree = "<group>"; };
 		8B989A6021842DF3745AC235 /* ChatComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatComposer.swift; sourceTree = "<group>"; };
+		8D1E97AC3DAF8791BFF6E51B /* DayWidgetViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DayWidgetViews.swift; sourceTree = "<group>"; };
 		8D8B28DC974E0B722C84B924 /* widget.pcm */ = {isa = PBXFileReference; path = widget.pcm; sourceTree = "<group>"; };
 		92A2BB106302AD38E8FB4767 /* VoiceNoiseFloor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceNoiseFloor.swift; sourceTree = "<group>"; };
 		94007CB33EECD7455229853A /* VoiceLiveTransportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceLiveTransportTests.swift; sourceTree = "<group>"; };
@@ -494,6 +499,7 @@
 				E31E8D5E5B6D38BAEB4EB697 /* AgentBoardWidget.swift */,
 				17AACE64A807F803F74D5A3C /* BoardBlockView.swift */,
 				706A505BDF096F69BC167BD7 /* CallControl.swift */,
+				8D1E97AC3DAF8791BFF6E51B /* DayWidgetViews.swift */,
 				899D64D9282D74A7ECD2799C /* DeskWidgetViews.swift */,
 				0B53C79BCCEEDFBAEE6E54DE /* HermesIOSWidgets.entitlements */,
 				BFB1DB514EF6A36E1A2334FF /* HermesIOSWidgetsBundle.swift */,
@@ -779,6 +785,7 @@
 				46031F875793783DE776A6F7 /* ConversationActivity.swift */,
 				5045723AB4101C15BB122A44 /* ConversationIndex.swift */,
 				D6BB1418556563AAEF6FBCE6 /* ConversationTitle.swift */,
+				26E3C91F1E7FF9FE3703339A /* DayStrip.swift */,
 				B083DF2BEBD828CF266749E2 /* DraftAttachment.swift */,
 				5AA9531D4948791BED70E2CD /* EmailCards.swift */,
 				EA403258EBDBCDA2BBA568D1 /* Endpoint.swift */,
@@ -1163,6 +1170,7 @@
 				BDE7E9AD8486B77176875B30 /* ConversationIndex.swift in Sources */,
 				B65D72CB6A9A04874540B07D /* ConversationTitle.swift in Sources */,
 				48C38EA4D6AF9C7DE6F2E160 /* CredentialsSettingsView.swift in Sources */,
+				AB483A02490CA3864315DF7A /* DayStrip.swift in Sources */,
 				A95A1A969026C220303DA621 /* DraftAttachment.swift in Sources */,
 				FAE781DE367CD7BAE34BC157 /* DraftCard.swift in Sources */,
 				FD9C5ED3D208FA08D91D2556 /* DrivingLocation.swift in Sources */,
@@ -1284,6 +1292,8 @@
 				3F7CA54239926778EBD14A61 /* CallControl.swift in Sources */,
 				E9B582F274E3430DFA656D2A /* CallIntents.swift in Sources */,
 				7B365916039D795D671067A5 /* CardGlance.swift in Sources */,
+				8777FCDB1D99DCD945F913B7 /* DayStrip.swift in Sources */,
+				B7176FDF868DEA3BA822DE91 /* DayWidgetViews.swift in Sources */,
 				896523BF78230ECF8B565827 /* DeskWidgetViews.swift in Sources */,
 				67D1D9310384B74414E2E884 /* HermesActivityAttributes.swift in Sources */,
 				5CC1A8995D0FA687FF648279 /* HermesIOSWidgetsBundle.swift in Sources */,
