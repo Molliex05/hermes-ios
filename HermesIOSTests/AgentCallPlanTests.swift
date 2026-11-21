@@ -27,5 +27,10 @@ final class AgentCallPlanTests: XCTestCase {
 
     func testTheAgentSpeaksFirstWithItsReason() {
         XCTAssertTrue(AgentCallPlan.opening(reason: "trajet vers le quart de 14 h 30").contains("Tu m’appelles : trajet vers le quart de 14 h 30"))
+        let desk = BoardDesk([.init(text: "Float", tone: "negative"), .init(text: "Sauvegardes", tone: "negative"), .init(text: "VPS", tone: "warning")])
+        XCTAssertEqual(AgentCallPlan.deskLine(desk), "2 à régler, 1 à surveiller")
+        XCTAssertEqual(AgentCallPlan.deskLine(BoardDesk([.init(text: "Ventes", tone: "positive")])), "rien à signaler")
+        XCTAssertNil(AgentCallPlan.deskLine(nil))
+        XCTAssertTrue(AgentCallPlan.opening(reason: "trajet", noriven: "2 à régler").hasSuffix("Côté Noriven, selon le tableau d’Hermès : 2 à régler.)"))
     }
 }

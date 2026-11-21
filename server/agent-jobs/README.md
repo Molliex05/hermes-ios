@@ -12,6 +12,7 @@ dépendent plus d'une réponse exactement `[SILENT]`, et une réponse « rien à
 | `jarvis-courriels.prompt.fr.txt` | personnel | retirée le 2026-11-04 (voir plus bas) | tri des courriels, brouillons de réponse |
 | `hermes-courriels.prompt.fr.txt` | noriven | retirée le 2026-11-04 (voir plus bas) | boîtes Polaris de Noriven : tri prudent, brouillons, widget, alerte si urgent |
 | `jarvis-paie.prompt.fr.txt` | personnel | chaque mercredi à 9 h (`c463f77da5b6`, livraison locale, échec dans le Bot Chat) | talons MaPaie.net rangés dans iCloud par le Mac, vérifiés avec l'agenda « Police » ; notification seulement en cas de problème ; le résumé du jeudi lit sa sortie (`context_from`) |
+| `jarvis-appels.prompt.fr.txt` | personnel | chaque jour à 5 h (`973ec78eea44`, livraison locale, échec dans le Bot Chat) | planifie l'appel de trajet de chaque quart « Police » (début − 30 min, `appel_planifier`) ; le résumé de 8 h lit sa ligne (`context_from`) et replanifie si l'agenda a changé |
 | `hermes-matin.prompt.fr.txt` | noriven | chaque matin à 8 h 15, avec sa sortie précédente en contexte | point libre sur l'entreprise, en cartes, et courriels urgents ou à traiter |
 
 ```bash
@@ -62,6 +63,9 @@ dans les jeux d'outils des tâches (`hermes tools enable … --platform cron`).
 - Déployé le 2026-11-04 : « Point du matin » (noriven, `4146b1236c72`), livré dans le Bot Chat. Il remplace la surveillance par un seul passage quotidien sur les courriels Noriven.
   `hermes -p noriven cron create --name "Point du matin" --deliver bot-chat --continuity "15 8 * * *" "$(cat hermes-matin.prompt.fr.txt)"`
 
+- Déployé le 2026-11-21 : appels de Jarvis. Plugin `hermes-ios-push` 0.5.0 (copie `plugins/hermes-ios-push.bak-appels-20261121`),
+  règle « Appels » ajoutée au SOUL de personnel (`appels.fr.md`), tâche « Plan des appels » (`973ec78eea44`), résumé de 8 h
+  mis à jour et relié à sa sortie (`context_from` += `973ec78eea44`). Copies `SOUL.md` et `cron/jobs.json` en `.bak-appels-20261121`.
 - Déployé le 2026-11-21 : la paie met son verdict dans le widget de Jarvis (étape 5 du prompt, règle « Paie » du SOUL, `widget_bloc`
   emplacement `paie`, sans montant). Jeu d'outils `widget_publier` ajouté à `platform_toolsets.cron` de personnel ; copies
   `SOUL.md`, `config.yaml` et `cron/jobs.json` en `.bak-widget-paie-20261121`.

@@ -21,10 +21,12 @@ public enum AgentCallPlan {
     public static let unlockWaitSeconds: TimeInterval = 60
 
     /// The first turn sent to the agent when the call becomes a conversation: it speaks first, with the reason it called.
-    public static func opening(reason: String) -> String {
+    /// `noriven`: Hermès's desk as the widget holds it (`deskLine`), so Jarvis can say it without reaching Hermès.
+    public static func opening(reason: String, noriven: String? = nil) -> String {
         let why = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        let desk = noriven.map { " Côté Noriven, selon le tableau d’Hermès : \($0)." } ?? ""
         // Without the last sentence the agent said « As-tu besoin d'autre chose ? » and hung up in the same reply.
-        return "(Tu m’appelles\(why.isEmpty ? "" : " : \(why)"). J’ai décroché : donne-moi le topo, court, puis demande si j’ai besoin d’autre chose. Ne raccroche pas avant ma réponse.)"
+        return "(Tu m’appelles\(why.isEmpty ? "" : " : \(why)"). J’ai décroché : donne-moi le topo, court, puis demande si j’ai besoin d’autre chose. Ne raccroche pas avant ma réponse.\(desk))"
     }
 
     /// The briefing the iPhone says (and writes in the missed-call notification) from what it already holds: the agent's
@@ -46,6 +48,14 @@ public enum AgentCallPlan {
         if let pay, !pay.isEmpty { parts.append(sentence(pay)) }
         if parts.isEmpty { parts.append("Rien de particulier aujourd’hui.") }
         return parts.joined(separator: " ")
+    }
+
+    /// Hermès's desk in a few words for the call: « 2 à régler, 3 à surveiller », « rien à signaler »; nil without a board.
+    public static func deskLine(_ desk: BoardDesk?) -> String? {
+        guard let desk else { return nil }
+        if desk.level == .fine { return "rien à signaler" }
+        return [desk.toFix > 0 ? "\(desk.toFix) à régler" : nil, desk.toWatch > 0 ? "\(desk.toWatch) à surveiller" : nil]
+            .compactMap { $0 }.joined(separator: ", ")
     }
 
     /// Said after the briefing on a locked iPhone.
