@@ -23,7 +23,8 @@ public enum AgentCallPlan {
     /// The first turn sent to the agent when the call becomes a conversation: it speaks first, with the reason it called.
     public static func opening(reason: String) -> String {
         let why = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        return "(Tu m’appelles\(why.isEmpty ? "" : " : \(why)"). J’ai décroché : donne-moi le topo, court, puis demande si j’ai besoin d’autre chose.)"
+        // Without the last sentence the agent said « As-tu besoin d'autre chose ? » and hung up in the same reply.
+        return "(Tu m’appelles\(why.isEmpty ? "" : " : \(why)"). J’ai décroché : donne-moi le topo, court, puis demande si j’ai besoin d’autre chose. Ne raccroche pas avant ma réponse.)"
     }
 
     /// The briefing the iPhone says (and writes in the missed-call notification) from what it already holds: the agent's
