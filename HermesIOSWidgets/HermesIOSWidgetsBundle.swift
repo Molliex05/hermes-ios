@@ -6,6 +6,7 @@ struct HermesIOSWidgetsBundle: WidgetBundle {
     var body: some Widget {
         AgentBoardWidget()
         HermesVoiceWidget()
+        CarVoiceWidget()
         HermesLiveActivity()
         CallControl()
     }

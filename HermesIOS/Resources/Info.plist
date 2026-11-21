@@ -51,12 +51,28 @@
 	<string>Confirmez avec Face ID avant qu’un courriel préparé par votre agent parte de votre Gmail.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Hermès iOS se connecte à votre agent Hermes sur votre réseau privé ou Tailscale.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>En voiture, Hermès iOS dit à votre agent la ville où vous êtes, pour la météo, les commerces proches et les temps de trajet. Seulement pendant un appel en voiture ; rien n’est conservé.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Parlez avec votre agent depuis l’iPhone. Votre serveur Hermes transcrit votre parole et prépare ses réponses vocales.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
-		<false/>
+		<true/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>CPTemplateApplicationSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneClassName</key>
+					<string>CPTemplateApplicationScene</string>
+					<key>UISceneConfigurationName</key>
+					<string>CarPlay</string>
+					<key>UISceneDelegateClassName</key>
+					<string>CarPlaySceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
 	</dict>
 	<key>NSSupportsLiveActivities</key>
 	<true/>

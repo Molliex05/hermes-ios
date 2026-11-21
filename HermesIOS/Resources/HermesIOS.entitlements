@@ -3,6 +3,7 @@
 <plist version="1.0"><dict>
 <key>aps-environment</key><string>development</string>
 <key>com.apple.developer.usernotifications.communication</key><true/>
+<key>com.apple.developer.carplay-voice-based-conversation</key><true/>
 <key>keychain-access-groups</key>
 <array>
 <string>$(AppIdentifierPrefix)org.hermesios.HermesIOS</string>
