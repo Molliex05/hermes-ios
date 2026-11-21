@@ -127,7 +127,8 @@ import UIKit
 
     /// A call that could not start says why, in a few words the driver can glance at.
     private func alert(_ message: String) {
-        guard let interface else { return }
+        // CarPlay presents one template at a time: a second alert would be refused.
+        guard let interface, interface.presentedTemplate == nil else { return }
         let ok = CPAlertAction(title: "OK", style: .cancel) { [weak interface] _ in
             MainActor.assumeIsolated { interface?.dismissTemplate(animated: true, completion: nil) }
         }

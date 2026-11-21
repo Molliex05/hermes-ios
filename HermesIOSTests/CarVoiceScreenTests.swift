@@ -10,7 +10,7 @@ final class CarVoiceScreenTests: XCTestCase {
         XCTAssertEqual(CarVoiceScreen.state(phase: "waiting", muted: false), .thinking)
         XCTAssertEqual(CarVoiceScreen.state(phase: "speaking", muted: false), .speaking)
         XCTAssertEqual(CarVoiceScreen.state(phase: "listening", muted: true), .muted)
-        XCTAssertEqual(CarVoiceScreen.state(phase: "speaking", muted: true), .speaking, "the agent's reply still plays")
+        XCTAssertEqual(CarVoiceScreen.state(phase: "speaking", muted: true), .muted, "the button must offer to turn the microphone back on")
         XCTAssertLessThanOrEqual(CarVoiceScreen.State.allCases.count, 5, "CarPlay keeps five states at most")
     }
 
