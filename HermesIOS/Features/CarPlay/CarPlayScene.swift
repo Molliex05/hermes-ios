@@ -14,8 +14,8 @@ import UIKit
         CarScreen.shared.disconnect()
     }
 
-    /// Opening Hermès on the car's screen starts a call: Apple wants a voice app to open in voice.
-    func sceneDidBecomeActive(_ scene: UIScene) { CarScreen.shared.opened() }
+    // No call on opening: CarPlay reopens the last app when the car starts, and Maxime chose (2026-11-21) never to have
+    // the microphone opened by surprise. The screen shows « Appeler <agent> » and its button starts the call.
 }
 
 /// The voice control template of the car's screen, kept in step with the call. It shows the call's state, the agent's
@@ -48,11 +48,6 @@ import UIKit
 
     func disconnect() {
         scene = nil; interface = nil; template = nil
-    }
-
-    func opened() {
-        guard connected, !starting, !(VoiceCallRemote.current?.tools.app.voiceActive ?? false) else { return }
-        startCall()
     }
 
     /// Called by the call on every change of phase or microphone (`paused` once it ends).
