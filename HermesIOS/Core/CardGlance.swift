@@ -11,6 +11,8 @@ public struct CardGlance: Codable, Hashable, Sendable {
     /// The card's own detail, up to three rows (the days of a forecast, the next appointments, emails, figures), drawn
     /// when the activity is expanded. Empty: the title and lines say it all.
     public var rows: [Row] = []
+    /// Pay, emails, drafts: shown during the call only, never left on the Lock Screen once it ends.
+    public var personal = false
 
     public struct Row: Codable, Hashable, Sendable {
         public var symbol: String
@@ -37,7 +39,7 @@ public struct CardGlance: Codable, Hashable, Sendable {
         self.rows = rows.filter { !$0.label.isEmpty || !$0.detail.isEmpty }.prefix(3).map { $0 }
     }
 
-    private enum CodingKeys: String, CodingKey { case symbol, title, value, lines, rows }
+    private enum CodingKeys: String, CodingKey { case symbol, title, value, lines, rows, personal }
 
     /// A glance saved before rows existed still reads.
     public init(from decoder: Decoder) throws {
@@ -46,6 +48,7 @@ public struct CardGlance: Codable, Hashable, Sendable {
         value = try c.decodeIfPresent(String.self, forKey: .value) ?? ""
         lines = try c.decodeIfPresent([String].self, forKey: .lines) ?? []
         rows = try c.decodeIfPresent([Row].self, forKey: .rows) ?? []
+        personal = try c.decodeIfPresent(Bool.self, forKey: .personal) ?? false
     }
 
     static func bound(_ text: String, _ limit: Int) -> String {

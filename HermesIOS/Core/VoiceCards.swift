@@ -30,13 +30,24 @@ extension VoiceCards {
     public static func glance(in messages: [ChatMessage], before: Set<String>) -> CardGlance? {
         guard let shown = latest(in: messages, before: before) else { return nil }
         for card in shown.cards where card.complete {
-            if let parsed = ChatCard.parse(card.json), let glance = CardGlance(parsed) { return glance }
+            if let parsed = ChatCard.parse(card.json), var glance = CardGlance(parsed) {
+                glance.personal = CardGlance.isPersonal(parsed)
+                return glance
+            }
         }
         return nil
     }
 }
 
 extension CardGlance {
+    /// Cards about Maxime's money and mail: fine on screen during the call, not left behind after it.
+    static func isPersonal(_ card: ChatCard) -> Bool {
+        switch card {
+        case .paystub, .email, .emails, .triage, .draft: true
+        default: false
+        }
+    }
+
     init?(_ card: ChatCard) {
         func degrees(_ value: Double?) -> String { value.map { String(format: "%.0f°", $0) } ?? "" }
         func joined(_ parts: String...) -> String { parts.filter { !$0.isEmpty }.joined(separator: " · ") }

@@ -7,6 +7,12 @@ import WidgetKit
 struct HermesVoiceWidget: Widget {
     static let kind = "HermesVoiceWidget"
 
+    /// Kept out of CarPlay (iOS 26 and later): its Face ID cannot pass with the iPhone locked in the car, where
+    /// « Appeler en voiture » is the one to use.
+    private static var outOfCar: [WidgetLocation] {
+        if #available(iOS 26.0, *) { [.carPlay] } else { [] }
+    }
+
     var body: some WidgetConfiguration {
         AppIntentConfiguration(kind: Self.kind, intent: VoiceWidgetConfiguration.self, provider: VoiceProvider()) { entry in
             Button(intent: StartCallIntent(agent: entry.agent)) { VoiceWidgetView(agent: entry.agent) }
@@ -17,12 +23,12 @@ struct HermesVoiceWidget: Widget {
         .description("Démarre un appel vocal en un geste, sans ouvrir l’app.")
         .supportedFamilies([.systemSmall, .accessoryCircular, .accessoryRectangular])
         .contentMarginsDisabled()
+        .disfavoredLocations(Self.outOfCar, for: [.systemSmall])
     }
 }
 
 /// The call button for CarPlay's Dashboard: no Face ID, since it only works while the iPhone is connected to the car
-/// (`CarCallIntent`). Elsewhere it says so; on the Home Screen « Appeler un agent » is the one to use. (« Appeler un agent »
-/// stays offered in CarPlay too: marking it out of place there needs iOS 26, and the widgets still start at iOS 18.)
+/// (`CarCallIntent`). Elsewhere it says so; on the Home Screen « Appeler un agent » is the one to use.
 struct CarVoiceWidget: Widget {
     static let kind = "CarVoiceWidget"
 

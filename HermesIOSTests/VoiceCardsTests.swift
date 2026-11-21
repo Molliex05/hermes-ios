@@ -35,6 +35,16 @@ final class VoiceCardsTests: XCTestCase {
         XCTAssertNil(VoiceCards.glance(in: [streaming], before: []), "a card still being written is not shown")
     }
 
+    func testPayAndMailNeverStayOnTheLockScreenAfterTheCall() throws {
+        let weather = try XCTUnwrap(VoiceCards.glance(in: [ChatMessage(id: "w", role: "assistant", text: weather)], before: []))
+        XCTAssertFalse(weather.personal, "the weather may stay after hanging up")
+        let pay = "Voici.\n\n```ui\n{\"type\":\"paie\",\"date\":\"2026-11-19\",\"statut\":\"balance\",\"net\":\"1 234,56 $\"}\n```"
+        let stub = try XCTUnwrap(VoiceCards.glance(in: [ChatMessage(id: "p", role: "assistant", text: pay)], before: []))
+        XCTAssertTrue(stub.personal, "a payslip is shown during the call only")
+        let coded = try JSONDecoder().decode(CardGlance.self, from: JSONEncoder().encode(stub))
+        XCTAssertTrue(coded.personal, "the flag survives the Live Activity's state")
+    }
+
     func testAGlanceStaysSmall() {
         let glance = CardGlance(symbol: "list.bullet", title: String(repeating: "a", count: 200), value: "1234567890123456789",
                                 lines: ["un\ndeux", "", "trois", "quatre"])

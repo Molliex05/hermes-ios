@@ -21,6 +21,10 @@ final class LiveActivities {
     private var replyTokens: Task<Void, Never>?
     private var callBeat: Task<Void, Never>?
     private var callState: HermesActivityAttributes.ContentState?
+    /// The ended call still showing its last card (see `endCall`), ended as soon as another call starts.
+    private var lingering: Activity<HermesActivityAttributes>?
+    /// How long the call's last card stays on the Lock Screen and CarPlay's Dashboard after hanging up.
+    private static let summaryKept: TimeInterval = 15 * 60
     /// A call card goes stale (« Appel interrompu ») this long after the app last confirmed it: if the app is force-quit
     /// nothing else can tell the system the call is over.
     private static let callStale: TimeInterval = 110
@@ -33,6 +37,11 @@ final class LiveActivities {
 
     func startCall(title: String, profile: String, phase: String, muted: Bool) {
         callStart = Date()
+        if let old = lingering {
+            lingering = nil
+            let box = ActivityBox(activity: old)
+            Task.detached { await box.activity.end(nil, dismissalPolicy: .immediate) }
+        }
         guard call == nil, enabled else { return }
         let state = HermesActivityAttributes.ContentState.call(title: title, phase: phase, muted: muted, startedAt: callStart)
         callState = state
@@ -75,12 +84,22 @@ final class LiveActivities {
         Task.detached { await box.activity.update(.init(state: state, staleDate: .now.addingTimeInterval(Self.callStale)), alertConfiguration: alert) }
     }
 
+    /// A call that showed a card leaves it on screen a while: asked at the wheel, read once parked (on CarPlay's Dashboard
+    /// too). Personal cards (pay, mail) and calls without a card end at once.
     func endCall() {
-        callBeat?.cancel(); callBeat = nil; callState = nil
+        callBeat?.cancel(); callBeat = nil
+        let last = callState; callState = nil
         guard let activity = call else { return }
         call = nil
         let box = ActivityBox(activity: activity)
-        Task.detached { await box.activity.end(nil, dismissalPolicy: .immediate) }
+        guard let last, let glance = last.glance, !glance.personal else {
+            Task.detached { await box.activity.end(nil, dismissalPolicy: .immediate) }
+            return
+        }
+        lingering = activity
+        let summary = HermesActivityAttributes.ContentState(phase: "done", title: last.title, detail: "Appel terminé", muted: false,
+                                                            startedAt: last.startedAt, glance: glance)
+        Task.detached { await box.activity.end(.init(state: summary, staleDate: nil), dismissalPolicy: .after(.now + Self.summaryKept)) }
     }
 
     // MARK: Reply in progress

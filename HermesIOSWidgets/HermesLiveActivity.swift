@@ -11,7 +11,8 @@ struct HermesLiveActivity: Widget {
             ActivityContent(context: context)
                 .activityBackgroundTint(ActivityStyle.card)
                 .activitySystemActionForegroundColor(.white)
-                .widgetURL(URL(string: context.attributes.kind == "call" ? "hermesios://voice" : "hermesios://open"))
+                // An ended call's card opens the chat, never a new call.
+                .widgetURL(URL(string: context.attributes.kind == "call" && !context.state.isFinished ? "hermesios://voice" : "hermesios://open"))
         } dynamicIsland: { context in
             DynamicIsland {
                 // A card on show takes the whole island: nothing of the call around it.
