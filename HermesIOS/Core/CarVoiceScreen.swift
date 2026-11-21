@@ -9,7 +9,8 @@ public enum CarVoiceScreen {
     /// `phase` is the call's Live Activity phase (`listening`, `thinking`, `speaking`, `waiting`, `paused`); nil, no call.
     public static func state(phase: String?, muted: Bool) -> State {
         guard let phase, phase != "paused" else { return .idle }
-        if muted, phase != "speaking" { return .muted }
+        // Muted wins even while the reply plays: the screen's microphone button must say what a tap does.
+        if muted { return .muted }
         return switch phase {
         case "thinking", "waiting": .thinking
         case "speaking": .speaking
