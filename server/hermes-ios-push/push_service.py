@@ -325,6 +325,10 @@ class Store:
             self._add_column(db, "outbox", "kind", "TEXT NOT NULL DEFAULT 'turn'")
             self._add_column(db, "outbox", "enc", "TEXT")
             self._add_column(db, "outbox", "title", "TEXT")
+            # v0.5: PushKit's token, for the calls an agent places (agent_calls.py). Its own table, like the key: `devices`
+            # stays as v0.1 wrote it.
+            db.execute("CREATE TABLE IF NOT EXISTS device_voip (installation TEXT NOT NULL, connection TEXT NOT NULL, "
+                       "token TEXT NOT NULL, PRIMARY KEY (installation, connection))")
         self.path.chmod(0o600)
 
     @staticmethod
@@ -351,7 +355,7 @@ class Store:
 
     # -- devices
 
-    def register(self, installation, connection, token, environment, key: bytes | None = None):
+    def register(self, installation, connection, token, environment, key: bytes | None = None, voip_token: str | None = None):
         with self.connect() as db:
             old = db.execute("SELECT key FROM device_keys WHERE installation=? AND connection=?",
                              (installation, connection)).fetchone()
@@ -359,6 +363,12 @@ class Store:
                        "ON CONFLICT(installation,connection) DO UPDATE SET token=excluded.token,"
                        "environment=excluded.environment,registered=excluded.registered",
                        (installation, connection, token, environment, time.time()))
+            # An app without PushKit (older build) sends none: the agent cannot ring that device.
+            if voip_token:
+                db.execute("INSERT INTO device_voip VALUES (?,?,?) ON CONFLICT(installation,connection) DO UPDATE SET token=excluded.token",
+                           (installation, connection, voip_token))
+            else:
+                db.execute("DELETE FROM device_voip WHERE installation=? AND connection=?", (installation, connection))
             if key is None:
                 db.execute("DELETE FROM device_keys WHERE installation=? AND connection=?", (installation, connection))
             else:
@@ -378,6 +388,7 @@ class Store:
         with self.connect() as db:
             db.execute("DELETE FROM devices WHERE installation=? AND connection=?", (installation, connection))
             db.execute("DELETE FROM device_keys WHERE installation=? AND connection=?", (installation, connection))
+            db.execute("DELETE FROM device_voip WHERE installation=? AND connection=?", (installation, connection))
             db.execute("DELETE FROM outbox WHERE installation=? AND connection=?", (installation, connection))
             db.execute("DELETE FROM presence WHERE installation=? AND connection=?", (installation, connection))
             db.execute("DELETE FROM live_queue WHERE EXISTS (SELECT 1 FROM activities a WHERE a.installation=? AND "
@@ -992,6 +1003,12 @@ class APNs:
             "apns-topic": TOPIC + LIVE_TOPIC_SUFFIX, "apns-push-type": "liveactivity",
             "apns-priority": "10" if end else "5", "apns-id": str(uuid.uuid4()),
             "apns-expiration": str(now + (LIVE_END_TTL if end else LIVE_UPDATE_TTL))}, live_payload(row))
+
+    async def deliver_voip(self, device, payload):
+        """Rings the iPhone for a call an agent placed (agent_calls.py): CallKit shows it at once. Priority 10, short life."""
+        return await self._post(device["environment"], device["token"], {
+            "apns-topic": TOPIC + ".voip", "apns-push-type": "voip", "apns-priority": "10", "apns-id": str(uuid.uuid4()),
+            "apns-expiration": str(int(time.time()) + 60)}, payload)
 
     async def deliver_background(self, device):
         """Silent push asking the app to refresh its widgets (no alert, no sound)."""

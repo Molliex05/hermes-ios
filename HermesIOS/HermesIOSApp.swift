@@ -16,6 +16,8 @@ struct HermesIOSApp: App {
         CallLauncher.start = { profile in await model.startBackgroundCall(profile: profile) }
         // The car's screen (CarPlay) names the agent before a call; it starts calls through CallLauncher too.
         CarScreen.agentTitle = { model.agent?.title }
+        // Every launch, the background ones too: a VoIP push (an agent calling) may be what launched the app.
+        AgentCalls.shared.start(model)
     }
 
     var body: some Scene {

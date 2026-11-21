@@ -18,6 +18,10 @@ _spec = importlib.util.spec_from_file_location("hermes_ios_push_service", Path(_
 service = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = service
 _spec.loader.exec_module(service)
+_calls_spec = importlib.util.spec_from_file_location("hermes_ios_push_calls", Path(__file__).resolve().parent.parent / "agent_calls.py")
+calls = importlib.util.module_from_spec(_calls_spec)
+sys.modules[_calls_spec.name] = calls
+_calls_spec.loader.exec_module(calls)
 log = logging.getLogger("hermes_ios_push")
 
 
@@ -34,6 +38,7 @@ async def worker():
                 await asyncio.sleep(5)
         async with httpx.AsyncClient(http2=True, timeout=20, follow_redirects=False) as client:
             config, sender = None, None
+            call_timer = calls.Timer()
             while True:
                 from hermes_cli.config import load_config
                 config_state = await asyncio.to_thread(load_config)
@@ -48,6 +53,7 @@ async def worker():
                     for name, step in (("rooms", lambda: asyncio.to_thread(service.scan_rooms, store)),
                                        ("alerts", lambda: service.deliver_pending(store, sender)),
                                        ("live", lambda: service.deliver_live(store, sender)),
+                                       ("calls", lambda: calls.deliver(store, sender, call_timer)),
                                        ("widgets", lambda: service.deliver_widgets(store, sender, service.widgets_refresh_minutes(settings)))):
                         try:
                             await step()
@@ -97,6 +103,7 @@ class Registration(BaseModel):
     token: str = Field(min_length=32, max_length=512, pattern=r"^(?:[a-fA-F0-9]{2})+$")
     environment: Literal["sandbox", "production"]
     key: Optional[str] = None      # base64, 32 bytes; validated in the handler so errors never repeat it
+    voip_token: Optional[str] = Field(None, min_length=32, max_length=512, pattern=r"^(?:[a-fA-F0-9]{2})+$")   # PushKit, for agent calls
 
 
 class ActivityRegistration(BaseModel):
@@ -156,8 +163,31 @@ async def register(request: Request):
     # No key (HTTP connection judged unsafe by the app, or older app): the previous key is cleared and the
     # generic v0.1 notification is used.
     await asyncio.to_thread(service.Store().register, str(body.installation_id).upper(), str(body.connection_id).upper(),
-                            body.token.lower(), body.environment, key)
+                            body.token.lower(), body.environment, key, body.voip_token.lower() if body.voip_token else None)
     return {"registered": True}
+
+
+CALL_ID = r"^[A-Za-z0-9_-]{8,64}$"
+CALL_READABLE = 2 * 3600       # the reason of a call stays readable two hours after it rang (missed-call notification)
+
+
+class CallOutcome(BaseModel):
+    outcome: Literal["ringing", "answered", "missed", "declined"]
+
+
+@router.get("/calls/{call_id}")
+def read_call(call_id: str = PathParam(pattern=CALL_ID)):
+    """Why the agent called: read by the app once the call is answered (the VoIP push carries no text)."""
+    import time
+    found = calls.get(service.Store(), call_id)
+    if not found or found["state"] != "sent" or found["at"] < time.time() - CALL_READABLE:
+        raise HTTPException(404, "Appel inconnu ou expiré.")
+    return {"reason": found["reason"], "agent": found["agent"], "profile": found["profile"]}
+
+
+@router.post("/calls/{call_id}")
+def report_call(body: CallOutcome, call_id: str = PathParam(pattern=CALL_ID)):
+    return {"recorded": calls.record_outcome(service.Store(), call_id, body.outcome)}
 
 
 @router.delete("/devices/{installation}/{connection}")

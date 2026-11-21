@@ -25,6 +25,8 @@ final class VoiceConversation {
     var requiresStandardMode = false
     var isLive = false
     var inputMuted = false { didSet { if inputMuted != oldValue { syncActivity() } } }
+    /// Sent as the first turn when the agent is the one who called (`AgentCalls`): it speaks first, with its reason.
+    var openingTurn: String?
     var allowsBargeIn = false
     var level = 0.0
     @ObservationIgnored private var preferences = VoicePreferences(.null)
@@ -232,6 +234,27 @@ final class VoiceConversation {
             tools.app.applyPendingStream()       // the fragments of the last 33 ms, or the voice would skip them
             openReply(seed: assistantText(after: message.id))
             try await respond(to: message.id, attempt: attempt)
+        }
+        if let opening = openingTurn {
+            openingTurn = nil
+            turnActive = true; bargeRequested = false
+            barge = makeBarge(preferences)
+            phase = .thinking; answer = ""
+            speechStream.prepare(tools: tools)
+            openReply()
+            let driving = VoiceEnvironmentSetting.isForced
+            let spoken = SpokenTurn.text(opening, driving: driving, near: driving ? DrivingLocation.shared.current : nil)
+            do {
+                let message = try await tools.app.sendVoice(spoken, voiceTurn: true, interrupted: false)
+                sessionID = tools.app.selected?.storedID
+                try validate(attempt)
+                try await respond(to: message, attempt: attempt)
+            } catch is CancellationError { throw CancellationError() }
+            catch {
+                try validate(attempt)
+                closeTurn(); speechStream.stop()
+                notice = error.localizedDescription
+            }
         }
         var pending = ""
         while true {

@@ -99,7 +99,7 @@ final class AppModel {
             if oldValue && !voiceActive && !foreground && !sending { suspendConnection() }
             refreshPresence()
             if voiceActive != oldValue { voiceActive ? startCallActivity() : LiveActivities.shared.endCall() }
-            if !voiceActive { backgroundCall = nil }
+            if !voiceActive { backgroundCall = nil; AgentCalls.shared.voiceEnded() }
         }
     }
     var importingAttachments = false
@@ -245,7 +245,9 @@ final class AppModel {
     @ObservationIgnored private(set) var backgroundCall: VoiceConversation?
 
     /// Answers once the call runs (its Live Activity requested), or with the reason it could not start.
-    func startBackgroundCall(profile name: String?) async -> String? {
+    /// `opening`: the agent called (`AgentCalls`) and speaks first; such a call always runs in standard mode, whose first
+    /// turn can be sent before Maxime says anything.
+    func startBackgroundCall(profile name: String?, opening: String? = nil) async -> String? {
         if voiceActive { return nil }
         if !hasBooted { foreground = false }
         callStarting = true
@@ -261,8 +263,27 @@ final class AppModel {
         let call = VoiceConversation(self)
         backgroundCall = call
         call.watchSystemAudio()
-        call.start()
+        call.openingTurn = opening
+        call.start(standardMode: opening != nil)
         return voiceActive ? nil : "L’appel n’a pas pu démarrer. Ouvrez l’app."
+    }
+
+    /// Why the agent called (`AgentCalls`), as the server keeps it; empty when it cannot be reached in time.
+    func agentCallReason(_ id: String) async -> String {
+        await boot()
+        guard await waitUntilCallable(), let http, let path = Self.agentCallPath(id) else { return "" }
+        return (try? await http.request(path))?["reason"].string ?? ""
+    }
+
+    /// Tells the server what became of the call (ringing, answered, missed, declined): one call per trip, and the agent knows.
+    func reportAgentCall(_ id: String, outcome: String) async {
+        guard let http, let path = Self.agentCallPath(id) else { return }
+        _ = try? await http.request(path, method: "POST", body: .object(["outcome": .string(outcome)]))
+    }
+
+    private static func agentCallPath(_ id: String) -> String? {
+        guard id.range(of: #"^[A-Za-z0-9_-]{8,64}$"#, options: .regularExpression) != nil else { return nil }
+        return "/api/plugins/hermes-ios-push/calls/" + id
     }
 
     /// The voice screen adopts the call already running in the background, if any.

@@ -22,6 +22,7 @@
 		17800636EBA794D33C9DF515 /* HermesVoiceWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4248E82756F62E76CFBD2FC3 /* HermesVoiceWidget.swift */; };
 		1C0F76837800CB263FE2F9FA /* NativeToolSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 851E43F4DDB4C85BF0F4C3EB /* NativeToolSession.swift */; };
 		1D6BA5CFD24AA3160DEFA81E /* HermesLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEAB709D8C5E3108719E06C0 /* HermesLiveActivity.swift */; };
+		1FFF7A33C381638195467860 /* AgentCalls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AF7ECB6FFA8C6816423FB34 /* AgentCalls.swift */; };
 		2268CBC67094747ADE780909 /* SlashInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 45F8C117680E3093D826D5D3 /* SlashInput.swift */; };
 		2385223B5DEAB01545E54893 /* ApprovalsSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 08734E14815870F155D2113F /* ApprovalsSettingsView.swift */; };
 		23C8F8F7F37C15AED2812D64 /* Haptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B00D49A62F7932717F5453 /* Haptics.swift */; };
@@ -34,6 +35,7 @@
 		2995C37CAC738935C3CB0A6C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 476734DA2FC09D7F7E0875DC /* SettingsView.swift */; };
 		2A5B3DA21D981D0D1F57D5A4 /* nouvelles.pcm in Resources */ = {isa = PBXBuildFile; fileRef = C441C89A69FCD1A5AFB9881D /* nouvelles.pcm */; };
 		2B026ECDD1205EBD9E38FD62 /* ServerRequests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C0675CE4216DC70C01FAB81 /* ServerRequests.swift */; };
+		2C350B0F146DF3E679AAD01F /* AgentCallPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1BABB0BB9D81F29688B72FB8 /* AgentCallPlan.swift */; };
 		2DFA705484B15701021AC6AF /* OrbView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9FE8B5391134DE1081572A11 /* OrbView.swift */; };
 		2F2EF326C575424003015C83 /* ApprovalKeySection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 697AC207AF73CC160EAC4C93 /* ApprovalKeySection.swift */; };
 		310DFB70B3DD5F4DA5D1F973 /* ChatComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B989A6021842DF3745AC235 /* ChatComposer.swift */; };
@@ -308,6 +310,7 @@
 		191FD2CA28F784715C57C83D /* WebRTC-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "WebRTC-LICENSE.txt"; sourceTree = "<group>"; };
 		19B9D9CC524C6E12BC3360D4 /* KanbanView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KanbanView.swift; sourceTree = "<group>"; };
 		1B90FEE6D75B9F71A2962343 /* VoiceRequestAnswer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceRequestAnswer.swift; sourceTree = "<group>"; };
+		1BABB0BB9D81F29688B72FB8 /* AgentCallPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentCallPlan.swift; sourceTree = "<group>"; };
 		1C1CA4BD09AAD37D7D849AF6 /* AgentSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentSettingsView.swift; sourceTree = "<group>"; };
 		1C508AA7C9E85121414A024E /* HermesIOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesIOSApp.swift; sourceTree = "<group>"; };
 		1F1F6D19D24AB9279FB9BC67 /* CarPlayScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarPlayScene.swift; sourceTree = "<group>"; };
@@ -383,6 +386,7 @@
 		78839756CD7B8D5952BBFAD8 /* web-page.pcm */ = {isa = PBXFileReference; path = "web-page.pcm"; sourceTree = "<group>"; };
 		79C37338BEC56A3322AAC1CF /* web.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = web.wav; sourceTree = "<group>"; };
 		7A87F904778F7AD694B573F1 /* HermesSocket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesSocket.swift; sourceTree = "<group>"; };
+		7AF7ECB6FFA8C6816423FB34 /* AgentCalls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentCalls.swift; sourceTree = "<group>"; };
 		7C4FC914201C38D1A165638D /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
 		7F6FE9D7F1FBAB1A65EDA562 /* HermesHTTP.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesHTTP.swift; sourceTree = "<group>"; };
 		851E43F4DDB4C85BF0F4C3EB /* NativeToolSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeToolSession.swift; sourceTree = "<group>"; };
@@ -493,6 +497,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		160E5969164968C0F13FC93F /* Calls */ = {
+			isa = PBXGroup;
+			children = (
+				7AF7ECB6FFA8C6816423FB34 /* AgentCalls.swift */,
+			);
+			path = Calls;
+			sourceTree = "<group>";
+		};
 		1E7F5EC57CB7315E89A5C1F3 /* HermesIOSWidgets */ = {
 			isa = PBXGroup;
 			children = (
@@ -744,6 +756,7 @@
 				4B1B07CAFC53C700A7E55E59 /* VoiceView.swift */,
 				F836B8FAB56D3E5A0BBD6BD2 /* WorkspaceFilesView.swift */,
 				703B02378F64B271BA0A45A5 /* AppIntents */,
+				160E5969164968C0F13FC93F /* Calls */,
 				F0517A8F84CD03E47C925B9B /* CarPlay */,
 				849B39FAD7A53186BFECD97C /* Chat */,
 				7F7D81CC082CC4E9640116A5 /* Settings */,
@@ -775,6 +788,7 @@
 			isa = PBXGroup;
 			children = (
 				B0EE0FE0A291482EAABF4561 /* AgentBoard.swift */,
+				1BABB0BB9D81F29688B72FB8 /* AgentCallPlan.swift */,
 				FF11FFCDAE3BC9EF60D22841 /* BoardDesk.swift */,
 				A09676F353370202D0FD16DD /* CardGlance.swift */,
 				C5786B66100751480FECF60C /* CarVoiceScreen.swift */,
@@ -1131,6 +1145,8 @@
 				4F7E457B9EC1B22606C5986B /* ActivityIntents.swift in Sources */,
 				8DE74B550CB82C5B64BE85F4 /* AgentAvatars.swift in Sources */,
 				43BD009B1A0678991FCA4E77 /* AgentBoard.swift in Sources */,
+				2C350B0F146DF3E679AAD01F /* AgentCallPlan.swift in Sources */,
+				1FFF7A33C381638195467860 /* AgentCalls.swift in Sources */,
 				4246833D876E50E61234963B /* AgentConfigStore.swift in Sources */,
 				35335D2CDFC37B6D186ADC7A /* AgentEntity.swift in Sources */,
 				DE77F2176DA513D995062892 /* AgentIntents.swift in Sources */,

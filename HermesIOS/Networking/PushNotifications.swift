@@ -20,6 +20,10 @@ final class PushNotifications {
     var authorized = false
     var enabled: Set<UUID>
     private var deviceToken: String?
+    /// PushKit's token, separate from the alerts' one: the server rings the iPhone with it when an agent calls (`AgentCalls`).
+    private var voipToken: String?
+    /// Categories other features add (the agent's missed call and its « Rappeler »).
+    var extraCategories: [UNNotificationCategory] = [] { didSet { registerCategories() } }
     private var connections: [SavedConnection] = []
     private var syncing = false
     private var resync = false
@@ -47,7 +51,7 @@ final class PushNotifications {
         let later = UNNotificationAction(identifier: Self.laterAction, title: "Plus tard", options: [.foreground])
         let acknowledge = UNNotificationAction(identifier: Self.acknowledgeAction, title: "Compris", options: [])
         let category = UNNotificationCategory(identifier: Self.replyCategory, actions: [reply, details, later, acknowledge], intentIdentifiers: [], options: [])
-        UNUserNotificationCenter.current().setNotificationCategories([category])
+        UNUserNotificationCenter.current().setNotificationCategories(Set([category] + extraCategories))
     }
 
     func configure(_ saved: [SavedConnection]) async {
@@ -66,7 +70,7 @@ final class PushNotifications {
 
     /// What a registration depends on: the same token, permission, switches and servers need no new one.
     private var syncSignature: String {
-        "\(deviceToken ?? "")|\(authorized)|\(enabled.map(\.uuidString).sorted())|\(connections.map { $0.id.uuidString }.sorted())"
+        "\(deviceToken ?? "")|\(voipToken ?? "")|\(authorized)|\(enabled.map(\.uuidString).sorted())|\(connections.map { $0.id.uuidString }.sorted())"
     }
 
     private func synchronizeIfChanged() async {
@@ -90,6 +94,11 @@ final class PushNotifications {
     /// (a new key each time would leave a push encrypted with the previous key unreadable).
     func receiveToken(_ data: Data) {
         deviceToken = data.map { String(format: "%02x", $0) }.joined()
+        Task { await synchronizeIfChanged() }
+    }
+
+    func receiveVoIPToken(_ token: String?) {
+        voipToken = token
         Task { await synchronizeIfChanged() }
     }
 
@@ -185,6 +194,7 @@ final class PushNotifications {
                         let secure = NotificationKeyTransport.allowsKey(over: connection.endpoint.baseURL)
                         let key = secure ? NotificationKeyStore.generateKey() : nil
                         if let key { body["key"] = .string(key.base64EncodedString()) }
+                        if let voipToken { body["voip_token"] = .string(voipToken) }
                         let result = try await http.request(Self.path + "/devices", method: "PUT", body: .object(body))
                         guard result["registered"].bool else { throw RPCFailure("Le serveur n’a pas confirmé l’inscription aux notifications.") }
                         // The server now holds the new key: keep the same one on this side. If the keychain
@@ -252,6 +262,10 @@ final class NotificationAppDelegate: NSObject, UIApplicationDelegate, UNUserNoti
         let action = response.actionIdentifier
         let reply = action == PushNotifications.replyAction ? (response as? UNTextInputNotificationResponse)?.userText : PushNotifications.canned[action]
         let done = CompletionBox(completionHandler)
+        if action == AgentCalls.callBackAction, let profile = response.notification.request.content.userInfo["hermes_call_back"] as? String {
+            Task { @MainActor in AgentCalls.shared.callBack(profile); done.call() }
+            return
+        }
         if action == PushNotifications.acknowledgeAction { Task { @MainActor in done.call() }; return }
         Task { @MainActor in
             if let payload, let json = try? JSONValue.decode(payload), let target = NotificationTarget(json) {
