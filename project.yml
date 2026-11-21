@@ -69,6 +69,7 @@ targets:
           - JSONValue.swift
           - SharedBlob.swift
           - AgentBoard.swift
+          - BoardDesk.swift
           - WidgetBlock.swift
           - CardGlance.swift
       - path: HermesIOS/LiveActivity

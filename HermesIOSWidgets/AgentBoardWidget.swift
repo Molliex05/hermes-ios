@@ -85,6 +85,8 @@ struct BoardEntry: TimelineEntry {
     /// The calendar answered and holds nothing: a free day, which is worth saying.
     var freeDay: Bool { live == nil && !dayDone && (agenda.map { !$0.isExpired(at: date) } ?? false) }
     var palette: AgentLook.Palette { AgentLook.standard(for: profile).palette }
+    /// Jarvis keeps the day, Hermès the desk: two widgets that complement each other.
+    var role: BoardRole { BoardRole(profile: profile) }
     private var hour: Int { Calendar.current.component(.hour, from: date) }
 
     var greeting: String { hour < 5 || hour >= 18 ? "Bonsoir" : hour < 12 ? "Bonjour" : "Bon après-midi" }
@@ -236,7 +238,8 @@ struct BoardProvider: AppIntentTimelineProvider {
             let name = configuration.agent?.id ?? profiles.first?.name ?? known.keys.sorted().first ?? ""
             let title = profiles.first { $0.name == name }.map { $0.title.isEmpty ? name : $0.title } ?? (name.isEmpty ? "Agent" : name)
             return BoardEntry(date: date, profile: name, agentTitle: title, board: known[name].flatMap { $0.hiding(seen.filter { $0.profile == name }) }, agenda: boards?.agendas[name],
-                              weather: boards?.weather.flatMap { $0.isExpired(at: date) ? nil : $0 }, blocks: boards?.blocks[name] ?? [])
+                              weather: BoardRole(profile: name).showsWeather ? boards?.weather.flatMap { $0.isExpired(at: date) ? nil : $0 } : nil,
+                              blocks: boards?.blocks[name] ?? [])
         }
     }
 }
@@ -347,7 +350,7 @@ struct BoardWidgetView: View {
     /// False in CarPlay and StandBy: the system removes the page and the widget is read from a distance.
     @Environment(\.showsWidgetContainerBackground) private var showsBackground
     /// From « xLarge » up, fewer lines: what fits at the default size does not fit then.
-    fileprivate var bigText: Bool { typeSize >= .xLarge }
+    var bigText: Bool { typeSize >= .xLarge }
 
     var body: some View {
         content.redacted(reason: entry.isPlaceholder ? .placeholder : [])
@@ -356,16 +359,19 @@ struct BoardWidgetView: View {
     @ViewBuilder private var content: some View {
         switch family {
         case .accessoryInline, .accessoryRectangular: accessory
+        case .systemSmall where entry.role == .desk: deskSmall
+        case .systemMedium where entry.role == .desk: deskMedium
+        case .systemLarge where entry.role == .desk: deskLarge
         case .systemSmall: if showsBackground { small } else { farSmall }
         case .systemMedium: medium
         default: large
         }
     }
 
-    fileprivate var dark: Bool { scheme == .dark }
+    var dark: Bool { scheme == .dark }
     /// The agent's colour as text and icons: its light shade on the dark page.
-    fileprivate var accent: Color { dark ? entry.palette.light : entry.palette.main }
-    private func color(_ row: BoardRow) -> Color { BoardTone.color(row.item.tone, entry.palette, dark: dark) }
+    var accent: Color { dark ? entry.palette.light : entry.palette.main }
+    func color(_ row: BoardRow) -> Color { BoardTone.color(row.item.tone, entry.palette, dark: dark) }
     // Lock Screen
     @ViewBuilder private var accessory: some View {
         let hero = entry.hero
@@ -398,7 +404,7 @@ struct BoardWidgetView: View {
         }
     }
 
-    private var actions: some View {
+    var actions: some View {
         HStack(spacing: 10) {
             pill("Parler", symbol: "waveform", host: "voice", filled: true)
             pill("Écrire", symbol: "square.and.pencil", host: "open", filled: false)
@@ -406,12 +412,12 @@ struct BoardWidgetView: View {
     }
 
     /// A line tapped puts « tell me more » in the composer; it is never sent by the tap.
-    fileprivate func link<Content: View>(_ row: BoardRow, @ViewBuilder label: () -> Content) -> some View {
+    func link<Content: View>(_ row: BoardRow, @ViewBuilder label: () -> Content) -> some View {
         let ask = "Dis-m’en plus sur : \(row.item.time.isEmpty ? "" : "\(row.item.time) ")\(row.item.text)"
         return Link(destination: BoardLinks.url("ask", profile: entry.profile, text: ask) ?? URL(string: "hermesios://open")!, label: label)
     }
 
-    private func focusBox(_ text: String, compact: Bool) -> some View {
+    func focusBox(_ text: String, compact: Bool) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "scope").font(.caption.weight(.bold)).foregroundStyle(accent).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
@@ -425,7 +431,7 @@ struct BoardWidgetView: View {
     }
 
     /// « Vu »: takes off the agent's board the lines on screen (`rows`) and its note when shown, nothing the user has not seen.
-    @ViewBuilder private func seenButton(_ rows: [BoardRow], note: Bool = true, compact: Bool = false) -> some View {
+    @ViewBuilder func seenButton(_ rows: [BoardRow], note: Bool = true, compact: Bool = false) -> some View {
         if entry.hasMessage && !entry.isPlaceholder {
             Button(intent: MarkSeenIntent(profile: entry.profile, lines: rows.map(\.item.text), note: note ? entry.note : "")) {
                 if compact {
@@ -455,7 +461,7 @@ struct BoardWidgetView: View {
 
     // MARK: Weather and the day (what is known when the agent and the calendar have nothing)
 
-    private static let french = Locale(identifier: "fr_CA")
+    static let french = Locale(identifier: "fr_CA")
 
     /// The date as the page's anchor: the weekday small and in colour, the day number large, the month under it.
     fileprivate func dateBlock(day: CGFloat) -> some View {
@@ -525,7 +531,7 @@ struct BoardWidgetView: View {
         }
     }
 
-    fileprivate func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+    func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         content().padding(.horizontal, 10).padding(.vertical, 7).frame(maxWidth: .infinity)
             .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
