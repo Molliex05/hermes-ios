@@ -70,6 +70,9 @@ private struct VoiceWidgetView: View {
     let agent: AgentEntity?
     var inCar = false
     @Environment(\.widgetFamily) private var family
+    /// False in CarPlay and StandBy: no page around the button, which is read from a distance.
+    @Environment(\.showsWidgetContainerBackground) private var showsBackground
+    @Environment(\.colorScheme) private var scheme
     private var name: String { agent?.title ?? "Hermès" }
 
     var body: some View {
@@ -87,6 +90,31 @@ private struct VoiceWidgetView: View {
                 Spacer(minLength: 0)
             }.padding(.horizontal, 4)
         default:
+            if inCar || !showsBackground { carButton } else { homeButton }
+        }
+    }
+
+    /// In the car: one large disc in the agent's colours, its name, and what the tap does.
+    private var carButton: some View {
+        let palette = AgentLook.standard(for: agent?.id ?? "hermes").palette
+        return VStack(alignment: .leading, spacing: 2) {
+            ZStack {
+                Circle().fill(LinearGradient(colors: [palette.light, palette.main], startPoint: .topLeading, endPoint: .bottomTrailing))
+                Image(systemName: inCar ? "car.fill" : "waveform").font(.title.weight(.semibold)).foregroundStyle(.white)
+            }
+            .frame(width: 62, height: 62)
+            .shadow(color: palette.main.opacity(0.35), radius: 8, y: 3)
+            Spacer(minLength: 4)
+            Text(name).font(.title3.weight(.bold)).lineLimit(1).minimumScaleFactor(0.7)
+            Text(inCar ? "Parler sans déverrouiller" : "Appel vocal").font(.subheadline.weight(.medium))
+                .foregroundStyle(scheme == .dark ? palette.light : palette.main).lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .padding(showsBackground ? 14 : 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityElement(children: .combine).accessibilityLabel("Appeler \(name)")
+    }
+
+    private var homeButton: some View {
             VStack(spacing: 12) {
                 ZStack {
                     Circle().fill(WidgetPalette.accent.gradient).frame(width: 58, height: 58)
@@ -94,6 +122,5 @@ private struct VoiceWidgetView: View {
                 }
                 Text("Parler à \(name)").font(.subheadline.weight(.semibold))
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
     }
 }

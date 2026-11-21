@@ -344,6 +344,8 @@ struct BoardWidgetView: View {
     @Environment(\.widgetFamily) private var family
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.colorScheme) private var scheme
+    /// False in CarPlay and StandBy: the system removes the page and the widget is read from a distance.
+    @Environment(\.showsWidgetContainerBackground) private var showsBackground
     /// From « xLarge » up, fewer lines: what fits at the default size does not fit then.
     fileprivate var bigText: Bool { typeSize >= .xLarge }
 
@@ -354,7 +356,7 @@ struct BoardWidgetView: View {
     @ViewBuilder private var content: some View {
         switch family {
         case .accessoryInline, .accessoryRectangular: accessory
-        case .systemSmall: small
+        case .systemSmall: if showsBackground { small } else { farSmall }
         case .systemMedium: medium
         default: large
         }
@@ -948,6 +950,62 @@ extension BoardWidgetView {
     private func blockLink<Content: View>(_ block: WidgetBlock, @ViewBuilder label: () -> Content) -> some View {
         let ask = block.ask.isEmpty ? "Dis-m’en plus sur : \(block.title.isEmpty ? "ce bloc du widget" : block.title)" : block.ask
         return Link(destination: BoardLinks.url("ask", profile: entry.profile, text: ask) ?? URL(string: "hermesios://open")!, label: label)
+    }
+
+    // MARK: Read from a distance (CarPlay, StandBy)
+
+    /// One thing, large: what comes next, else the weather, else the day. No small buttons: at the wheel a tap opens Hermès,
+    /// whose car screen calls the agent. An agent's own block keeps its drawing.
+    @ViewBuilder private var farSmall: some View {
+        switch entry.sections.first {
+        case .block(let block)?: BoardBlockView(block: block, palette: entry.palette, style: .small)
+        case .meteo?: if let weather = entry.weather { farWeather(weather) } else { farDay }
+        default:
+            if let hero = entry.hero { farHero(hero) } else if let weather = entry.weather { farWeather(weather) } else { farDay }
+        }
+    }
+
+    /// The agent's mark and name over a figure in large type, then one line and its detail.
+    private func farGlance<Mark: View, Detail: View>(figure: String, figureColor: Color, line: String,
+                                                     @ViewBuilder mark: () -> Mark, @ViewBuilder detail: () -> Detail) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .center, spacing: 6) {
+                mark()
+                Spacer(minLength: 4)
+                Text(entry.agentTitle).font(.caption.weight(.bold)).foregroundStyle(accent).lineLimit(1).minimumScaleFactor(0.7)
+            }
+            Spacer(minLength: 0)
+            Text(figure).font(.system(.largeTitle, design: .rounded).weight(.bold)).monospacedDigit()
+                .foregroundStyle(figureColor).lineLimit(1).minimumScaleFactor(0.5)
+            Text(line).font(.headline).lineLimit(2).minimumScaleFactor(0.8).fixedSize(horizontal: false, vertical: true)
+            detail()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func farHero(_ hero: BoardRow) -> some View {
+        farGlance(figure: hero.item.time.isEmpty ? "À voir" : hero.item.time, figureColor: color(hero), line: hero.item.text) {
+            Tile(symbol: BoardTone.symbol(hero.item), color: color(hero), size: 30)
+        } detail: {
+            sub(hero).font(.subheadline.weight(.semibold))
+        }
+    }
+
+    private func farWeather(_ weather: WeatherReport) -> some View {
+        farGlance(figure: degrees(entry.temperature), figureColor: .primary, line: weather.summary) {
+            wx(entry.weatherSymbol, 22)
+        } detail: {
+            Text(highLow(entry.today)).font(.subheadline.weight(.medium)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+        }
+    }
+
+    private var farDay: some View {
+        farGlance(figure: entry.date.formatted(.dateTime.day().month(.abbreviated).locale(Self.french)), figureColor: .primary, line: shortStatus) {
+            Tile(symbol: entry.greetingSymbol, color: accent, size: 30)
+        } detail: {
+            dayLeft(.subheadline)
+        }
     }
 
     @ViewBuilder fileprivate func smallSection(_ section: BoardEntry.Section) -> some View {

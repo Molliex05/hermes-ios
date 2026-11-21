@@ -100,11 +100,12 @@ private struct SmallActivity: View {
     }
 }
 
-/// The card on show, made for the small family: its symbol, title and figure, and one short line.
+/// The card on show, made for the small family (CarPlay's Dashboard, the watch): its symbol, title and figure, and one
+/// short line. Dark, like the car's screen at night: a white card there would dazzle.
 private struct SmallGlance: View {
     let glance: CardGlance
     var body: some View {
-        let theme = CardTheme(glance)
+        let theme = CardTheme(glance, dark: true)
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
                 Image(systemName: glance.symbol).font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.icon)
@@ -253,10 +254,14 @@ private struct CardTheme {
     let background: LinearGradient
     let primary: Color, secondary: Color, icon: Color, iconBackground: Color, bar: Color
 
-    init(_ glance: CardGlance) {
+    init(_ glance: CardGlance, dark: Bool = false) {
         if let sky = Self.sky(glance.symbol) {
             background = LinearGradient(colors: sky, startPoint: .top, endPoint: .bottom)
             primary = .white; secondary = .white.opacity(0.78); icon = .white; iconBackground = .white.opacity(0.22); bar = .white
+        } else if dark {
+            background = LinearGradient(colors: [Color(white: 0.17), Color(white: 0.11)], startPoint: .top, endPoint: .bottom)
+            primary = .white; secondary = .white.opacity(0.68)
+            icon = ActivityStyle.accent; iconBackground = ActivityStyle.accent.opacity(0.2); bar = ActivityStyle.accent
         } else {
             background = LinearGradient(colors: [.white, Color(white: 0.96)], startPoint: .top, endPoint: .bottom)
             primary = Color(white: 0.08); secondary = Color(white: 0.08).opacity(0.58)
