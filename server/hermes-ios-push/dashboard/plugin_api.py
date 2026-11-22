@@ -175,6 +175,13 @@ class CallOutcome(BaseModel):
     outcome: Literal["ringing", "answered", "missed", "declined"]
 
 
+@router.post("/calls/claim")
+def claim_call():
+    """The iPhone is in the car (CarPlay): the call planned within the next 90 minutes rings now, from the iPhone."""
+    found = calls.claim_now(service.Store())
+    return {"call": {"id": found["id"], "profile": found["profile"], "agent": found["agent"], "reason": found["reason"]} if found else None}
+
+
 @router.get("/calls/{call_id}")
 def read_call(call_id: str = PathParam(pattern=CALL_ID)):
     """Why the agent called: read by the app once the call is answered (the VoIP push carries no text)."""

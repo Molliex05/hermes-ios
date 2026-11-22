@@ -14,6 +14,7 @@ struct HermesIOSApp: App {
         _model = State(initialValue: model)
         // A call started from the Lock Screen may launch the app in the background, with no window: the model is ready here.
         CallLauncher.start = { profile in await model.startBackgroundCall(profile: profile) }
+        CallLauncher.claimTrip = { await model.claimTripCall() }
         // The car's screen (CarPlay) names the agent before a call; it starts calls through CallLauncher too.
         CarScreen.agentTitle = { model.agent?.title }
         // Every launch, the background ones too: a VoIP push (an agent calling) may be what launched the app.

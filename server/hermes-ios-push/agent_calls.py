@@ -161,6 +161,25 @@ def claim_due(store, now: float | None = None) -> list:
     return rows
 
 
+CLAIM_WINDOW = 90 * 60     # the iPhone connected to the car this long before a planned call takes it now
+
+
+def claim_now(store, within: float = CLAIM_WINDOW, now: float | None = None) -> dict | None:
+    """The iPhone reached the car (CarPlay) before a planned call: the next one within `within` seconds rings now, from the
+    iPhone, and is marked sent so the worker never rings it again (one briefing per trip). None when nothing is planned."""
+    now = now or time.time()
+    within = min(max(float(within), 0), CLAIM_WINDOW)
+    with store.connect(immediate=True) as db:
+        ensure(db)
+        row = db.execute("SELECT id,profile,agent,reason FROM calls WHERE state='planned' AND at>=? AND at<=? ORDER BY at LIMIT 1",
+                         (now - LATE, now + within)).fetchone()
+        if not row:
+            return None
+        db.execute("UPDATE calls SET state='sent', sent=? WHERE id=?", (now, row["id"]))
+    _touch(store.home)
+    return dict(row)
+
+
 def next_at(store) -> float | None:
     with store.connect() as db:
         ensure(db)

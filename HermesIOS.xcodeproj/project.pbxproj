@@ -132,6 +132,7 @@
 		A3345823FD5C3B757447855D /* web-page.pcm in Resources */ = {isa = PBXBuildFile; fileRef = 78839756CD7B8D5952BBFAD8 /* web-page.pcm */; };
 		A4100B958DC01C688D02ADBF /* GroupMention.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20505E1C09C0651480D93ECE /* GroupMention.swift */; };
 		A4491E508E5835BD5DFBC248 /* SpokenText.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CD9871AE2E9F5376352C14E /* SpokenText.swift */; };
+		A5483DCEC7909F2B89DDFEA3 /* CarTripIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 452B66AED6A6F04B655F7E6F /* CarTripIntent.swift */; };
 		A65B1AFBDE1BEE9C71B20D2A /* MenuView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4140F253F6342BD71320743C /* MenuView.swift */; };
 		A66BE2BEE882B3407117391E /* BoardBlockView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17AACE64A807F803F74D5A3C /* BoardBlockView.swift */; };
 		A738E37666C777071A0F533C /* courriels-ranger.pcm in Resources */ = {isa = PBXBuildFile; fileRef = 3BAC3B8AECCFDEC0B1D3471A /* courriels-ranger.pcm */; };
@@ -349,6 +350,7 @@
 		41C5AE38319FEB1DF5D09D55 /* noriven_compare.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = noriven_compare.wav; sourceTree = "<group>"; };
 		4248E82756F62E76CFBD2FC3 /* HermesVoiceWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesVoiceWidget.swift; sourceTree = "<group>"; };
 		436419B2A934B9610E3BD3DD /* VoiceConversation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceConversation.swift; sourceTree = "<group>"; };
+		452B66AED6A6F04B655F7E6F /* CarTripIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CarTripIntent.swift; sourceTree = "<group>"; };
 		45F8C117680E3093D826D5D3 /* SlashInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlashInput.swift; sourceTree = "<group>"; };
 		46031F875793783DE776A6F7 /* ConversationActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationActivity.swift; sourceTree = "<group>"; };
 		476734DA2FC09D7F7E0875DC /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -501,6 +503,7 @@
 			isa = PBXGroup;
 			children = (
 				7AF7ECB6FFA8C6816423FB34 /* AgentCalls.swift */,
+				452B66AED6A6F04B655F7E6F /* CarTripIntent.swift */,
 			);
 			path = Calls;
 			sourceTree = "<group>";
@@ -1167,6 +1170,7 @@
 				FFE76D8B9B7024AB1369A965 /* BoardDesk.swift in Sources */,
 				BFB991CE16F9E769A48BD267 /* CallIntents.swift in Sources */,
 				ABE49A90CBFAA89B87DFC0E9 /* CarPlayScene.swift in Sources */,
+				A5483DCEC7909F2B89DDFEA3 /* CarTripIntent.swift in Sources */,
 				4BA854E3045EB00B5108D24B /* CarVoiceScreen.swift in Sources */,
 				D0ACB4C8195AD6407B50EB93 /* CardGlance.swift in Sources */,
 				4AC347EB232545757FCB73E2 /* CardLinks.swift in Sources */,

@@ -84,6 +84,18 @@ class AgentCalls(unittest.TestCase):
         asyncio.run(calls.deliver(self.store, sender, calls.Timer(), at + calls.LATE + 60))
         self.assertEqual(sender.rings, [])
 
+    def test_the_car_takes_the_next_call_once(self):
+        planned = calls.plan(self.store, "personnel", "Jarvis", "2026-11-23T13:45", "trajet vers ton quart", now=NOW)
+        at = datetime(2026, 11, 23, 13, 45, tzinfo=TZ).timestamp()
+        self.assertIsNone(calls.claim_now(self.store, now=at - 2 * 3600), "too early: two hours before")
+        taken = calls.claim_now(self.store, now=at - 40 * 60)
+        self.assertEqual(taken["id"], planned["id"]); self.assertEqual(taken["reason"], "trajet vers ton quart")
+        self.assertIsNone(calls.claim_now(self.store, now=at - 30 * 60), "one briefing per trip")
+        sender = Sender()
+        asyncio.run(calls.deliver(self.store, sender, calls.Timer(), at + 2))
+        self.assertEqual(sender.rings, [], "taken by the car: the server never rings it")
+        self.assertIsNotNone(calls.get(self.store, planned["id"]))
+
     def test_a_device_without_pushkit_cannot_be_rung(self):
         self.store.register("I", "C", "ab" * 32, "sandbox", None, None)
         self.assertEqual(calls.voip_devices(self.store), [])

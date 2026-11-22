@@ -278,6 +278,16 @@ final class AppModel {
         return (try? await http.request(path))?["reason"].string ?? ""
     }
 
+    /// The iPhone reached the car: the call an agent planned within the next 90 minutes, taken from the server so it never
+    /// rings a second time (`AgentCalls.ringFromCar`). Nil when nothing is planned or the server cannot be reached.
+    func claimTripCall() async -> (id: String, profile: String, agent: String, reason: String)? {
+        await boot()
+        guard await waitUntilCallable(), let http else { return nil }
+        guard let call = try? await http.request("/api/plugins/hermes-ios-push/calls/claim", method: "POST", body: .object([:]))["call"],
+              case .object = call, !call["id"].string.isEmpty else { return nil }
+        return (call["id"].string, call["profile"].string, call["agent"].string, call["reason"].string)
+    }
+
     /// Tells the server what became of the call (ringing, answered, missed, declined): one call per trip, and the agent knows.
     func reportAgentCall(_ id: String, outcome: String) async {
         guard let http, let path = Self.agentCallPath(id) else { return }

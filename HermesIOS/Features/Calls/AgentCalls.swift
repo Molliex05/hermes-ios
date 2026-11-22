@@ -27,6 +27,8 @@ final class AgentCalls: NSObject {
     private struct Call {
         let uuid: UUID, id: String, profile: String, agent: String
         var answered = false, conversation = false, briefed = ""
+        /// Known when the iPhone rang itself (the car took the call): no need to ask the server.
+        var reason: String?
     }
     private var call: Call?
     private var unlockObserver: NSObjectProtocol?
@@ -58,7 +60,19 @@ final class AgentCalls: NSObject {
 
     // MARK: Ringing
 
-    private func ring(id: String, profile: String, agent: String) {
+    /// The iPhone reached the car before a planned call (`CarTripIntent`): the server handed it over, the iPhone rings now.
+    /// If iOS refuses the ring (a Focus that silences the app), the call starts as a conversation straight away: the
+    /// sound is already in the car, which is the car call's own trust.
+    func ringFromCar(id: String, profile: String, agent: String, reason: String) {
+        ring(id: id, profile: profile, agent: agent, reason: reason) { [weak self] in
+            Task { [weak self] in
+                guard let model = self?.model else { return }
+                _ = await model.startBackgroundCall(profile: profile, opening: AgentCallPlan.opening(reason: reason, noriven: AgentCallPlan.deskLine(self?.currentDesk())))
+            }
+        }
+    }
+
+    private func ring(id: String, profile: String, agent: String, reason: String? = nil, refused: (@MainActor () -> Void)? = nil) {
         let uuid = UUID()
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: agent)
@@ -67,7 +81,7 @@ final class AgentCalls: NSObject {
         update.supportsHolding = false; update.supportsGrouping = false; update.supportsUngrouping = false; update.supportsDTMF = false
         // A second call while one is under way is refused at once: CallKit must still hear about it (PushKit's rule).
         let busy = call != nil
-        if !busy { call = Call(uuid: uuid, id: id, profile: profile, agent: agent) }
+        if !busy { call = Call(uuid: uuid, id: id, profile: profile, agent: agent, reason: reason) }
         provider.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
             let failed = error != nil
             Task { @MainActor in
@@ -75,6 +89,7 @@ final class AgentCalls: NSObject {
                 if busy || failed {
                     if !busy { self.call = nil }
                     self.provider.reportCall(with: uuid, endedAt: nil, reason: .failed)
+                    if !busy { refused?() }
                     return
                 }
                 self.model.map { model in Task { await model.reportAgentCall(id, outcome: "ringing") } }
@@ -95,7 +110,8 @@ final class AgentCalls: NSObject {
         guard var current = call, current.answered else { return }
         let carAudio = AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .carAudio }
         let mode = AgentCallPlan.mode(carAudio: carAudio, unlocked: UIApplication.shared.isProtectedDataAvailable)
-        let reason = await model?.agentCallReason(current.id) ?? ""
+        let reason: String
+        if let known = current.reason { reason = known } else { reason = await model?.agentCallReason(current.id) ?? "" }
         guard call?.uuid == current.uuid else { return }
         switch mode {
         case .conversation:
@@ -186,7 +202,8 @@ final class AgentCalls: NSObject {
     /// Missed or declined: the briefing as a notification, with « Rappeler ».
     private func missed(_ missedCall: Call, outcome: String) async {
         finished(missedCall.uuid)
-        let reason = await model?.agentCallReason(missedCall.id) ?? ""
+        let reason: String
+        if let known = missedCall.reason { reason = known } else { reason = await model?.agentCallReason(missedCall.id) ?? "" }
         let content = UNMutableNotificationContent()
         content.title = "Appel manqué de \(missedCall.agent)"
         content.body = briefing(for: missedCall, reason: reason)
