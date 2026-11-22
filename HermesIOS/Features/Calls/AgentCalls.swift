@@ -67,7 +67,7 @@ final class AgentCalls: NSObject {
         ring(id: id, profile: profile, agent: agent, reason: reason) { [weak self] in
             Task { [weak self] in
                 guard let model = self?.model else { return }
-                _ = await model.startBackgroundCall(profile: profile, opening: AgentCallPlan.opening(reason: reason, noriven: AgentCallPlan.deskLine(self?.currentDesk())))
+                _ = await model.startBackgroundCall(profile: profile, opening: AgentCallPlan.opening(reason: reason))
             }
         }
     }
@@ -129,8 +129,7 @@ final class AgentCalls: NSObject {
         stopWaiting()
         speech.stopSpeaking(at: .immediate)
         current.conversation = true; call = current
-        let opening = AgentCallPlan.opening(reason: reason, noriven: AgentCallPlan.deskLine(currentDesk()))
-        if let problem = await model.startBackgroundCall(profile: current.profile, opening: opening) {
+        if let problem = await model.startBackgroundCall(profile: current.profile, opening: AgentCallPlan.opening(reason: reason)) {
             say(problem)
             try? await Task.sleep(for: .seconds(4))
             end()
@@ -168,15 +167,9 @@ final class AgentCalls: NSObject {
         let next = boards?.agendas[call.profile].flatMap { $0.isExpired(at: now) ? nil : $0 }?.items
             .first { item in (item.until ?? item.at.map { $0.addingTimeInterval(15 * 60) } ?? .distantFuture) > now }
         let weather = boards?.weather.flatMap { $0.isExpired(at: now) ? nil : $0 }
-        let desk = currentDesk(boards, now: now)
         let pay = boards?.blocks[call.profile]?.first { $0.slot == "paie" && !$0.isExpired(at: now) }
             .map { [$0.title, $0.text].filter { !$0.isEmpty }.joined(separator: " : ") }
-        return AgentCallPlan.briefing(agent: call.agent, reason: reason, next: next, weather: weather, desk: desk, pay: pay)
-    }
-
-    /// Hermès's desk as the widget holds it; nil when there is no fresh board.
-    private func currentDesk(_ boards: AgentBoards? = AgentBoardStore.read(), now: Date = .now) -> BoardDesk? {
-        boards?.boards.first { BoardRole(profile: $0.key) == .desk }.flatMap { $0.value.isExpired(at: now) ? nil : BoardDesk($0.value.items) }
+        return AgentCallPlan.briefing(agent: call.agent, reason: reason, next: next, weather: weather, pay: pay)
     }
 
     // MARK: Ended

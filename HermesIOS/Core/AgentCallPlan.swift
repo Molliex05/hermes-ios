@@ -21,18 +21,16 @@ public enum AgentCallPlan {
     public static let unlockWaitSeconds: TimeInterval = 60
 
     /// The first turn sent to the agent when the call becomes a conversation: it speaks first, with the reason it called.
-    /// `noriven`: Hermès's desk as the widget holds it (`deskLine`), so Jarvis can say it without reaching Hermès.
-    public static func opening(reason: String, noriven: String? = nil) -> String {
+    public static func opening(reason: String) -> String {
         let why = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        let desk = noriven.map { " Côté Noriven, selon le tableau d’Hermès : \($0). Tu n’en sais pas plus : pour le détail, c’est Hermès." } ?? ""
         // Without the last sentence the agent said « As-tu besoin d'autre chose ? » and hung up in the same reply.
-        return "(Tu m’appelles\(why.isEmpty ? "" : " : \(why)"). J’ai décroché : donne-moi le topo, court, puis demande si j’ai besoin d’autre chose. Ne raccroche pas avant ma réponse.\(desk))"
+        return "(Tu m’appelles\(why.isEmpty ? "" : " : \(why)"). J’ai décroché : donne-moi le topo, court, puis demande si j’ai besoin d’autre chose. Ne raccroche pas avant ma réponse.)"
     }
 
     /// The briefing the iPhone says (and writes in the missed-call notification) from what it already holds: the agent's
-    /// reason, the next event of the day, the weather, the desk's state, the week's payslip. Never mail or amounts.
-    public static func briefing(agent: String, reason: String, next: AgentBoard.Item?, weather: WeatherReport?,
-                                desk: BoardDesk?, pay: String?) -> String {
+    /// reason, the next event of the day, the weather, the week's payslip. Never mail or amounts, and never the other
+    /// agent's business: Jarvis keeps Maxime's life, Hermès keeps Noriven.
+    public static func briefing(agent: String, reason: String, next: AgentBoard.Item?, weather: WeatherReport?, pay: String?) -> String {
         var parts: [String] = []
         let why = reason.trimmingCharacters(in: .whitespacesAndNewlines)
         if !why.isEmpty { parts.append(sentence(why)) }
@@ -41,26 +39,9 @@ public enum AgentCallPlan {
             parts.append(sentence("\(next.text)\(at)"))
         }
         if let weather { parts.append(sentence("\(weather.temp)°, \(weather.summary.lowercased())")) }
-        if let desk, desk.level != .fine {
-            parts.append(sentence(desk.toFix > 0 ? "Noriven : \(desk.toFix) \(desk.toFix == 1 ? "chose" : "choses") à régler"
-                                                 : "Noriven : \(desk.toWatch) à surveiller"))
-        }
         if let pay, !pay.isEmpty { parts.append(sentence(pay)) }
         if parts.isEmpty { parts.append("Rien de particulier aujourd’hui.") }
         return parts.joined(separator: " ")
-    }
-
-    /// Hermès's desk for the call, with the lines' titles: Jarvis knows nothing else of Noriven, and without them he once
-    /// made up three alerts. « 2 à régler (Float : détails requis ; Sauvegardes : 4 inconnues), 1 à surveiller (VPS) ».
-    public static func deskLine(_ desk: BoardDesk?) -> String? {
-        guard let desk else { return nil }
-        if desk.level == .fine { return "rien à signaler" }
-        func titles(_ level: BoardDesk.Level) -> String {
-            let lines = desk.items.filter { BoardDesk.Level(tone: $0.tone) == level }.map(\.text)
-            return lines.isEmpty ? "" : " (" + lines.joined(separator: " ; ") + ")"
-        }
-        return [desk.toFix > 0 ? "\(desk.toFix) à régler\(titles(.fix))" : nil, desk.toWatch > 0 ? "\(desk.toWatch) à surveiller\(titles(.watch))" : nil]
-            .compactMap { $0 }.joined(separator: ", ")
     }
 
     /// Said after the briefing on a locked iPhone.
