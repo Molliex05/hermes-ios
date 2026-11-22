@@ -142,7 +142,8 @@ final class VoiceConversation {
     func refreshCarScreen(open: Bool = true) {
         guard CarScreen.shared.connected, !tools.app.demo else { return }
         let destination = cardsBefore.flatMap { VoiceCards.destination(in: tools.app.transcript.messages, before: $0) }
-        CarScreen.shared.update(agent: tools.app.agent?.title ?? "Hermès", phase: activityPhase, muted: inputMuted, destination: destination, open: open)
+        CarScreen.shared.update(agent: tools.app.agent?.title ?? "Hermès", profile: tools.app.selected?.profile ?? tools.app.profile,
+                                phase: activityPhase, muted: inputMuted, destination: destination, open: open)
     }
     var title: String {
         if inputMuted, [.listening, .transcribing, .thinking].contains(phase) { return "Microphone coupé." }

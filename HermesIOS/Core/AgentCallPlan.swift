@@ -24,7 +24,7 @@ public enum AgentCallPlan {
     /// `noriven`: Hermès's desk as the widget holds it (`deskLine`), so Jarvis can say it without reaching Hermès.
     public static func opening(reason: String, noriven: String? = nil) -> String {
         let why = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        let desk = noriven.map { " Côté Noriven, selon le tableau d’Hermès : \($0)." } ?? ""
+        let desk = noriven.map { " Côté Noriven, selon le tableau d’Hermès : \($0). Tu n’en sais pas plus : pour le détail, c’est Hermès." } ?? ""
         // Without the last sentence the agent said « As-tu besoin d'autre chose ? » and hung up in the same reply.
         return "(Tu m’appelles\(why.isEmpty ? "" : " : \(why)"). J’ai décroché : donne-moi le topo, court, puis demande si j’ai besoin d’autre chose. Ne raccroche pas avant ma réponse.\(desk))"
     }
@@ -50,11 +50,16 @@ public enum AgentCallPlan {
         return parts.joined(separator: " ")
     }
 
-    /// Hermès's desk in a few words for the call: « 2 à régler, 3 à surveiller », « rien à signaler »; nil without a board.
+    /// Hermès's desk for the call, with the lines' titles: Jarvis knows nothing else of Noriven, and without them he once
+    /// made up three alerts. « 2 à régler (Float : détails requis ; Sauvegardes : 4 inconnues), 1 à surveiller (VPS) ».
     public static func deskLine(_ desk: BoardDesk?) -> String? {
         guard let desk else { return nil }
         if desk.level == .fine { return "rien à signaler" }
-        return [desk.toFix > 0 ? "\(desk.toFix) à régler" : nil, desk.toWatch > 0 ? "\(desk.toWatch) à surveiller" : nil]
+        func titles(_ level: BoardDesk.Level) -> String {
+            let lines = desk.items.filter { BoardDesk.Level(tone: $0.tone) == level }.map(\.text)
+            return lines.isEmpty ? "" : " (" + lines.joined(separator: " ; ") + ")"
+        }
+        return [desk.toFix > 0 ? "\(desk.toFix) à régler\(titles(.fix))" : nil, desk.toWatch > 0 ? "\(desk.toWatch) à surveiller\(titles(.watch))" : nil]
             .compactMap { $0 }.joined(separator: ", ")
     }
 

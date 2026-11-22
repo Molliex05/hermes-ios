@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The orb is the whole conversation: it follows your voice while listening, breathes while the
 /// agent thinks, and pulses while it speaks. States blend into each other instead of switching.
@@ -66,6 +67,33 @@ struct AgentNotificationPicture: View {
             .padding(proxy.size.width * 0.17)
             .background(look.palette.light, in: Circle())
         }
+    }
+}
+
+/// The orb as an animated picture, for CarPlay's voice screen, which only takes images: a loop of the agent's own motion
+/// in one phase (idle is a still). CarPlay plays it between 0.3 and 5 s a cycle, at 150 points at most.
+enum OrbFilm {
+    @MainActor static func image(look: AgentLook, phase: OrbPhase, side: CGFloat, scale: CGFloat, frames: Int = 16, cycle: Double = 2.4) -> UIImage? {
+        let target = OrbMotion.Target(listening: phase == .listening, thinking: phase == .thinking, speaking: phase == .speaking,
+                                      level: phase == .listening ? -1 : 0)
+        let motion = OrbMotion()
+        var time = 0.0
+        // Into the phase first, so the loop shows its steady motion rather than the easing in.
+        while time < 2 { _ = motion.step(time: time, target: target); time += 1.0 / 30.0 }
+        let count = phase == .idle ? 1 : max(2, frames)
+        var images: [UIImage] = []
+        for index in 0..<count {
+            let at = time + Double(index) * cycle / Double(count)
+            var state = motion.step(time: time, target: target)
+            while time < at { time = min(at, time + 1.0 / 30.0); state = motion.step(time: time, target: target) }
+            let frame = Canvas { context, size in
+                OrbArtist(look: look, dark: true, compact: false).draw(context, size: size, time: at, state: state)
+            }.frame(width: side, height: side)
+            let renderer = ImageRenderer(content: frame)
+            renderer.scale = scale
+            if let image = renderer.uiImage { images.append(image) }
+        }
+        return images.count == 1 ? images.first : UIImage.animatedImage(with: images, duration: cycle)
     }
 }
 

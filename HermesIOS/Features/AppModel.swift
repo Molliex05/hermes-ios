@@ -273,9 +273,15 @@ final class AppModel {
 
     /// Why the agent called (`AgentCalls`), as the server keeps it; empty when it cannot be reached in time.
     func agentCallReason(_ id: String) async -> String {
-        await boot()
-        guard await waitUntilCallable(), let http, let path = Self.agentCallPath(id) else { return "" }
-        return (try? await http.request(path))?["reason"].string ?? ""
+        guard let path = Self.agentCallPath(id) else { return "" }
+        // One request is enough: no need for the whole connection (in the car it was not ready in time, and the agent
+        // called without saying why). A few tries while the network comes up.
+        for attempt in 0..<4 {
+            if http == nil { await boot() }
+            if let http, let reason = try? await http.request(path)["reason"].string { return reason }
+            if attempt < 3 { try? await Task.sleep(for: .seconds(1.5)) }
+        }
+        return ""
     }
 
     /// The iPhone reached the car: the call an agent planned within the next 90 minutes, taken from the server so it never
