@@ -7,7 +7,8 @@ import UIKit
 
 /// The agent calls Maxime. The server rings the iPhone with a VoIP push at the moment the agent planned (a shift: halfway
 /// through the drive); CallKit shows « Jarvis » like any call, on the Lock Screen, the AirPods, the watch or the car's
-/// screen. The push carries only the call's number; the reason is fetched from the server once the call is answered.
+/// screen. The push carries only the call's number; the reason and the words the agent prepared before calling are fetched
+/// from the server while it rings, so the agent speaks the moment Maxime answers.
 ///
 /// Answered in the car or unlocked, the call becomes the usual voice conversation and the agent speaks first. Answered on a
 /// locked iPhone elsewhere, the iPhone says a short briefing itself and the agent (who reads mail and the calendar) is
@@ -29,7 +30,10 @@ final class AgentCalls: NSObject {
         var answered = false, conversation = false, briefed = ""
         /// Known when the iPhone rang itself (the car took the call): no need to ask the server.
         var reason: String?
+        var script = ""
     }
+    /// The call's reason and prepared words, asked for as soon as it rings.
+    private var info: Task<(reason: String, script: String), Never>?
     private var call: Call?
     private var unlockObserver: NSObjectProtocol?
     private var waitForUnlock: Task<Void, Never>?
@@ -63,16 +67,18 @@ final class AgentCalls: NSObject {
     /// The iPhone reached the car before a planned call (`CarTripIntent`): the server handed it over, the iPhone rings now.
     /// If iOS refuses the ring (a Focus that silences the app), the call starts as a conversation straight away: the
     /// sound is already in the car, which is the car call's own trust.
-    func ringFromCar(id: String, profile: String, agent: String, reason: String) {
-        ring(id: id, profile: profile, agent: agent, reason: reason) { [weak self] in
+    func ringFromCar(id: String, profile: String, agent: String, reason: String, script: String) {
+        ring(id: id, profile: profile, agent: agent, reason: reason, script: script) { [weak self] in
             Task { [weak self] in
                 guard let model = self?.model else { return }
-                _ = await model.startBackgroundCall(profile: profile, opening: AgentCallPlan.opening(reason: reason))
+                _ = await model.startBackgroundCall(profile: profile, opening: AgentCallPlan.opening(reason: reason),
+                                                    greeting: AgentCallPlan.greeting(reason: reason, script: script))
             }
         }
     }
 
-    private func ring(id: String, profile: String, agent: String, reason: String? = nil, refused: (@MainActor () -> Void)? = nil) {
+    private func ring(id: String, profile: String, agent: String, reason: String? = nil, script: String = "",
+                      refused: (@MainActor () -> Void)? = nil) {
         let uuid = UUID()
         let update = CXCallUpdate()
         update.remoteHandle = CXHandle(type: .generic, value: agent)
@@ -81,7 +87,10 @@ final class AgentCalls: NSObject {
         update.supportsHolding = false; update.supportsGrouping = false; update.supportsUngrouping = false; update.supportsDTMF = false
         // A second call while one is under way is refused at once: CallKit must still hear about it (PushKit's rule).
         let busy = call != nil
-        if !busy { call = Call(uuid: uuid, id: id, profile: profile, agent: agent, reason: reason) }
+        if !busy {
+            call = Call(uuid: uuid, id: id, profile: profile, agent: agent, reason: reason, script: script)
+            info = reason == nil ? Task { [weak self] in await self?.model?.agentCallInfo(id) ?? ("", "") } : nil
+        }
         provider.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
             let failed = error != nil
             Task { @MainActor in
@@ -110,9 +119,9 @@ final class AgentCalls: NSObject {
         guard var current = call, current.answered else { return }
         let carAudio = AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .carAudio }
         let mode = AgentCallPlan.mode(carAudio: carAudio, unlocked: UIApplication.shared.isProtectedDataAvailable)
-        let reason: String
-        if let known = current.reason { reason = known } else { reason = await model?.agentCallReason(current.id) ?? "" }
+        let (reason, script) = await details(of: current)
         guard call?.uuid == current.uuid else { return }
+        current.reason = reason; current.script = script; call = current
         switch mode {
         case .conversation:
             await converse(reason: reason)
@@ -124,12 +133,21 @@ final class AgentCalls: NSObject {
         }
     }
 
+    /// The reason and prepared words: known (the car rang), else the request started when it rang.
+    private func details(of call: Call) async -> (reason: String, script: String) {
+        if let reason = call.reason { return (reason, call.script) }
+        if let info { return await info.value }
+        return await model?.agentCallInfo(call.id) ?? ("", "")
+    }
+
     private func converse(reason: String) async {
         guard var current = call, let model else { return }
         stopWaiting()
         speech.stopSpeaking(at: .immediate)
         current.conversation = true; call = current
-        if let problem = await model.startBackgroundCall(profile: current.profile, opening: AgentCallPlan.opening(reason: reason)) {
+        // Prepared before ringing, the agent's words are said at once; without them, it speaks first as before.
+        if let problem = await model.startBackgroundCall(profile: current.profile, opening: AgentCallPlan.opening(reason: reason),
+                                                         greeting: AgentCallPlan.greeting(reason: reason, script: current.script)) {
             say(problem)
             try? await Task.sleep(for: .seconds(4))
             end()
@@ -189,14 +207,13 @@ final class AgentCalls: NSObject {
         guard call?.uuid == uuid else { return }
         stopWaiting()
         speech.stopSpeaking(at: .immediate)
-        call = nil
+        call = nil; info = nil
     }
 
     /// Missed or declined: the briefing as a notification, with « Rappeler ».
     private func missed(_ missedCall: Call, outcome: String) async {
         finished(missedCall.uuid)
-        let reason: String
-        if let known = missedCall.reason { reason = known } else { reason = await model?.agentCallReason(missedCall.id) ?? "" }
+        let (reason, _) = await details(of: missedCall)
         let content = UNMutableNotificationContent()
         content.title = "Appel manqué de \(missedCall.agent)"
         content.body = briefing(for: missedCall, reason: reason)

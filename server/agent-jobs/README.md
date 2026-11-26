@@ -13,6 +13,7 @@ dépendent plus d'une réponse exactement `[SILENT]`, et une réponse « rien à
 | `hermes-courriels.prompt.fr.txt` | noriven | retirée le 2026-11-04 (voir plus bas) | boîtes Polaris de Noriven : tri prudent, brouillons, widget, alerte si urgent |
 | `jarvis-paie.prompt.fr.txt` | personnel | chaque mercredi à 9 h (`c463f77da5b6`, livraison locale, échec dans le Bot Chat) | talons MaPaie.net rangés dans iCloud par le Mac, vérifiés avec l'agenda « Police » ; notification seulement en cas de problème ; le résumé du jeudi lit sa sortie (`context_from`) |
 | `jarvis-appels.prompt.fr.txt` | personnel | chaque jour à 5 h (`973ec78eea44`, livraison locale, échec dans le Bot Chat) | planifie l'appel de trajet de chaque quart « Police » (début − 30 min, `appel_planifier`) ; le résumé de 8 h lit sa ligne (`context_from`) et replanifie si l'agenda a changé |
+| (créée par le plugin) « Préparer l'appel <clé> » | personnel | une fois, 20 min avant chaque appel planifié (livraison locale) | rassemble le topo et l'enregistre avec `appel_preparer` ; l'iPhone le dit dès que Maxime décroche. Créée, déplacée et retirée par `appel_planifier` / `appel_annuler` (`call_tools.PREP_PROMPT`) |
 | `hermes-matin.prompt.fr.txt` | noriven | chaque matin à 8 h 15, avec sa sortie précédente en contexte | point libre sur l'entreprise, en cartes, et courriels urgents ou à traiter |
 
 ```bash

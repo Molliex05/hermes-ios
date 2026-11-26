@@ -250,7 +250,7 @@ final class AppModel {
     /// Answers once the call runs (its Live Activity requested), or with the reason it could not start.
     /// `opening`: the agent called (`AgentCalls`) and speaks first; such a call always runs in standard mode, whose first
     /// turn can be sent before Maxime says anything.
-    func startBackgroundCall(profile name: String?, opening: String? = nil) async -> String? {
+    func startBackgroundCall(profile name: String?, opening: String? = nil, greeting: (text: String, context: String)? = nil) async -> String? {
         if voiceActive { return nil }
         if !hasBooted { foreground = false }
         callStarting = true
@@ -267,31 +267,33 @@ final class AppModel {
         backgroundCall = call
         call.watchSystemAudio()
         call.openingTurn = opening
-        call.start(standardMode: opening != nil)
+        call.greeting = greeting?.text; call.greetingContext = greeting?.context
+        call.start(standardMode: opening != nil || greeting != nil)
         return voiceActive ? nil : "L’appel n’a pas pu démarrer. Ouvrez l’app."
     }
 
-    /// Why the agent called (`AgentCalls`), as the server keeps it; empty when it cannot be reached in time.
-    func agentCallReason(_ id: String) async -> String {
-        guard let path = Self.agentCallPath(id) else { return "" }
+    /// Why the agent called (`AgentCalls`) and what it prepared to say, as the server keeps them; empty when it cannot be
+    /// reached in time.
+    func agentCallInfo(_ id: String) async -> (reason: String, script: String) {
+        guard let path = Self.agentCallPath(id) else { return ("", "") }
         // One request is enough: no need for the whole connection (in the car it was not ready in time, and the agent
         // called without saying why). A few tries while the network comes up.
         for attempt in 0..<4 {
             if http == nil { await boot() }
-            if let http, let reason = try? await http.request(path)["reason"].string { return reason }
+            if let http, let call = try? await http.request(path), case .object = call { return (call["reason"].string, call["script"].string) }
             if attempt < 3 { try? await Task.sleep(for: .seconds(1.5)) }
         }
-        return ""
+        return ("", "")
     }
 
     /// The iPhone reached the car: the call an agent planned within the next 90 minutes, taken from the server so it never
     /// rings a second time (`AgentCalls.ringFromCar`). Nil when nothing is planned or the server cannot be reached.
-    func claimTripCall() async -> (id: String, profile: String, agent: String, reason: String)? {
+    func claimTripCall() async -> (id: String, profile: String, agent: String, reason: String, script: String)? {
         await boot()
         guard await waitUntilCallable(), let http else { return nil }
         guard let call = try? await http.request("/api/plugins/hermes-ios-push/calls/claim", method: "POST", body: .object([:]))["call"],
               case .object = call, !call["id"].string.isEmpty else { return nil }
-        return (call["id"].string, call["profile"].string, call["agent"].string, call["reason"].string)
+        return (call["id"].string, call["profile"].string, call["agent"].string, call["reason"].string, call["script"].string)
     }
 
     /// Tells the server what became of the call (ringing, answered, missed, declined): one call per trip, and the agent knows.

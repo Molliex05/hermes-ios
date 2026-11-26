@@ -60,7 +60,7 @@ struct CarCallIntent: AudioRecordingIntent, LiveActivityIntent {
 enum CallLauncher {
     static var start: ((_ profile: String?) async -> String?)?
     /// The call planned within the next 90 minutes, taken from the server (`CarTripIntent`).
-    static var claimTrip: (() async -> (id: String, profile: String, agent: String, reason: String)?)?
+    static var claimTrip: (() async -> (id: String, profile: String, agent: String, reason: String, script: String)?)?
 }
 
 struct CallLaunchError: Error, CustomLocalizedStringResourceConvertible {

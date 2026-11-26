@@ -16,17 +16,17 @@ import UIKit
     }
 
     // No call on opening: CarPlay reopens the last app when the car starts, and Maxime chose (2026-11-21) never to have
-    // the microphone opened by surprise. The screen shows « Appeler <agent> » and its button starts the call.
+    // the microphone opened by surprise. The screen lists the agents; a touch on one calls it.
 }
 
-/// The voice control template of the car's screen, kept in step with the call. It shows the agent's own animated orb
-/// (as on the phone: each agent its look and colours), the call's state and two buttons (mute, hang up); never the
-/// answer's text or a card, which Apple forbids at the wheel. Before a call, the bar's button picks the agent to call.
+/// The car's screen. Between calls, the list of agents, each with its own orb: a touch on one calls it at once. During a
+/// call, the voice control template with the agent's animated orb (as on the phone: each agent its look and colours), the
+/// call's state and two buttons (mute, hang up); never the answer's text or a card, which Apple forbids at the wheel.
 /// A reply that gives one place opens Plans on the car's screen with the driving route.
 @MainActor final class CarScreen {
     static let shared = CarScreen()
 
-    /// Installed by the app: the current agent's name and profile, used when no agent was picked on the car's screen.
+    /// Installed by the app: the current agent's name and profile, used when no agent was called from the car yet.
     static var agentTitle: (() -> String?)?
     static var agentProfile: (() -> String?)?
     private static let pickedKey = "carplay.agent"
@@ -34,6 +34,7 @@ import UIKit
     private var scene: CPTemplateApplicationScene?
     private var interface: CPInterfaceController?
     private var template: CPVoiceControlTemplate?
+    private var agents: CPListTemplate?
     private var agent = ""
     private var profile = ""
     private var inCall = false
@@ -49,101 +50,84 @@ import UIKit
 
     func connect(_ scene: CPTemplateApplicationScene, _ interface: CPInterfaceController) {
         self.scene = scene; self.interface = interface
-        template = nil
+        template = nil; agents = nil
         if let call = VoiceCallRemote.current, call.tools.app.voiceActive {
-            call.refreshCarScreen(open: false)  // builds the template on the call's state
+            call.refreshCarScreen(open: false)  // shows the call's own screen
         }
-        if template == nil {
-            (profile, agent) = pickedAgent()
+        if !inCall || template == nil {
             inCall = false; state = .idle
-            rebuild()
+            showAgents()
         }
     }
 
     func disconnect() {
-        scene = nil; interface = nil; template = nil
+        scene = nil; interface = nil; template = nil; agents = nil
     }
 
     /// Called by the call on every change of phase or microphone (`paused` once it ends).
     func update(agent: String, profile: String, phase: String?, muted: Bool, destination: CarDestination?, open: Bool = true) {
         let state = CarVoiceScreen.state(phase: phase, muted: muted)
         let calling = state != .idle
-        // Between calls the screen goes back to the agent picked on the car's screen.
-        let (shownProfile, shownAgent) = calling ? (profile, agent) : pickedAgent()
-        let changed = shownProfile != self.profile || shownAgent != self.agent || calling != inCall
-        self.agent = shownAgent; self.profile = shownProfile; inCall = calling
         if let destination, connected, shownDestinations.insert(destination.messageID).inserted, open {
             scene?.open(destination.url, options: nil, completionHandler: nil)
         }
-        guard connected else { self.state = state; return }
-        if changed || template == nil { self.state = state; rebuild(); return }
+        defer { self.state = state }
+        guard calling else {
+            // The call ended: back to the agents, the one just called first.
+            if inCall || agents == nil { inCall = false; if connected { showAgents() } }
+            return
+        }
+        let changed = !inCall || profile != self.profile || template == nil
+        self.agent = agent; self.profile = profile; inCall = true
+        guard connected else { return }
+        if changed { self.state = state; showCall(); return }
         guard state != self.state else { return }
-        self.state = state
         template?.activateVoiceControlState(withIdentifier: state.rawValue)
     }
 
-    // MARK: Agent
+    // MARK: Agents
 
-    /// The agent picked on the car's screen, else the app's current one.
-    private func pickedAgent() -> (profile: String, title: String) {
-        let agents = SharedProfiles.read()
-        if let picked = UserDefaults.standard.string(forKey: Self.pickedKey), let found = agents.first(where: { $0.name == picked }) {
-            return (found.name, found.title.isEmpty ? found.name : found.title)
+    /// Every agent, the last one called first, each with its orb; a touch calls it.
+    private func showAgents() {
+        guard let interface else { return }
+        template = nil
+        let saved = SharedProfiles.read()
+        let last = UserDefaults.standard.string(forKey: Self.pickedKey) ?? Self.agentProfile?() ?? ""
+        var entries = saved.map { (profile: $0.name, title: $0.title.isEmpty ? $0.name : $0.title) }
+        if entries.isEmpty, let current = Self.agentProfile?() {
+            entries = [(current, Self.agentTitle?() ?? "Hermès")]
         }
-        let current = Self.agentProfile?() ?? agents.first?.name ?? ""
-        return (current, Self.agentTitle?() ?? agents.first { $0.name == current }?.title ?? "Hermès")
-    }
-
-    /// The list of agents, each with its picture; picking one makes it the one the screen calls.
-    private func chooseAgent() {
-        guard let interface, !inCall else { return }
+        entries.sort { ($0.profile == last ? 0 : 1) < ($1.profile == last ? 0 : 1) }
         let side = CPListItem.maximumImageSize.width
-        let items = SharedProfiles.read().map { saved -> CPListItem in
-            let look = AgentLooks.shared.look(for: saved.name)
-            let renderer = ImageRenderer(content: AgentNotificationPicture(look: look).frame(width: side, height: side))
-            renderer.scale = displayScale
-            let title = saved.title.isEmpty ? saved.name : saved.title
-            let item = CPListItem(text: title, detailText: saved.name == profile ? "Agent choisi" : nil, image: renderer.uiImage)
+        let items = entries.map { entry -> CPListItem in
+            let look = AgentLooks.shared.look(for: entry.profile)
+            let image = OrbFilm.image(look: look, phase: .idle, side: side, scale: displayScale) ?? UIImage(systemName: "phone.circle.fill")
+            let item = CPListItem(text: "Appeler \(entry.title)", detailText: entry.profile == last ? "Dernier appelé" : nil, image: image)
+            item.accessoryType = .none
             item.handler = { [weak self] _, done in
-                MainActor.assumeIsolated {
-                    UserDefaults.standard.set(saved.name, forKey: Self.pickedKey)
-                    self?.profile = saved.name; self?.agent = title
-                    self?.rebuild()
-                    interface.popToRootTemplate(animated: true, completion: nil)
-                }
+                MainActor.assumeIsolated { self?.startCall(profile: entry.profile, title: entry.title) }
                 done()
             }
             return item
         }
-        let list = CPListTemplate(title: "Agents", sections: [CPListSection(items: items)])
-        interface.pushTemplate(list, animated: true, completion: nil)
+        let list = CPListTemplate(title: "Appeler", sections: [CPListSection(items: items)])
+        list.emptyViewTitleVariants = ["Aucun agent", "Ouvrez Hermès sur l’iPhone"]
+        agents = list
+        interface.setRootTemplate(list, animated: false, completion: nil)
     }
 
-    // MARK: Template
+    // MARK: Call screen
 
-    private func rebuild() {
+    private func showCall() {
         guard let interface else { return }
-        let states = CarVoiceScreen.State.allCases.map(voiceState)
+        let states = CarVoiceScreen.State.allCases.filter { $0 != .idle }.map(voiceState)
         let template = CPVoiceControlTemplate(voiceControlStates: states)
-        self.template = template
-        setAgentButton(on: template)
-        let active = state
-        interface.setRootTemplate(template, animated: false) { _, _ in
+        self.template = template; agents = nil
+        let active = state == .idle ? CarVoiceScreen.State.thinking : state
+        interface.setRootTemplate(template, animated: true) { _, _ in
             // The first state is shown until the template is up; only then can another be activated.
             Task { @MainActor in template.activateVoiceControlState(withIdentifier: active.rawValue) }
         }
-    }
-
-    /// The bar's « Jarvis ▾ » before a call. The template provides bar buttons from iOS 26.4 (its header declares them only
-    /// for apps that require 26.4, so they are set by name once the template answers to them).
-    private func setAgentButton(on template: CPVoiceControlTemplate) {
-        let setter = NSSelectorFromString("setLeadingNavigationBarButtons:")
-        guard template.responds(to: setter), SharedProfiles.read().count > 1 else { return }
-        var buttons: [CPBarButton] = []
-        if !inCall {
-            buttons = [CPBarButton(title: "\(agent) ▾") { [weak self] _ in MainActor.assumeIsolated { self?.chooseAgent() } }]
-        }
-        template.setValue(buttons, forKey: "leadingNavigationBarButtons")
     }
 
     private func voiceState(_ state: CarVoiceScreen.State) -> CPVoiceControlState {
@@ -159,7 +143,7 @@ import UIKit
         return voice
     }
 
-    /// The agent's orb for the state, animated as on the phone (still when idle or muted).
+    /// The agent's orb for the state, animated as on the phone (still when muted).
     private func orb(for state: CarVoiceScreen.State) -> UIImage? {
         let look = AgentLooks.shared.look(for: profile)
         let phase: OrbPhase = switch state {
@@ -170,7 +154,9 @@ import UIKit
         }
         let key = "\(look.hashValue)-\(phase)"
         if let cached = films[key] { return cached }
+        let symbol = state == .muted ? "mic.slash.fill" : "waveform"
         let film = OrbFilm.image(look: look, phase: phase, side: 150, scale: displayScale)
+            ?? UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: 64, weight: .semibold))
         films[key] = film
         return film
     }
@@ -198,7 +184,6 @@ import UIKit
             button.title = title
             return button
         }
-        if state == .idle { return [button("Appeler", "phone.fill") { [weak self] in self?.startCall() }] }
         let toggle: @MainActor () -> Void = { VoiceCallRemote.current?.toggleMicrophone() }
         let microphone: CPButton = state == .muted ? button("Micro", "mic.fill", toggle) : button("Couper le micro", "mic.slash.fill", toggle)
         let hangUp: CPButton = button("Raccrocher", "phone.down.fill", { VoiceCallRemote.current?.endCall() })
@@ -208,14 +193,21 @@ import UIKit
 
     // MARK: Call
 
-    private func startCall() {
-        guard !starting, let start = CallLauncher.start else { return }
+    private func startCall(profile: String, title: String) {
+        guard !starting, !inCall, let start = CallLauncher.start else { return }
+        UserDefaults.standard.set(profile, forKey: Self.pickedKey)
         starting = true
-        let profile = profile
+        // The call's screen at once: the touch answers before the agent does.
+        self.profile = profile; agent = title; inCall = true; state = .thinking
+        showCall()
         Task { @MainActor [weak self] in
             let problem = await start(profile.isEmpty ? nil : profile)
             self?.starting = false
-            if let problem { self?.alert(problem) }
+            if let problem {
+                self?.inCall = false; self?.state = .idle
+                self?.showAgents()
+                self?.alert(problem)
+            }
         }
     }
 

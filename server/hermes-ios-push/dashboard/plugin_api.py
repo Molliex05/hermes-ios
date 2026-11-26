@@ -179,17 +179,18 @@ class CallOutcome(BaseModel):
 def claim_call():
     """The iPhone is in the car (CarPlay): the call planned within the next 90 minutes rings now, from the iPhone."""
     found = calls.claim_now(service.Store())
-    return {"call": {"id": found["id"], "profile": found["profile"], "agent": found["agent"], "reason": found["reason"]} if found else None}
+    return {"call": {"id": found["id"], "profile": found["profile"], "agent": found["agent"], "reason": found["reason"],
+                     "script": found.get("script") or ""} if found else None}
 
 
 @router.get("/calls/{call_id}")
 def read_call(call_id: str = PathParam(pattern=CALL_ID)):
-    """Why the agent called: read by the app once the call is answered (the VoIP push carries no text)."""
+    """Why the agent called and what it prepared to say: read by the app while it rings (the VoIP push carries no text)."""
     import time
     found = calls.get(service.Store(), call_id)
     if not found or found["state"] != "sent" or found["at"] < time.time() - CALL_READABLE:
         raise HTTPException(404, "Appel inconnu ou expiré.")
-    return {"reason": found["reason"], "agent": found["agent"], "profile": found["profile"]}
+    return {"reason": found["reason"], "agent": found["agent"], "profile": found["profile"], "script": found.get("script") or ""}
 
 
 @router.post("/calls/{call_id}")

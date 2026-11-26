@@ -29,4 +29,11 @@ final class AgentCallPlanTests: XCTestCase {
         XCTAssertTrue(AgentCallPlan.opening(reason: "trajet vers le quart de 14 h 30").contains("Tu m’appelles : trajet vers le quart de 14 h 30"))
         XCTAssertFalse(AgentCallPlan.opening(reason: "trajet").contains("Noriven"))
     }
+
+    func testPreparedWordsAreSaidAtOnceAndLeadTheFirstAnswer() {
+        XCTAssertNil(AgentCallPlan.greeting(reason: "trajet", script: "  \n "), "nothing prepared: the agent speaks first")
+        let greeting = AgentCallPlan.greeting(reason: "trajet vers ton quart de 14 h 30", script: "Bonjour monsieur.\n Ton quart commence à 14 h 30.")
+        XCTAssertEqual(greeting?.text, "Bonjour monsieur. Ton quart commence à 14 h 30.")
+        XCTAssertEqual(greeting?.context, "(Tu m’as appelé : trajet vers ton quart de 14 h 30. Dès que j’ai décroché, tu m’as dit : « Bonjour monsieur. Ton quart commence à 14 h 30. » Voici ma réponse.)")
+    }
 }

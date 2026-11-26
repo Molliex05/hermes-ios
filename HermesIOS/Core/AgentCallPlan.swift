@@ -27,6 +27,16 @@ public enum AgentCallPlan {
         return "(Tu m’appelles\(why.isEmpty ? "" : " : \(why)"). J’ai décroché : donne-moi le topo, court, puis demande si j’ai besoin d’autre chose. Ne raccroche pas avant ma réponse.)"
     }
 
+    /// The words the agent prepared before calling (« Bonjour monsieur, … »), said the moment the call is answered, and the
+    /// note that leads Maxime's first answer so the agent knows what it already said. Nil when nothing was prepared: the
+    /// agent then speaks first through `opening`.
+    public static func greeting(reason: String, script: String) -> (text: String, context: String)? {
+        let text = script.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+        let why = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (text, "(Tu m’as appelé\(why.isEmpty ? "" : " : \(why)"). Dès que j’ai décroché, tu m’as dit : « \(text) » Voici ma réponse.)")
+    }
+
     /// The briefing the iPhone says (and writes in the missed-call notification) from what it already holds: the agent's
     /// reason, the next event of the day, the weather, the week's payslip. Never mail or amounts, and never the other
     /// agent's business: Jarvis keeps Maxime's life, Hermès keeps Noriven.

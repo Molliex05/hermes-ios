@@ -96,6 +96,28 @@ class AgentCalls(unittest.TestCase):
         self.assertEqual(sender.rings, [], "taken by the car: the server never rings it")
         self.assertIsNotNone(calls.get(self.store, planned["id"]))
 
+    def test_the_prepared_words_follow_the_call_and_a_move_drops_them(self):
+        planned = calls.plan(self.store, "personnel", "Jarvis", "2026-11-23T14:00", "trajet", "quart-23", now=NOW)
+        with self.assertRaisesRegex(calls.CallRefused, "texte"):
+            calls.prepare(self.store, "personnel", "quart-23", "  ")
+        with self.assertRaisesRegex(calls.CallRefused, "Aucun appel"):
+            calls.prepare(self.store, "noriven", "quart-23", "Bonjour monsieur.")
+        calls.prepare(self.store, "personnel", "quart-23", "Bonjour monsieur.\x07 Ton quart est à 14 h 30.")
+        self.assertEqual(calls.get(self.store, planned["id"])["script"], "Bonjour monsieur. Ton quart est à 14 h 30.")
+        self.assertTrue(calls.upcoming(self.store, "personnel", NOW.timestamp())[0]["prepare"])
+        calls.plan(self.store, "personnel", "Jarvis", "2026-11-23T14:00", "trajet", "quart-23", now=NOW)
+        self.assertTrue(calls.get(self.store, planned["id"])["script"], "planned again at the same time: still prepared")
+        calls.plan(self.store, "personnel", "Jarvis", "2026-11-23T14:15", "trajet", "quart-23", now=NOW)
+        self.assertIsNone(calls.get(self.store, planned["id"])["script"], "moved: prepared for another time")
+
+    def test_cancel_hands_back_the_preparation_job(self):
+        planned = calls.plan(self.store, "personnel", "Jarvis", "2026-11-23T14:00", "trajet", "quart-23", now=NOW)
+        self.assertIsNone(calls.set_prep_job(self.store, planned["id"], "job1"))
+        self.assertEqual(calls.set_prep_job(self.store, planned["id"], "job2"), "job1")
+        jobs = []
+        self.assertEqual(calls.cancel(self.store, "personnel", "quart-23", jobs), 1)
+        self.assertEqual(jobs, ["job2"])
+
     def test_a_device_without_pushkit_cannot_be_rung(self):
         self.store.register("I", "C", "ab" * 32, "sandbox", None, None)
         self.assertEqual(calls.voip_devices(self.store), [])

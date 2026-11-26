@@ -19,7 +19,7 @@ struct CarTripIntent: AudioRecordingIntent, LiveActivityIntent {
         }
         guard AVAudioSession.sharedInstance().currentRoute.outputs.contains(where: { $0.portType == .carAudio }),
               let claim = await CallLauncher.claimTrip?() else { return .result() }
-        AgentCalls.shared.ringFromCar(id: claim.id, profile: claim.profile, agent: claim.agent.isEmpty ? "Jarvis" : claim.agent, reason: claim.reason)
+        AgentCalls.shared.ringFromCar(id: claim.id, profile: claim.profile, agent: claim.agent.isEmpty ? "Jarvis" : claim.agent, reason: claim.reason, script: claim.script)
         return .result()
     }
 }

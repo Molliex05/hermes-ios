@@ -27,6 +27,10 @@ final class VoiceConversation {
     var inputMuted = false { didSet { if inputMuted != oldValue { syncActivity() } } }
     /// Sent as the first turn when the agent is the one who called (`AgentCalls`): it speaks first, with its reason.
     var openingTurn: String?
+    /// What the agent prepared before calling (`AgentCalls`): said the moment Maxime answers, with no turn to wait for.
+    /// `greetingContext` then leads his first answer, so the agent knows what it already said.
+    var greeting: String?
+    var greetingContext: String?
     var allowsBargeIn = false
     var level = 0.0
     @ObservationIgnored private var preferences = VoicePreferences(.null)
@@ -236,6 +240,13 @@ final class VoiceConversation {
             openReply(seed: assistantText(after: message.id))
             try await respond(to: message.id, attempt: attempt)
         }
+        if let greeting {
+            self.greeting = nil
+            openingTurn = nil
+            do { try await speakGreeting(greeting, attempt: attempt) }
+            catch is CancellationError { throw CancellationError() }
+            catch { try validate(attempt); notice = error.localizedDescription }
+        }
         if let opening = openingTurn {
             openingTurn = nil
             turnActive = true; bargeRequested = false
@@ -299,7 +310,9 @@ final class VoiceConversation {
             // At the wheel the agent hears it (shorter answers) and roughly where; the town never delays the turn.
             let driving = VoiceEnvironmentSetting.isForced
             if driving { DrivingLocation.shared.refresh() }
-            let spoken = SpokenTurn.text(text, driving: driving, near: driving ? DrivingLocation.shared.current : nil)
+            var said = text
+            if let context = greetingContext { said = context + " " + text; greetingContext = nil }
+            let spoken = SpokenTurn.text(said, driving: driving, near: driving ? DrivingLocation.shared.current : nil)
             do { message = try await tools.app.sendVoice(spoken, voiceTurn: true, interrupted: interrupted); VoiceMetrics.shared.mark(.submitAck) }
             catch is CancellationError { throw CancellationError() }
             catch {
@@ -543,6 +556,28 @@ final class VoiceConversation {
         }
         VoiceMetrics.shared.mark(.playbackEnd)
         VoiceMetrics.shared.finish(profile: tools.profile)
+    }
+
+    /// The agent's prepared words, in its own voice, as soon as the call is answered: no request to the agent, no tool, no
+    /// « je regarde » first. Then the call listens, as after any reply.
+    private func speakGreeting(_ text: String, attempt: UUID) async throws {
+        let deadline = ProcessInfo.processInfo.systemUptime + 120
+        phase = .speaking; answer = text
+        speechStream.prepare(tools: tools)
+        speechStream.send(text); speechStream.finish()
+        while !speechStream.needsFallback && !speechStream.drained {
+            try await Task.sleep(for: .milliseconds(50)); try validate(attempt)
+            if let failure = audio.failure { throw RPCFailure(failure) }
+            guard ProcessInfo.processInfo.systemUptime < deadline else { break }
+        }
+        if !speechStream.needsFallback && speechStream.hasAudio { speechStream.stop(); return }
+        speechStream.stop()
+        guard let speech = try? await voiceAPI.speech(text) else { try await speakLocally(text, attempt: attempt); return }
+        try validate(attempt)
+        try await playable { try await audio.play(speech) }
+        while audio.playing {
+            try await Task.sleep(for: .milliseconds(50)); try validate(attempt)
+        }
     }
 
     /// The server's voice refused the reply: the iPhone reads it, so the call keeps talking. The text is in the chat anyway.
